@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Model weights (large binary files — regenerate with: python main.py train)
+data/models/*.pt
+
+# Output files (regenerated on each run)
+data/output/
+
+# Environment
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+nul
