@@ -77,6 +77,25 @@ python main.py backtest --symbol SPY --start 2024-01-01
 
 Walk-forward backtest using ML predictions. Outputs a performance report with trade history and saves equity curves to `data/output/`.
 
+### View Results in a Browser (Streamlit Dashboard)
+
+Instead of opening CSVs in Excel, you can use the included Streamlit dashboard to explore equity curves and trades interactively:
+
+```bash
+python -m streamlit run streamlit_app.py
+```
+
+Then open the local link it prints (typically `http://localhost:8501`). If port `8501` is busy, Streamlit will use another port (e.g., `http://localhost:8502`).
+
+Main features:
+- Select a symbol (auto-discovers `backtest_*.csv` in `data/output/`)
+- Equity curve + drawdown charts
+- Quick metrics: initial/final, total return, CAGR (approx), max drawdown
+- Trade blotter table (from `trades_<SYMBOL>.csv` when present)
+- Optional per-trade chart with entry/exit markers (loads price history via `yfinance`)
+
+The dashboard reads your existing outputs in `data/output/` and runs locally on your machine (no email sending / no uploads).
+
 ### 7. Paper Trade
 
 ```bash

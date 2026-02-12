@@ -14,6 +14,9 @@ data/output/
 # Environment
 .env
 *.env
+secrets/
+.claude/
+.venv/
 
 # IDE
 .vscode/
