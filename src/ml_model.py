@@ -101,29 +101,35 @@ class DirectionLSTM(nn.Module):
 # Feature Engineering
 # ===================================================================
 class FeatureEngine:
-    """Builds rolling feature matrix from daily OHLCV + VIX data."""
+    """Builds rolling feature matrix from OHLCV + VIX data (daily or intraday)."""
 
     def __init__(self):
         self._scaler_params: Optional[Dict] = None
 
-    def build_features(self, daily_df: pd.DataFrame,
-                       vix_df: pd.DataFrame) -> pd.DataFrame:
-        """Build 13-feature matrix from daily bars + VIX.
+    def build_features(self, bars_df: pd.DataFrame,
+                       vix_df: pd.DataFrame,
+                       mode: str = "daily") -> pd.DataFrame:
+        """Build 13-feature matrix from bars + VIX.
 
         Parameters
         ----------
-        daily_df : DataFrame [symbol, ts, open, high, low, close, volume]
-        vix_df   : DataFrame [date, vix] from FREDVixFetcher
+        bars_df : DataFrame [symbol, ts, open, high, low, close, volume]
+        vix_df  : DataFrame [date, vix] from FREDVixFetcher
+        mode    : "daily" or "intraday"
+                  For intraday, annualization uses sqrt(78*252) and VIX is forward-filled.
 
         Returns
         -------
         DataFrame with columns = FEATURE_COLS (warm-up rows dropped).
         """
-        close = daily_df["close"].astype(float)
-        high = daily_df["high"].astype(float)
-        low = daily_df["low"].astype(float)
-        volume = daily_df["volume"].astype(float)
-        df = pd.DataFrame(index=daily_df.index)
+        close = bars_df["close"].astype(float)
+        high = bars_df["high"].astype(float)
+        low = bars_df["low"].astype(float)
+        volume = bars_df["volume"].astype(float)
+        df = pd.DataFrame(index=bars_df.index)
+
+        # Annualization factor: daily=sqrt(252), intraday=sqrt(78*252)
+        annualize = np.sqrt(78 * 252) if mode == "intraday" else np.sqrt(252)
 
         # Existing indicators (rolling)
         df["rsi14"] = compute_rsi(close, RSI_PERIOD) / 100.0
@@ -131,14 +137,14 @@ class FeatureEngine:
         df["ret10"] = close.pct_change(10)
         df["wk_ret"] = close.pct_change(5)
         df["mo_ret"] = close.pct_change(21)
-        df["vol20"] = close.pct_change().rolling(20).std() * np.sqrt(252)
+        df["vol20"] = close.pct_change().rolling(20).std() * annualize
 
         # Dollar volume (log-scaled)
         dv = close * volume
         df["log_dollar_vol"] = np.log10(dv.replace(0, np.nan))
 
-        # VIX — merge on date
-        daily_dates = pd.to_datetime(daily_df["ts"]).dt.date
+        # VIX — merge on date (forward-fill for intraday)
+        bar_dates = pd.to_datetime(bars_df["ts"]).dt.date
         vix_map = {}
         if not vix_df.empty:
             for _, row in vix_df.iterrows():
@@ -146,11 +152,11 @@ class FeatureEngine:
                 if hasattr(d, "date"):
                     d = d.date()
                 vix_map[d] = row["vix"]
-        df["vix"] = daily_dates.map(lambda d: vix_map.get(d, np.nan)).values
+        df["vix"] = bar_dates.map(lambda d: vix_map.get(d, np.nan)).values
         df["vix"] = df["vix"].ffill()
         df["vix_chg"] = df["vix"].pct_change()
 
-        # Order-flow features (from daily bars as proxy)
+        # Order-flow features
         hl_spread = (high - low).replace(0, np.nan)
         buy_frac = (close - low) / hl_spread
         df["vol_imbalance"] = (2 * buy_frac - 1).fillna(0)
@@ -273,27 +279,36 @@ def train_model(
     seq_len: int = SEQ_LEN,
     lookback: int = 1000,
     save_dir: str = DEFAULT_MODEL_DIR,
+    mode: str = "daily",
+    intraday_interval: str = "5min",
 ) -> tuple:
     """Full training pipeline for one symbol.
 
-    1. Fetch historical daily data
+    1. Fetch historical data (daily or intraday)
     2. Build features + normalize
     3. Train LSTM with early stopping
-    4. Save model weights + scaler
+    4. Save model weights + scaler (with suffix for intraday)
     """
     os.makedirs(save_dir, exist_ok=True)
+    suffix = "" if mode == "daily" else f"_{intraday_interval}"
 
     # 1. Fetch data
-    log.info("Fetching daily data for %s (lookback=%d)...", symbol, lookback)
-    daily = adapter.fetch_daily(symbol, lookback)
-    log.info("Got %d daily bars for %s.", len(daily), symbol)
+    if mode == "daily":
+        log.info("Fetching daily data for %s (lookback=%d)...", symbol, lookback)
+        bars = adapter.fetch_daily(symbol, lookback)
+    else:
+        log.info("Fetching %s intraday data for %s (lookback=%d days)...",
+                 intraday_interval, symbol, lookback)
+        bars = adapter.fetch_intraday(symbol, intraday_interval,
+                                      lookback_days=lookback)
+    log.info("Got %d bars for %s.", len(bars), symbol)
 
-    vix_df = _fetch_vix_for_training(fred_key, lookback_days=lookback)
+    vix_df = _fetch_vix_for_training(fred_key, lookback_days=max(lookback, 500))
     log.info("Got %d VIX rows.", len(vix_df))
 
     # 2. Build features
     engine = FeatureEngine()
-    features = engine.build_features(daily, vix_df)
+    features = engine.build_features(bars, vix_df, mode=mode)
     log.info("Built %d feature rows (after warm-up).", len(features))
 
     if len(features) < seq_len + 10:
@@ -310,8 +325,8 @@ def train_model(
     train_norm = engine.transform(train_feat)
     val_norm = engine.transform(val_feat)
 
-    X_train, y_train = prepare_sequences(train_norm, daily, seq_len)
-    X_val, y_val = prepare_sequences(val_norm, daily, seq_len)
+    X_train, y_train = prepare_sequences(train_norm, bars, seq_len)
+    X_val, y_val = prepare_sequences(val_norm, bars, seq_len)
 
     log.info("Training samples: %d, Validation samples: %d", len(X_train), len(X_val))
     log.info("Class balance — train UP: %.1f%%, val UP: %.1f%%",
@@ -365,16 +380,17 @@ def train_model(
             best_val_loss = val_loss
             patience_counter = 0
             torch.save(model.state_dict(),
-                       os.path.join(save_dir, f"{symbol}_lstm.pt"))
+                       os.path.join(save_dir, f"{symbol}_lstm{suffix}.pt"))
             engine.save_scaler(
-                os.path.join(save_dir, f"{symbol}_scaler.json"))
+                os.path.join(save_dir, f"{symbol}_scaler{suffix}.json"))
         else:
             patience_counter += 1
             if patience_counter >= PATIENCE:
                 log.info("Early stopping at epoch %d.", epoch + 1)
                 break
 
-    log.info("Training complete for %s. Best val_loss=%.4f", symbol, best_val_loss)
+    log.info("Training complete for %s (%s). Best val_loss=%.4f",
+             symbol, mode, best_val_loss)
     return model, engine
 
 
@@ -384,33 +400,38 @@ def train_model(
 class Predictor:
     """Load a trained model and produce predictions."""
 
-    def __init__(self, symbol: str, model_dir: str = DEFAULT_MODEL_DIR):
+    def __init__(self, symbol: str, model_dir: str = DEFAULT_MODEL_DIR,
+                 mode: str = "daily", intraday_interval: str = "5min"):
         self.symbol = symbol
         self.model_dir = model_dir
+        self.mode = mode
+        self.intraday_interval = intraday_interval
         self.engine = FeatureEngine()
         self.model: Optional[DirectionLSTM] = None
         self._load()
 
     def _load(self) -> None:
-        weights_path = os.path.join(self.model_dir, f"{self.symbol}_lstm.pt")
-        scaler_path = os.path.join(self.model_dir, f"{self.symbol}_scaler.json")
+        suffix = "" if self.mode == "daily" else f"_{self.intraday_interval}"
+        weights_path = os.path.join(self.model_dir, f"{self.symbol}_lstm{suffix}.pt")
+        scaler_path = os.path.join(self.model_dir, f"{self.symbol}_scaler{suffix}.json")
         if not os.path.exists(weights_path):
+            mode_hint = f" --mode {self.mode}" if self.mode != "daily" else ""
             raise FileNotFoundError(
-                f"No trained model for {self.symbol}. "
-                f"Run: python main.py train --symbol {self.symbol}")
+                f"No trained model for {self.symbol} ({self.mode}). "
+                f"Run: python main.py train --symbol {self.symbol}{mode_hint}")
         self.engine.load_scaler(scaler_path)
         self.model = DirectionLSTM(n_features=len(FEATURE_COLS))
         self.model.load_state_dict(
             torch.load(weights_path, map_location="cpu", weights_only=True))
         self.model.eval()
 
-    def predict(self, daily_df: pd.DataFrame, vix_df: pd.DataFrame,
+    def predict(self, bars_df: pd.DataFrame, vix_df: pd.DataFrame,
                 seq_len: int = SEQ_LEN) -> dict:
         """Produce a prediction from the most recent seq_len bars.
 
         Returns {"direction": "UP"/"DOWN", "probability": float, "confidence": float}
         """
-        features = self.engine.build_features(daily_df, vix_df)
+        features = self.engine.build_features(bars_df, vix_df, mode=self.mode)
         features_norm = self.engine.transform(features)
 
         if len(features_norm) < seq_len:
@@ -448,15 +469,23 @@ def main() -> None:
                          choices=["yahoo", "alpaca", "hybrid"])
     train_p.add_argument("--epochs", type=int, default=50)
     train_p.add_argument("--lookback", type=int, default=1000,
-                         help="Daily bars to fetch for training (default: 1000)")
+                         help="Bars to fetch for training (default: 1000)")
     train_p.add_argument("--lr", type=float, default=1e-3)
     train_p.add_argument("--batch-size", type=int, default=32)
+    train_p.add_argument("--mode", default="daily", choices=["daily", "intraday"],
+                         help="Training mode (default: daily)")
+    train_p.add_argument("--interval", default="5min", choices=["1min", "5min"],
+                         help="Intraday bar interval (default: 5min)")
 
     # -- predict --
     pred_p = sub.add_parser("predict", help="Run prediction for a symbol")
     pred_p.add_argument("--symbol", required=True, help="Symbol to predict")
     pred_p.add_argument("--provider", default="yahoo",
                         choices=["yahoo", "alpaca", "hybrid"])
+    pred_p.add_argument("--mode", default="daily", choices=["daily", "intraday"],
+                        help="Prediction mode (default: daily)")
+    pred_p.add_argument("--interval", default="5min", choices=["1min", "5min"],
+                        help="Intraday bar interval (default: 5min)")
 
     args = parser.parse_args()
 
@@ -467,6 +496,9 @@ def main() -> None:
     if args.command == "train":
         adapter = build_adapter(args.provider)
         fred_key = os.environ.get("FRED_API_KEY")
+        lookback = args.lookback
+        if args.mode == "intraday" and lookback == 1000:
+            lookback = 60  # default 60 days of intraday data
         train_model(
             symbol=args.symbol.upper(),
             adapter=adapter,
@@ -474,7 +506,9 @@ def main() -> None:
             epochs=args.epochs,
             lr=args.lr,
             batch_size=args.batch_size,
-            lookback=args.lookback,
+            lookback=lookback,
+            mode=args.mode,
+            intraday_interval=args.interval,
         )
 
     elif args.command == "predict":
@@ -482,12 +516,16 @@ def main() -> None:
         fred_key = os.environ.get("FRED_API_KEY")
         symbol = args.symbol.upper()
 
-        predictor = Predictor(symbol)
-        daily = adapter.fetch_daily(symbol, DAILY_LOOKBACK)
+        predictor = Predictor(symbol, mode=args.mode,
+                              intraday_interval=args.interval)
+        if args.mode == "intraday":
+            bars = adapter.fetch_intraday(symbol, args.interval, lookback_days=2)
+        else:
+            bars = adapter.fetch_daily(symbol, DAILY_LOOKBACK)
         vix_df = _fetch_vix_for_training(fred_key, lookback_days=30)
-        result = predictor.predict(daily, vix_df)
+        result = predictor.predict(bars, vix_df)
 
-        print(f"\n  {symbol} -> {result['direction']}  "
+        print(f"\n  {symbol} ({args.mode}) -> {result['direction']}  "
               f"(confidence: {result['confidence']:.4f}, "
               f"probability: {result['probability']:.4f})\n")
 

@@ -99,8 +99,15 @@ class DataAdapter(abc.ABC):
         """
 
     @abc.abstractmethod
-    def fetch_intraday(self, symbol: str, interval: str) -> pd.DataFrame:
-        """Return today's intraday bars (same columns as daily)."""
+    def fetch_intraday(self, symbol: str, interval: str,
+                       lookback_days: int = 1) -> pd.DataFrame:
+        """Return intraday bars (same columns as daily).
+
+        Parameters
+        ----------
+        lookback_days : number of calendar days of intraday history to fetch.
+                        Default 1 = today only.
+        """
 
 
 # ===================================================================
@@ -135,11 +142,14 @@ class YahooFinanceAdapter(DataAdapter):
         out = self._normalize(df, symbol)
         return out.tail(lookback).reset_index(drop=True)
 
-    def fetch_intraday(self, symbol: str, interval: str = "5min") -> pd.DataFrame:
+    def fetch_intraday(self, symbol: str, interval: str = "5min",
+                       lookback_days: int = 1) -> pd.DataFrame:
         # yfinance interval format: "1m" or "5m"
         yf_interval = interval.replace("min", "m")
         ticker = yf.Ticker(symbol)
-        df = ticker.history(period="1d", interval=yf_interval, auto_adjust=True)
+        # yfinance supports up to 60 days of intraday data
+        period = f"{min(lookback_days, 60)}d"
+        df = ticker.history(period=period, interval=yf_interval, auto_adjust=True)
         return self._normalize(df, symbol)
 
 
@@ -238,18 +248,18 @@ class AlpacaAdapter(DataAdapter):
         df = self._normalize(bars.df, symbol)
         return df.tail(lookback).reset_index(drop=True)
 
-    def fetch_intraday(self, symbol: str, interval: str = "5min") -> pd.DataFrame:
+    def fetch_intraday(self, symbol: str, interval: str = "5min",
+                       lookback_days: int = 1) -> pd.DataFrame:
         from alpaca.data.requests import StockBarsRequest
         from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
         tf = TimeFrame.Minute if interval == "1min" else TimeFrame(5, TimeFrameUnit.Minute)
-        # Today's trading session (4:00 ET pre-market to now)
-        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        start = datetime.now(timezone.utc) - timedelta(days=lookback_days)
 
         request = StockBarsRequest(
             symbol_or_symbols=symbol,
             timeframe=tf,
-            start=today_start,
+            start=start,
         )
         bars = self._call_with_retry(self._client.get_stock_bars, request)
         return self._normalize(bars.df, symbol)
@@ -272,8 +282,9 @@ class HybridAdapter(DataAdapter):
     def fetch_daily(self, symbol: str, lookback: int = DAILY_LOOKBACK) -> pd.DataFrame:
         return self._yahoo.fetch_daily(symbol, lookback)
 
-    def fetch_intraday(self, symbol: str, interval: str = "5min") -> pd.DataFrame:
-        return self._alpaca.fetch_intraday(symbol, interval)
+    def fetch_intraday(self, symbol: str, interval: str = "5min",
+                       lookback_days: int = 1) -> pd.DataFrame:
+        return self._alpaca.fetch_intraday(symbol, interval, lookback_days)
 
 
 # ===================================================================

@@ -45,9 +45,12 @@ def main() -> None:
   Examples:
     python main.py signals  --provider yahoo --ml
     python main.py train    --symbol SPY --epochs 50
+    python main.py train    --symbol SPY --mode intraday --interval 5min
     python main.py predict  --symbol SPY
     python main.py backtest --symbol SPY --start 2024-01-01
-    python main.py trade    --interval 5 --confidence 0.2
+    python main.py backtest --symbol SPY --start 2025-01-01 --mode intraday
+    python main.py trade    --confidence 0.2 --trailing-stop 0.05
+    python main.py trade    --mode intraday --interval 5min
 
   Run `python main.py <command> --help` for command-specific options.
 """)
