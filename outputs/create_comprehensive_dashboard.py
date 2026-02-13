@@ -648,11 +648,11 @@ footer{border-top:1px solid var(--border);padding:40px 0}
 def _section_hero(_data):
     return '''
 <!-- HERO -->
-<section id="hero" style="position: relative; overflow: hidden;">
-  <canvas id="hero-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; opacity: 0.3; pointer-events: none;"></canvas>
-  <div class="hero-content" style="position:relative;z-index:1; width: 100%; display: flex; flex-direction: column; align-items: center;">
-    <p class="hero-eyebrow">AI-NATIVE QUANTITATIVE TRADING</p>
-    <h1 class="hero-title">Quantitative Stocks</h1>
+<section id="hero" style="position: relative; overflow: hidden; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);">
+  <canvas id="hero-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; opacity: 0.6; pointer-events: none; mix-blend-mode: screen;"></canvas>
+  <div class="hero-content" style="position:relative;z-index:1; width: 100%; display: flex; flex-direction: column; align-items: center; text-shadow: 0 4px 20px rgba(0,0,0,0.8);">
+    <p class="hero-eyebrow" style="background: rgba(34, 197, 94, 0.1); color: #4ade80; padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(34, 197, 94, 0.2); backdrop-filter: blur(4px);">AI-NATIVE QUANTITATIVE TRADING</p>
+    <h1 class="hero-title" style="margin-top: 16px;">Quantitative Stocks</h1>
     <p class="hero-tagline">Result-driven systematic trading across equity and commodity ETFs, powered by LSTM neural networks.</p>
   </div>
   <script>
@@ -660,31 +660,66 @@ def _section_hero(_data):
         const canvas = document.getElementById('hero-canvas');
         const ctx = canvas.getContext('2d');
         let width, height;
-        let particles = [];
+        
+        // Math Themes
+        const mathSymbols = ['∑', '∫', '∂', 'λ', 'σ', 'μ', 'Δ', '∇', 'π', 'θ', 'Ω', 'β'];
+        
+        let nodes = [];
+        let floaters = [];
         
         // Configuration
-        const particleCount = 60;
-        const connectionDistance = 150;
-        const speed = 0.4;
+        const nodeCount = 70; // Dense network
+        const floaterCount = 15; // Floating symbols
+        const connectionDist = 160;
+        const mouseDist = 200;
         
+        let mouse = { x: null, y: null };
+        
+        window.addEventListener('mousemove', function(e) {
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = e.clientX - rect.left;
+            mouse.y = e.clientY - rect.top;
+        });
+        
+        window.addEventListener('mouseleave', function() {
+            mouse.x = null;
+            mouse.y = null;
+        });
+
         function resize() {
             width = canvas.width = canvas.parentElement.offsetWidth;
             height = canvas.height = canvas.parentElement.offsetHeight;
         }
         
-        class Particle {
+        class Node {
             constructor() {
                 this.x = Math.random() * width;
                 this.y = Math.random() * height;
-                this.vx = (Math.random() - 0.5) * speed;
-                this.vy = (Math.random() - 0.5) * speed;
-                this.size = Math.random() * 2 + 1;
+                this.vx = (Math.random() - 0.5) * 0.8;
+                this.vy = (Math.random() - 0.5) * 0.8;
+                this.size = Math.random() * 2 + 1.5;
             }
             
             update() {
                 this.x += this.vx;
                 this.y += this.vy;
                 
+                // Mouse interaction - gentle repulsion
+                if (mouse.x != null) {
+                    let dx = mouse.x - this.x;
+                    let dy = mouse.y - this.y;
+                    let distance = Math.sqrt(dx*dx + dy*dy);
+                    if (distance < mouseDist) {
+                        const forceDirectionX = dx / distance;
+                        const forceDirectionY = dy / distance;
+                        const force = (mouseDist - distance) / mouseDist;
+                        const directionX = forceDirectionX * force * 2;
+                        const directionY = forceDirectionY * force * 2;
+                        this.vx -= directionX * 0.05;
+                        this.vy -= directionY * 0.05;
+                    }
+                }
+
                 if (this.x < 0 || this.x > width) this.vx *= -1;
                 if (this.y < 0 || this.y > height) this.vy *= -1;
             }
@@ -692,39 +727,100 @@ def _section_hero(_data):
             draw() {
                 ctx.beginPath();
                 ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-                ctx.fillStyle = 'rgba(100, 149, 237, 0.5)'; // Cornflower blueish
+                ctx.fillStyle = '#60a5fa'; // Blue-400
                 ctx.fill();
+            }
+        }
+        
+        class Floater {
+            constructor() {
+                this.reset();
+                this.y = Math.random() * height; // Start anywhere vertically
+            }
+            
+            reset() {
+                this.x = Math.random() * width;
+                this.y = height + 50;
+                this.speed = Math.random() * 0.5 + 0.2;
+                this.symbol = mathSymbols[Math.floor(Math.random() * mathSymbols.length)];
+                this.opacity = 0;
+                this.size = Math.random() * 14 + 10;
+                this.maxOpacity = Math.random() * 0.4 + 0.1;
+                this.life = 0;
+            }
+            
+            update() {
+                this.y -= this.speed;
+                this.life += 0.01;
+                
+                // Fade in/out
+                if (this.life < 1) this.opacity = this.life * this.maxOpacity;
+                if (this.y < height * 0.2) this.opacity -= 0.005;
+                
+                if (this.y < -50 || this.opacity <= 0 && this.life > 2) {
+                    this.reset();
+                }
+            }
+            
+            draw() {
+                ctx.font = `lighter ${this.size}px "JetBrains Mono", monospace`;
+                ctx.fillStyle = `rgba(148, 163, 184, ${this.opacity})`; // Slate-400
+                ctx.fillText(this.symbol, this.x, this.y);
             }
         }
         
         function init() {
             resize();
-            particles = [];
-            for (let i = 0; i < particleCount; i++) {
-                particles.push(new Particle());
-            }
+            nodes = [];
+            floaters = [];
+            for (let i = 0; i < nodeCount; i++) nodes.push(new Node());
+            for (let i = 0; i < floaterCount; i++) floaters.push(new Floater());
         }
         
         function animate() {
             ctx.clearRect(0, 0, width, height);
             
-            for (let i = 0; i < particles.length; i++) {
-                particles[i].update();
-                particles[i].draw();
+            // Draw floating math symbols first (background)
+            floaters.forEach(f => {
+                f.update();
+                f.draw();
+            });
+
+            // Update interactions
+            for (let i = 0; i < nodes.length; i++) {
+                nodes[i].update();
+                nodes[i].draw();
                 
-                // Draw connections
-                for (let j = i + 1; j < particles.length; j++) {
-                    const dx = particles[i].x - particles[j].x;
-                    const dy = particles[i].y - particles[j].y;
+                // Draw Connections
+                for (let j = i + 1; j < nodes.length; j++) {
+                    const dx = nodes[i].x - nodes[j].x;
+                    const dy = nodes[i].y - nodes[j].y;
                     const dist = Math.sqrt(dx * dx + dy * dy);
                     
-                    if (dist < connectionDistance) {
+                    if (dist < connectionDist) {
                         ctx.beginPath();
-                        ctx.strokeStyle = `rgba(100, 149, 237, ${0.15 * (1 - dist / connectionDistance)})`;
+                        const alpha = 1 - (dist / connectionDist);
+                        ctx.strokeStyle = `rgba(56, 189, 248, ${alpha * 0.4})`; // Sky-400 lines
                         ctx.lineWidth = 1;
-                        ctx.moveTo(particles[i].x, particles[i].y);
-                        ctx.lineTo(particles[j].x, particles[j].y);
+                        ctx.moveTo(nodes[i].x, nodes[i].y);
+                        ctx.lineTo(nodes[j].x, nodes[j].y);
                         ctx.stroke();
+                        
+                        // Occasionally draw a triangle for "mesh" look
+                        for (let k = j + 1; k < nodes.length; k++) {
+                            const dx2 = nodes[j].x - nodes[k].x;
+                            const dy2 = nodes[j].y - nodes[k].y;
+                            const dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+                             if (dist2 < connectionDist) {
+                                ctx.beginPath();
+                                ctx.fillStyle = `rgba(56, 189, 248, ${alpha * 0.05})`; // Very faint fill
+                                ctx.moveTo(nodes[i].x, nodes[i].y);
+                                ctx.lineTo(nodes[j].x, nodes[j].y);
+                                ctx.lineTo(nodes[k].x, nodes[k].y);
+                                ctx.closePath();
+                                ctx.fill();
+                             }
+                        }
                     }
                 }
             }
