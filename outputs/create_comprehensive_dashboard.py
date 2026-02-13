@@ -509,12 +509,15 @@ section,.section-wrap{padding:100px 0}
 .kpi-sub{font-size:11px;color:var(--text-dim);margin-top:6px}
 .kpi-disclaimer{font-size:12px;color:var(--text-dim);text-align:center;margin-top:16px}
 
-.metrics-table-wrap{padding:0 0 16px;overflow:hidden}
+.metrics-table-wrap{padding:0 0 16px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
 .metrics-table{width:100%;border-collapse:collapse;font-size:12px;font-family:var(--mono)}
 .metrics-table th{text-align:left;padding:10px 16px;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border-muted);white-space:nowrap}
 .metrics-table td{padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.03);color:var(--text-sec);white-space:nowrap}
 .metrics-table tbody tr:hover{background:rgba(255,255,255,0.02)}
 .metrics-table tbody tr:last-child td{border-bottom:none}
+@media(max-width:768px){
+  .metrics-table th,.metrics-table td{padding:8px 10px;font-size:11px}
+}
 
 /* ============ EQUITY CHART ============ */
 .chart-wrap{padding:24px;margin-bottom:16px}
@@ -622,7 +625,27 @@ footer{border-top:1px solid var(--border);padding:40px 0}
 .topnav-links{display:flex;gap:24px;margin-left:auto}
 .topnav-links a{font-size:12px;font-weight:500;color:var(--text-muted);text-decoration:none;transition:color .2s}
 .topnav-links a:hover{color:var(--text)}
-@media(max-width:768px){.topnav-links{display:none}}
+@media(max-width:768px){
+  .topnav{padding:0 12px;height:44px}
+  .topnav-brand{flex-shrink:0}
+  .topnav-links{
+    display:flex;
+    margin-left:12px;
+    gap:14px;
+    overflow-x:auto;
+    white-space:nowrap;
+    scrollbar-width:none;
+    -webkit-overflow-scrolling:touch;
+  }
+  .topnav-links::-webkit-scrollbar{display:none}
+  .topnav-links a{font-size:11px;flex:0 0 auto}
+
+  .live-breakdown{grid-template-columns:1fr !important;gap:16px !important}
+  .live-divider{display:none !important}
+  .live-breakdown-stats{grid-template-columns:1fr !important;gap:14px !important}
+  .live-composition-legend{display:grid !important;grid-template-columns:1fr 1fr;gap:6px 12px !important}
+  .live-positions-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+}
 </style>
 </head>
 <body>
@@ -1126,13 +1149,13 @@ def _section_live_pnl(data):
 
     <!-- Full Equity Breakdown -->
     <div class="glass" style="padding:28px;margin-bottom:24px">
-      <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:32px;align-items:center;margin-bottom:24px">
+      <div class="live-breakdown" style="display:grid;grid-template-columns:1fr auto 1fr;gap:32px;align-items:center;margin-bottom:24px">
         <div>
           <div class="live-pos-label">Total Equity</div>
           <div style="font-family:var(--mono);font-size:2.4rem;font-weight:700;color:var(--text);line-height:1">${latest_eq:,.2f}</div>
         </div>
-        <div style="width:1px;height:48px;background:var(--border-muted)"></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px">
+        <div class="live-divider" style="width:1px;height:48px;background:var(--border-muted)"></div>
+        <div class="live-breakdown-stats" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px">
           <div>
             <div class="live-pos-label">Cash</div>
             <div style="font-family:var(--mono);font-size:1.1rem;font-weight:600;color:var(--text)">${cash:,.2f}</div>
@@ -1157,7 +1180,7 @@ def _section_live_pnl(data):
           <div style="width:{cash_pct}%;background:var(--accent);border-radius:4px 0 0 4px" title="Cash {cash_pct:.1f}%"></div>
           <div style="width:{pos_pct}%;background:var(--positive)" title="Positions {pos_pct:.1f}%"></div>
         </div>
-        <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--text-dim)">
+        <div class="live-composition-legend" style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--text-dim)">
           <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--accent);margin-right:4px;vertical-align:middle"></span>Cash ({cash_pct:.1f}%)</span>
           <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--positive);margin-right:4px;vertical-align:middle"></span>Positions ({pos_pct:.1f}%)</span>
           <span>Starting: ${start_eq:,.0f}</span>
@@ -1177,7 +1200,7 @@ def _section_live_pnl(data):
         <div style="font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted)">Current Positions</div>
         <div style="font-size:11px;color:var(--text-dim)">{len(positions)} open</div>
       </div>
-      {pos_table}
+      <div class="live-positions-table-wrap">{pos_table}</div>
     </div>
 
     <div style="font-size:10px;color:var(--text-dim);text-align:center">
