@@ -1915,14 +1915,29 @@ document.addEventListener('DOMContentLoaded', function() {{
   var traces = [];
   symbols.forEach(function(sym, i) {{
     var eq = cd[sym].equity;
-    if(!eq || eq.length === 0) return;
+    var dates = cd[sym].dates;
     
-    // Normalize to percentage growth
-    var startVal = eq[0];
-    var pctGrowth = eq.map(function(val) {{ return ((val - startVal) / startVal) * 100; }});
+    if(!eq || eq.length === 0 || !dates || dates.length === 0) return;
+    
+    // Filter out invalid dates (e.g. 1970-01-01 or None)
+    var cleanDates = [];
+    var cleanEq = [];
+    for(var j=0; j<dates.length; j++) {{
+        // Check for epoch start or empty strings
+        if(dates[j] && dates[j] !== "1970-01-01" && dates[j].indexOf("1969") === -1) {{
+            cleanDates.push(dates[j]);
+            cleanEq.push(eq[j]);
+        }}
+    }}
+    
+    if(cleanEq.length === 0) return;
+    
+    // Normalize to percentage growth based on the FIRST VALID RECORD
+    var startVal = cleanEq[0];
+    var pctGrowth = cleanEq.map(function(val) {{ return ((val - startVal) / startVal) * 100; }});
     
     traces.push({{
-      x: cd[sym].dates,
+      x: cleanDates,
       y: pctGrowth,
       type: 'scatter',
       mode: 'lines',
