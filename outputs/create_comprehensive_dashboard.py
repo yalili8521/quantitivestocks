@@ -646,6 +646,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
 
 
 def _section_hero(_data):
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return '''
 <!-- HERO -->
 <section id="hero" style="position: relative; overflow: hidden; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);">
@@ -654,6 +655,7 @@ def _section_hero(_data):
     <p class="hero-eyebrow" style="background: rgba(34, 197, 94, 0.1); color: #4ade80; padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(34, 197, 94, 0.2); backdrop-filter: blur(4px);">AI-NATIVE QUANTITATIVE TRADING</p>
     <h1 class="hero-title" style="margin-top: 16px;">Quantitative Stocks</h1>
     <p class="hero-tagline">Result-driven systematic trading across equity and commodity ETFs, powered by LSTM neural networks.</p>
+    <p style="margin-top: 12px; font-size: 11px; color: var(--text-muted); opacity: 0.7; font-family: var(--mono);">Latest Build: ''' + now_str + '''</p>
   </div>
   <script>
     (function() {
