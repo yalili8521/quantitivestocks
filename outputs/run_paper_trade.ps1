@@ -94,6 +94,17 @@ $Args = @(
     '--take-profit','0.08'
 )
 
+# Ensure a fresh daily run/log: stop any existing trader loop first.
+$existingTraders = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -match 'main.py trade' }
+foreach ($proc in $existingTraders) {
+    try {
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop
+    } catch {
+        # Continue; lock in paper_trader.py still prevents duplicate loops.
+    }
+}
+
 "[$(Get-Date -Format s)] Starting paper trader..." | Out-File -FilePath $LogFile -Encoding utf8
 "Python: $PythonExe" | Out-File -FilePath $LogFile -Encoding utf8 -Append
 "Log: $LogFile" | Out-File -FilePath $LogFile -Encoding utf8 -Append
@@ -103,6 +114,9 @@ foreach ($candidate in $EnvCandidates) {
     }
 }
 "Args: $($Args -join ' ')" | Out-File -FilePath $LogFile -Encoding utf8 -Append
+if ($existingTraders) {
+    "Stopped existing trader process count: $($existingTraders.Count)" | Out-File -FilePath $LogFile -Encoding utf8 -Append
+}
 
 if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
     "ERROR: Missing ALPACA_API_KEY / ALPACA_API_SECRET. Set machine env vars or add one of: $($EnvCandidates -join ', ')" | Out-File -FilePath $LogFile -Encoding utf8 -Append

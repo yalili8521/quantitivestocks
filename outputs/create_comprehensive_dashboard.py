@@ -291,6 +291,7 @@ def consolidate_all_data():
             vix_chg = round((live_vix - prev_vix) / prev_vix * 100, 3) if prev_vix > 0 else 0
             consolidated_data["signals"]["market"]["vix"] = live_vix
             consolidated_data["signals"]["market"]["vix_change_1d_pct"] = vix_chg
+            consolidated_data["signals"]["asof"] = datetime.utcnow().replace(microsecond=0).isoformat() + "+00:00"
             print(f"  Live VIX: {live_vix} ({vix_chg:+.2f}%)")
     except Exception as e:
         print(f"  Warning: Could not fetch live VIX: {e}")
