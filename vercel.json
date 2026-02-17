@@ -1,12 +1,10 @@
 {
   "version": 2,
-  "rewrites": [
-    { "source": "/favicon.ico", "destination": "/favicon.svg" },
-    { "source": "/", "destination": "/index.html" }
+  "builds": [
+    { "src": "api/positions.py", "use": "@vercel/python" },
+    { "src": "api/signals.py", "use": "@vercel/python" }
   ],
-  "env": {
-    "ALPACA_API_KEY": "@alpaca-api-key",
-    "ALPACA_API_SECRET": "@alpaca-api-secret",
-    "FRED_API_KEY": "@fred-api-key"
-  }
+  "rewrites": [
+    { "source": "/favicon.ico", "destination": "/favicon.svg" }
+  ]
 }
