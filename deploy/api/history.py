@@ -75,17 +75,8 @@ class handler(BaseHTTPRequestHandler):
         except Exception:
             pass
 
-        # Find earliest order date to set start
-        from datetime import datetime, timezone, timedelta
-        earliest = datetime.now(timezone.utc) - timedelta(days=14)
-        for o in orders:
-            try:
-                filled = datetime.fromisoformat(o["filled_at"].replace("Z", "+00:00"))
-                if filled < earliest:
-                    earliest = filled - timedelta(days=1)
-            except Exception:
-                pass
-        start_dt = earliest.strftime("%Y-%m-%dT00:00:00Z")
+        # Start from Feb 11, use 15min bars for more data points
+        start_dt = "2026-02-11T00:00:00Z"
 
         data_base = "https://data.alpaca.markets/v2"
         for sym in traded_symbols[:6]:  # limit to 6 symbols
@@ -94,9 +85,9 @@ class handler(BaseHTTPRequestHandler):
                     f"{data_base}/stocks/{sym}/bars",
                     headers=headers,
                     params={
-                        "timeframe": "1Hour",
+                        "timeframe": "15Min",
                         "start": start_dt,
-                        "limit": "500",
+                        "limit": "1000",
                         "sort": "asc",
                         "feed": "iex",
                     },
