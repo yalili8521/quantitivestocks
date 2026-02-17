@@ -60,7 +60,8 @@ class handler(BaseHTTPRequestHandler):
         except Exception:
             pass
 
-        # Per-symbol intraday bars for traded symbols
+        # Per-symbol bars for traded symbols
+        # Use 1H bars over 2 weeks to capture entries that happened days ago
         bars = {}
         traded_symbols = list({o["symbol"] for o in orders if o["symbol"]})
         # Also include current positions
@@ -74,6 +75,18 @@ class handler(BaseHTTPRequestHandler):
         except Exception:
             pass
 
+        # Find earliest order date to set start
+        from datetime import datetime, timezone, timedelta
+        earliest = datetime.now(timezone.utc) - timedelta(days=14)
+        for o in orders:
+            try:
+                filled = datetime.fromisoformat(o["filled_at"].replace("Z", "+00:00"))
+                if filled < earliest:
+                    earliest = filled - timedelta(days=1)
+            except Exception:
+                pass
+        start_dt = earliest.strftime("%Y-%m-%dT00:00:00Z")
+
         data_base = "https://data.alpaca.markets/v2"
         for sym in traded_symbols[:6]:  # limit to 6 symbols
             try:
@@ -81,9 +94,10 @@ class handler(BaseHTTPRequestHandler):
                     f"{data_base}/stocks/{sym}/bars",
                     headers=headers,
                     params={
-                        "timeframe": "5Min",
-                        "limit": "200",
-                        "sort": "desc",
+                        "timeframe": "1Hour",
+                        "start": start_dt,
+                        "limit": "500",
+                        "sort": "asc",
                         "feed": "iex",
                     },
                     timeout=10,
@@ -92,7 +106,7 @@ class handler(BaseHTTPRequestHandler):
                     raw_bars = resp.json().get("bars", [])
                     bars[sym] = [
                         {"t": b["t"], "c": b["c"], "h": b["h"], "l": b["l"], "o": b["o"]}
-                        for b in reversed(raw_bars)
+                        for b in raw_bars
                     ]
             except Exception:
                 pass

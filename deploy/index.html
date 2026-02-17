@@ -2270,7 +2270,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var dates = bars.map(function(b) { return b.t; });
     var closes = bars.map(function(b) { return b.c; });
     var traces = [];
-    traces.push({x:dates,y:closes,type:'scatter',mode:'lines',name:symbol + ' Price',line:{color:'#3b82f6',width:1.5},hovertemplate:'%{x|%H:%M}<br>$%{y:.2f}<extra></extra>'});
+    traces.push({x:dates,y:closes,type:'scatter',mode:'lines',name:symbol + ' Price',line:{color:'#3b82f6',width:1.5},hovertemplate:'%{x|%b %d %H:%M}<br>$%{y:.2f}<extra></extra>'});
 
     // Entry markers from orders
     var symOrders = orders.filter(function(o) { return o.symbol === symbol; });
@@ -2352,7 +2352,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
       // Intraday chart with trade markers
       html += '<div style="border-top:1px solid var(--border-muted);padding-top:12px">';
-      html += '<div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Intraday Price &amp; Trade History</div>';
+      html += '<div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Price Action &amp; Trade History</div>';
       html += '<div id="' + chartId + '" style="height:220px"></div>';
       html += '</div>';
 
