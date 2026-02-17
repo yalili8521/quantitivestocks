@@ -164,8 +164,10 @@ section,.section-wrap{padding:100px 0}
 .live-dot{width:6px;height:6px;border-radius:50%;background:var(--positive);animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
-.signals-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
-.sig-card{padding:20px}
+.signals-grid{display:grid;grid-template-columns:1fr;gap:20px}
+@media(min-width:900px){.signals-grid{grid-template-columns:1fr 1fr}}
+@media(min-width:1400px){.signals-grid{grid-template-columns:1fr 1fr 1fr}}
+.sig-card{padding:24px}
 .sig-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
 .sig-symbol{font-size:15px;font-weight:700;color:var(--text)}
 .sig-dir{font-size:11px;font-weight:700;letter-spacing:.06em;padding:3px 10px;border-radius:var(--radius-xs)}
@@ -2299,7 +2301,7 @@ document.addEventListener('DOMContentLoaded', function() {
       var ep = parseFloat(position.avg_entry_price);
       traces.push({x:[dates[0],dates[dates.length-1]],y:[ep,ep],type:'scatter',mode:'lines',name:'Entry @ $' + ep.toFixed(2),line:{color:'#f59e0b',width:1,dash:'dash'},hovertemplate:'Entry: $' + ep.toFixed(2) + '<extra></extra>'});
     }
-    var layout = Object.assign({},JSON.parse(JSON.stringify(darkPlotLayout)),{height:220,showlegend:true,legend:{x:0,y:1.18,orientation:'h',font:{size:10}},yaxis:{gridcolor:'rgba(255,255,255,0.04)',linecolor:'rgba(255,255,255,0.06)',tickprefix:'$',separatethousands:true}});
+    var layout = Object.assign({},JSON.parse(JSON.stringify(darkPlotLayout)),{height:250,showlegend:true,legend:{x:0,y:1.15,orientation:'h',font:{size:10}},yaxis:{gridcolor:'rgba(255,255,255,0.04)',linecolor:'rgba(255,255,255,0.06)',tickprefix:'$',separatethousands:true}});
     Plotly.react(el,traces,layout,plotConfig);
   }
 
@@ -2353,7 +2355,7 @@ document.addEventListener('DOMContentLoaded', function() {
       // Intraday chart with trade markers
       html += '<div style="border-top:1px solid var(--border-muted);padding-top:12px">';
       html += '<div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Price Action &amp; Trade History</div>';
-      html += '<div id="' + chartId + '" style="height:220px"></div>';
+      html += '<div id="' + chartId + '" style="height:260px"></div>';
       html += '</div>';
 
       html += '</div>';
