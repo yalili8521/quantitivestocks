@@ -164,8 +164,9 @@ section,.section-wrap{padding:100px 0}
 .live-dot{width:6px;height:6px;border-radius:50%;background:var(--positive);animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
-.signals-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
-.sig-card{padding:20px}
+.signals-grid{display:flex;flex-direction:column;gap:16px}
+.sig-card{padding:20px;display:grid;grid-template-columns:300px 1fr;gap:24px;align-items:start}
+@media(max-width:768px){.sig-card{grid-template-columns:1fr;gap:12px}}
 .sig-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
 .sig-symbol{font-size:15px;font-weight:700;color:var(--text)}
 .sig-dir{font-size:11px;font-weight:700;letter-spacing:.06em;padding:3px 10px;border-radius:var(--radius-xs)}
@@ -2299,7 +2300,7 @@ document.addEventListener('DOMContentLoaded', function() {
       var ep = parseFloat(position.avg_entry_price);
       traces.push({x:[dates[0],dates[dates.length-1]],y:[ep,ep],type:'scatter',mode:'lines',name:'Entry @ $' + ep.toFixed(2),line:{color:'#f59e0b',width:1,dash:'dash'},hovertemplate:'Entry: $' + ep.toFixed(2) + '<extra></extra>'});
     }
-    var layout = Object.assign({},JSON.parse(JSON.stringify(darkPlotLayout)),{height:220,showlegend:true,legend:{x:0,y:1.15,orientation:'h',font:{size:10}},yaxis:{gridcolor:'rgba(255,255,255,0.04)',linecolor:'rgba(255,255,255,0.06)',tickprefix:'$',separatethousands:true}});
+    var layout = Object.assign({},JSON.parse(JSON.stringify(darkPlotLayout)),{height:195,showlegend:true,legend:{x:0,y:1.15,orientation:'h',font:{size:9}},yaxis:{gridcolor:'rgba(255,255,255,0.04)',linecolor:'rgba(255,255,255,0.06)',tickprefix:'$',separatethousands:true}});
     Plotly.react(el,traces,layout,plotConfig);
   }
 
@@ -2331,29 +2332,33 @@ document.addEventListener('DOMContentLoaded', function() {
       var mktVal = Math.abs(parseFloat(p.market_value) || 0);
       var chartId = 'symbol-chart-' + sym;
 
-      html += '<div class="sig-card glass" style="border-top:2px solid ' + borderColor + '">';
-      html += '<div class="sig-header" style="margin-bottom:16px">';
-      html += '<span class="sig-symbol" style="font-size:20px">' + sym + '</span>';
-      html += '<span style="font-weight:800;font-size:13px;color:' + sideColor + ';background:rgba(255,255,255,0.04);padding:4px 10px;border-radius:4px">' + side + ' ' + qty + '</span>';
+      html += '<div class="sig-card glass" style="border-left:3px solid ' + borderColor + ';border-top:none">';
+
+      // LEFT: Info panel
+      html += '<div>';
+      html += '<div class="sig-header" style="margin-bottom:14px">';
+      html += '<span class="sig-symbol" style="font-size:22px">' + sym + '</span>';
+      html += '<span style="font-weight:800;font-size:12px;color:' + sideColor + ';background:rgba(255,255,255,0.04);padding:3px 8px;border-radius:4px">' + side + ' ' + qty + '</span>';
       html += '</div>';
 
-      // Metrics grid
-      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">';
-      html += '<div style="background:rgba(255,255,255,0.02);padding:10px 12px;border-radius:6px"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;margin-bottom:2px">Entry Price</div><div style="font-family:var(--mono);font-weight:700;color:var(--text);font-size:1.05rem">$' + entry + '</div></div>';
-      html += '<div style="background:rgba(255,255,255,0.02);padding:10px 12px;border-radius:6px"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;margin-bottom:2px">Current Price</div><div style="font-family:var(--mono);font-weight:700;color:var(--text);font-size:1.05rem">$' + current + '</div></div>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">';
+      html += '<div style="background:rgba(255,255,255,0.02);padding:8px 10px;border-radius:5px"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;margin-bottom:2px">Entry</div><div style="font-family:var(--mono);font-weight:700;color:var(--text)">$' + entry + '</div></div>';
+      html += '<div style="background:rgba(255,255,255,0.02);padding:8px 10px;border-radius:5px"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;margin-bottom:2px">Current</div><div style="font-family:var(--mono);font-weight:700;color:var(--text)">$' + current + '</div></div>';
       html += '</div>';
 
-      // P&L bar
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:rgba(255,255,255,0.02);border-radius:6px;margin-bottom:16px">';
-      html += '<div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Unrealized P&L</div><div class="' + plCls + '" style="font-family:var(--mono);font-weight:700;font-size:1.2rem">' + (pl >= 0 ? '+$' : '-$') + Math.abs(pl).toFixed(2) + '</div></div>';
-      html += '<div style="text-align:right"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Return</div><div class="' + plCls + '" style="font-family:var(--mono);font-weight:700;font-size:1.2rem">' + (plPct >= 0 ? '+' : '-') + Math.abs(plPct).toFixed(2) + '%</div></div>';
-      html += '<div style="text-align:right"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Mkt Value</div><div style="font-family:var(--mono);font-weight:600;color:var(--text)">' + fmtUSD(mktVal) + '</div></div>';
+      html += '<div style="background:rgba(255,255,255,0.02);padding:10px 12px;border-radius:5px;margin-bottom:10px">';
+      html += '<div style="display:flex;justify-content:space-between;margin-bottom:6px"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">P&L</div><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">Return</div></div>';
+      html += '<div style="display:flex;justify-content:space-between"><div class="' + plCls + '" style="font-family:var(--mono);font-weight:700;font-size:1.15rem">' + (pl >= 0 ? '+$' : '-$') + Math.abs(pl).toFixed(2) + '</div>';
+      html += '<div class="' + plCls + '" style="font-family:var(--mono);font-weight:700;font-size:1.15rem">' + (plPct >= 0 ? '+' : '-') + Math.abs(plPct).toFixed(2) + '%</div></div>';
       html += '</div>';
 
-      // Intraday chart with trade markers
-      html += '<div style="border-top:1px solid var(--border-muted);padding-top:12px">';
-      html += '<div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Price Action &amp; Trade History</div>';
-      html += '<div id="' + chartId + '" style="height:220px"></div>';
+      html += '<div style="font-size:11px;color:var(--text-dim)">Mkt Value: ' + fmtUSD(mktVal) + '</div>';
+      html += '</div>';
+
+      // RIGHT: Chart
+      html += '<div style="min-width:0">';
+      html += '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Price Action &amp; Trade History</div>';
+      html += '<div id="' + chartId + '" style="height:200px"></div>';
       html += '</div>';
 
       html += '</div>';
