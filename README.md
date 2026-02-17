@@ -1,21 +1,50 @@
 # Quantitative Stocks
 
-An ML-driven quantitative trading system for ETFs. Combines traditional technical indicators with an LSTM neural network to generate buy/sell signals, backtest strategies, and execute paper trades via Alpaca.
+An ML-driven quantitative trading system for ETFs. Combines traditional technical indicators with LSTM neural networks to generate buy/sell signals, backtest strategies, and execute paper trades via Alpaca Markets. Features options spread trading with put/call spreads.
+
+## 🏆 Performance Highlights
+
+Recent backtest results (Jan 2024 - Feb 2026):
+- **Average Total Return**: +68.7%
+- **Best Performer**: SLV +210.1% (3.36 Sharpe)
+- **Win Rate**: 66% across 94 trades
+- **Profit Factor**: 2.44
 
 ## Project Structure
 
 ```
 quantitivestocks/
-    main.py                     # Unified CLI entry point
-    src/
-        __init__.py
-        signals_engine.py       # Signal engine, data adapters, indicators
-        ml_model.py             # LSTM model, training, prediction
-        backtester.py           # Walk-forward backtester
-        paper_trader.py         # Alpaca paper trading loop
-    data/
-        models/                 # Trained model weights (.pt) and scalers (.json)
-        output/                 # signals.json, backtest CSVs, trade CSVs
+├── main.py                     # Unified CLI entry point
+├── requirements.txt            # Dependencies
+├── README.md                   # This file
+├── streamlit_app.py            # Streamlit dashboard
+│
+├── models/                     # Trained ML models & scalers
+│   ├── SPY_lstm.pt            # PyTorch model weights
+│   ├── SPY_scaler.json        # Feature normalization
+│   ├── GLD_lstm.pt
+│   └── ...
+│
+├── data/                       # Raw data (empty - fetched on demand)
+│
+├── outputs/                    # All results & analysis tools
+│   ├── backtest_SPY.csv       # Equity curves
+│   ├── trades_SPY.csv         # Trade histories
+│   ├── backtest_SPY_chart.html # Interactive charts
+│   ├── dashboard.py           # Streamlit dashboard
+│   ├── analyze_results.py     # Command-line analysis
+│   └── signals.json           # Signal generation output
+│
+├── settings/                   # Configuration & secrets
+│   ├── settings.py            # System configuration
+│   └── alpaca.env             # API credentials
+│
+└── Core Python Files (root):
+    ├── signals_engine.py       # Technical indicators & signals
+    ├── ml_model.py             # LSTM training & prediction
+    ├── backtester.py           # Walk-forward backtesting
+    ├── paper_trader.py         # Stock paper trading
+    └── options_trader.py       # Options spread trading
 ```
 
 ## Quick Start
@@ -23,10 +52,15 @@ quantitivestocks/
 ### 1. Install Dependencies
 
 ```bash
-pip install pandas numpy requests yfinance torch alpaca-py
+# Create virtual environment
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+
+# Install requirements
+pip install -r requirements.txt
 ```
 
-PyTorch CPU-only is sufficient — the LSTM model is small (~45K parameters) and trains in seconds.
+Dependencies include: pandas, numpy, torch, alpaca-trade-api, yfinance, streamlit, plotly
 
 ### 2. Set Environment Variables
 
@@ -103,6 +137,10 @@ python main.py trade --interval 5 --confidence 0.2
 ```
 
 Starts a continuous paper trading loop on Alpaca. Checks ML signals every N minutes during market hours and executes trades automatically. `paper=True` is hardcoded for safety.
+
+If you run paper trading via the Task Scheduler wrapper script (`scripts/run_paper_trade.ps1`), logs are written to:
+
+`C:\ProgramData\QuantitativeStocks\logs`
 
 ## CLI Reference
 

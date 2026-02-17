@@ -1,8 +1,8 @@
 """Streamlit dashboard for QuantitativeStocks backtest outputs.
 
-Reads CSV outputs from `data/output/`:
-- backtest_<SYMBOL>.csv (equity curve)
-- trades_<SYMBOL>.csv  (trade blotter)
+Reads CSV outputs from `outputs/`:
+- outputs/backtest_<SYMBOL>.csv (equity curve)
+- outputs/trades_<SYMBOL>.csv  (trade blotter)
 
 Run:
   pip install streamlit
@@ -21,7 +21,7 @@ import streamlit as st
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-OUTPUT_DIR = PROJECT_ROOT / "data" / "output"
+OUTPUT_DIR = PROJECT_ROOT / "outputs"
 
 
 @dataclass(frozen=True)
@@ -33,6 +33,10 @@ class SymbolFiles:
 
 def _discover_symbols(output_dir: Path) -> list[SymbolFiles]:
     symbols: list[SymbolFiles] = []
+    
+    if not output_dir.exists():
+        return symbols
+        
     for equity_csv in sorted(output_dir.glob("backtest_*.csv")):
         # Skip chart html files that match the glob on some systems
         if equity_csv.name.endswith("_chart.html"):
@@ -239,7 +243,7 @@ def main() -> None:
 
     symbols = _discover_symbols(OUTPUT_DIR)
     if not symbols:
-        st.error("No backtest CSVs found in data/output. Run `python main.py backtest --symbol SPY ...` first.")
+        st.error("No backtest CSVs found in outputs/. Run `python main.py backtest --symbol SPY ...` first.")
         return
 
     symbol_list = [s.symbol for s in symbols]

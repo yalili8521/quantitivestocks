@@ -1,0 +1,30 @@
+{
+  "asof": "2026-02-12T21:33:25.454017+00:00",
+  "universe": [
+    "SPY"
+  ],
+  "market": {
+    "vix": 17.65,
+    "vix_change_1d_pct": -0.787
+  },
+  "signals": {
+    "SPY": {
+      "symbol": "SPY",
+      "rsi14": 43.43,
+      "ret5": 0.005387,
+      "ret10": -0.018399,
+      "wk_ret": 0.005387,
+      "mo_ret": -0.018017,
+      "vol20": 0.143032,
+      "dollar_vol_today": 73811340739.55,
+      "vol_imbalance": -0.1366,
+      "vwap": 685.9454,
+      "dv_accel": -0.184068,
+      "spread_proxy": 0.013595,
+      "panic_score": 0.0548,
+      "overheat_score": 0.1507,
+      "ml_direction": "UP",
+      "ml_confidence": 0.1472
+    }
+  }
+}

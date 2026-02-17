@@ -1,0 +1,3 @@
+direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,exit_reason
+LONG,2024-08-08,203.29,2024-09-06,204.28,467.31,463.78,0.49,trailing_stop
+LONG,2025-04-14,184.87,2025-08-01,213.6,516.26,14830.19,15.54,trailing_stop

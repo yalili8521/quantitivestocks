@@ -3,5 +3,10 @@
   "rewrites": [
     { "source": "/favicon.ico", "destination": "/favicon.svg" },
     { "source": "/", "destination": "/index.html" }
-  ]
+  ],
+  "env": {
+    "ALPACA_API_KEY": "@alpaca-api-key",
+    "ALPACA_API_SECRET": "@alpaca-api-secret",
+    "FRED_API_KEY": "@fred-api-key"
+  }
 }

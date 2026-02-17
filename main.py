@@ -2,14 +2,15 @@
 """
 Quantitative Stocks — Unified CLI
 ====================================
-Single entry point for all modules: signals, train, predict, backtest, trade.
+Single entry point for all modules: signals, train, predict, backtest, trade, trade-options.
 
 Usage:
-    python main.py signals  --provider yahoo --ml
-    python main.py train    --symbol SPY --epochs 50
-    python main.py predict  --symbol SPY
-    python main.py backtest --symbol SPY --start 2024-01-01
-    python main.py trade    --interval 5 --confidence 0.2
+    python main.py signals       --provider yahoo --ml
+    python main.py train         --symbol SPY --epochs 50
+    python main.py predict       --symbol SPY
+    python main.py backtest      --symbol SPY --start 2024-01-01
+    python main.py trade         --interval 5 --confidence 0.2
+    python main.py trade-options --confidence 0.2 --put-confidence 0.15
 
 Environment variables:
     FRED_API_KEY      – FRED API key for VIX data
@@ -36,21 +37,24 @@ def main() -> None:
     python main.py <command> [options]
 
   Commands:
-    signals   Run the ETF sentiment signal engine
-    train     Train LSTM model for a symbol
-    predict   Run ML prediction for a symbol
-    backtest  Walk-forward backtest with ML predictions
-    trade     Start Alpaca paper trading loop
+    signals      Run the ETF sentiment signal engine
+    train        Train LSTM model for a symbol
+    predict      Run ML prediction for a symbol
+    backtest     Walk-forward backtest with ML predictions
+    trade        Start Alpaca paper trading loop (stocks)
+    trade-options Start Alpaca options spread trading loop
 
   Examples:
-    python main.py signals  --provider yahoo --ml
-    python main.py train    --symbol SPY --epochs 50
-    python main.py train    --symbol SPY --mode intraday --interval 5min
-    python main.py predict  --symbol SPY
-    python main.py backtest --symbol SPY --start 2024-01-01
-    python main.py backtest --symbol SPY --start 2025-01-01 --mode intraday
-    python main.py trade    --confidence 0.2 --trailing-stop 0.05
-    python main.py trade    --mode intraday --interval 5min
+    python main.py signals       --provider yahoo --ml
+    python main.py train         --symbol SPY --epochs 50
+    python main.py train         --symbol SPY --mode intraday --interval 5min
+    python main.py predict       --symbol SPY
+    python main.py backtest      --symbol SPY --start 2024-01-01
+    python main.py backtest      --symbol SPY --start 2025-01-01 --mode intraday
+    python main.py trade         --confidence 0.2 --trailing-stop 0.05
+    python main.py trade         --mode intraday --interval 5min
+    python main.py trade-options --confidence 0.2 --put-confidence 0.15
+    python main.py trade-options --symbols SPY,QQQ --spread-width 3
 
   Run `python main.py <command> --help` for command-specific options.
 """)
@@ -61,32 +65,36 @@ def main() -> None:
     sys.argv = [sys.argv[0]] + sys.argv[2:]
 
     if command == "signals":
-        from src.signals_engine import main as signals_main
+        from signals_engine import main as signals_main
         signals_main()
 
     elif command == "train":
         # Inject "train" subcommand back for ml_model's argparse
         sys.argv = [sys.argv[0], "train"] + sys.argv[1:]
-        from src.ml_model import main as ml_main
+        from ml_model import main as ml_main
         ml_main()
 
     elif command == "predict":
         # Inject "predict" subcommand back for ml_model's argparse
         sys.argv = [sys.argv[0], "predict"] + sys.argv[1:]
-        from src.ml_model import main as ml_main
+        from ml_model import main as ml_main
         ml_main()
 
     elif command == "backtest":
-        from src.backtester import main as backtest_main
+        from backtester import main as backtest_main
         backtest_main()
 
     elif command == "trade":
-        from src.paper_trader import main as trade_main
+        from paper_trader import main as trade_main
         trade_main()
+
+    elif command == "trade-options":
+        from options_trader import main as options_main
+        options_main()
 
     else:
         print(f"\n  Unknown command: {command!r}")
-        print("  Available commands: signals, train, predict, backtest, trade")
+        print("  Available commands: signals, train, predict, backtest, trade, trade-options")
         print("  Run `python main.py --help` for usage.\n")
         sys.exit(1)
 

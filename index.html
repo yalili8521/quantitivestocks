@@ -555,13 +555,13 @@ footer{border-top:1px solid var(--border);padding:40px 0}
     <div class="market-bar glass">
       <div class="market-stat">
         <span class="market-label">VIX</span>
-        <span class="market-val mono">20.03</span>
-        <span class="mono pos" style="font-size:13px">-3.79%</span>
+        <span class="market-val mono" id="vix-value">--</span>
+        <span class="mono" id="vix-change" style="font-size:13px">--</span>
         <span class="live-dot"></span>
       </div>
       <div class="market-stat">
         <span class="market-label">LAST UPDATE</span>
-        <span class="market-val mono" style="font-size:13px">Feb 13, 2026 11:46 AM EST (just now)</span>
+        <span class="market-val mono" id="last-update" style="font-size:13px">Loading...</span>
       </div>
     </div>
     <div class="signals-grid">
@@ -622,24 +622,24 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       <div class="live-breakdown" style="display:grid;grid-template-columns:1fr auto 1fr;gap:32px;align-items:center;margin-bottom:24px">
         <div>
           <div class="live-pos-label">Total Equity</div>
-          <div style="font-family:var(--mono);font-size:2.4rem;font-weight:700;color:var(--text);line-height:1">$100,000.00</div>
+          <div id="live-equity" style="font-family:var(--mono);font-size:2.4rem;font-weight:700;color:var(--text);line-height:1">$99,900.53</div>
         </div>
         <div class="live-divider" style="width:1px;height:48px;background:var(--border-muted)"></div>
         <div class="live-breakdown-stats" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px">
           <div>
             <div class="live-pos-label">Cash</div>
-            <div style="font-family:var(--mono);font-size:1.1rem;font-weight:600;color:var(--text)">$0.00</div>
-            <div style="font-size:11px;color:var(--text-dim)">0.0%</div>
+            <div id="live-cash" style="font-family:var(--mono);font-size:1.1rem;font-weight:600;color:var(--text)">$128,950.95</div>
+            <div id="live-cash-pct" style="font-size:11px;color:var(--text-dim)">129.1%</div>
           </div>
           <div>
             <div class="live-pos-label">In Positions</div>
-            <div style="font-family:var(--mono);font-size:1.1rem;font-weight:600;color:var(--text)">$0.00</div>
-            <div style="font-size:11px;color:var(--text-dim)">0.0%</div>
+            <div id="live-positions-val" style="font-family:var(--mono);font-size:1.1rem;font-weight:600;color:var(--text)">-$29,050.42</div>
+            <div id="live-positions-pct" style="font-size:11px;color:var(--text-dim)">Short positions</div>
           </div>
           <div>
             <div class="live-pos-label">Session P&amp;L</div>
-            <div class="pos" style="font-family:var(--mono);font-size:1.1rem;font-weight:700">+$0.00</div>
-            <div class="pos" style="font-size:11px;font-weight:600">+0.000%</div>
+            <div id="live-pnl-val" class="neg" style="font-family:var(--mono);font-size:1.1rem;font-weight:700">-$99.47</div>
+            <div id="live-pnl-pct" class="neg" style="font-size:11px;font-weight:600">-0.100%</div>
           </div>
         </div>
       </div>
@@ -647,16 +647,14 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       <!-- Equity Composition Bar -->
       <div style="margin-bottom:20px">
         <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:rgba(255,255,255,0.03)">
-          <div style="width:0.0%;background:var(--accent);border-radius:4px 0 0 4px" title="Cash 0.0%"></div>
-          <div style="width:0.0%;background:var(--positive)" title="Positions 0.0%"></div>
+          <div id="comp-bar-cash" style="width:100%;background:var(--accent);border-radius:4px 0 0 4px" title="Cash (short proceeds)"></div>
+          <div id="comp-bar-pos" style="width:0%;background:var(--positive)" title="Long positions"></div>
         </div>
-        <div class="live-composition-legend" style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--text-dim)">
-          <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--accent);margin-right:4px;vertical-align:middle"></span>Cash (0.0%)</span>
-          <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--positive);margin-right:4px;vertical-align:middle"></span>Positions (0.0%)</span>
+        <div id="live-composition-legend" class="live-composition-legend" style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--text-dim)">
+          <span>3 positions (1 long, 2 short)</span>
           <span>Starting: $100,000</span>
-          <span>High: $100,000.00</span>
-          <span>Low: $100,000.00</span>
-          <span>DD: <span class="neg">0.000%</span></span>
+          <span>Current: $99,900.53</span>
+          <span>P&amp;L: <span class="neg">-$99.47</span></span>
         </div>
       </div>
 
@@ -668,13 +666,22 @@ footer{border-top:1px solid var(--border);padding:40px 0}
     <div class="glass" style="padding:0;overflow:hidden;margin-bottom:16px">
       <div style="padding:20px 24px 12px;display:flex;justify-content:space-between;align-items:center">
         <div style="font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted)">Current Positions</div>
-        <div style="font-size:11px;color:var(--text-dim)">0 open</div>
+        <div id="live-pos-count" style="font-size:11px;color:var(--text-dim)">3 open</div>
       </div>
-      <div class="live-positions-table-wrap"><div style="text-align:center;padding:24px;color:var(--text-dim);font-size:12px">No open positions</div></div>
+      <div id="live-positions-container" class="live-positions-table-wrap">
+        <table class="trade-table">
+          <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Current</th><th>P&L</th><th>%</th></tr></thead>
+          <tbody>
+            <tr><td style="font-weight:600;color:var(--text)">SPY</td><td>LONG</td><td>10</td><td>$692.27</td><td>$680.18</td><td class="neg">-$120.90</td><td class="neg">-1.75%</td></tr>
+            <tr><td style="font-weight:600;color:var(--text)">QQQ</td><td>SHORT</td><td>30</td><td>$598.67</td><td>$598.42</td><td class="pos">+$7.47</td><td class="pos">+0.04%</td></tr>
+            <tr><td style="font-weight:600;color:var(--text)">IGV</td><td>SHORT</td><td>223</td><td>$80.33</td><td>$80.28</td><td class="pos">+$12.27</td><td class="pos">+0.07%</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
-    <div style="font-size:10px;color:var(--text-dim);text-align:center">
-      0 cycles &bull; 2026-02-13 &bull; Alpaca Paper Trading
+    <div id="live-footer" style="font-size:10px;color:var(--text-dim);text-align:center">
+      Live &bull; Alpaca Paper Trading
     </div>
   </div>
 </section>
@@ -2281,6 +2288,100 @@ document.addEventListener('DOMContentLoaded', function() {
 
     Plotly.newPlot(container, traces, layout, { responsive: true, displayModeBar: false });
   }
+
+  // ---- Live Data Fetch ----
+  var STARTING_EQUITY = 100000;
+
+  function fmtUSD(n) { return '$' + parseFloat(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+  function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(3) + '%'; }
+
+  async function loadLiveData() {
+    try {
+      var posRes = fetch('/api/positions');
+      var sigRes = fetch('/api/signals');
+      var results = await Promise.all([posRes, sigRes]);
+
+      // -- Positions & Account --
+      if (results[0].ok) {
+        var data = await results[0].json();
+        var equity = parseFloat(data.account.equity) || 0;
+        var cash = parseFloat(data.account.cash) || 0;
+        var inPositions = equity - cash;
+        var pnl = equity - STARTING_EQUITY;
+        var pnlPct = STARTING_EQUITY > 0 ? (pnl / STARTING_EQUITY * 100) : 0;
+        var cashPct = equity > 0 ? (cash / equity * 100) : 0;
+        var posPct = equity > 0 ? (inPositions / equity * 100) : 0;
+        var pnlClass = pnl >= 0 ? 'pos' : 'neg';
+
+        var el;
+        el = document.getElementById('live-equity'); if (el) el.textContent = fmtUSD(equity);
+        el = document.getElementById('live-cash'); if (el) el.textContent = fmtUSD(cash);
+        el = document.getElementById('live-cash-pct'); if (el) el.textContent = cashPct.toFixed(1) + '%';
+        el = document.getElementById('live-positions-val'); if (el) el.textContent = fmtUSD(inPositions);
+        el = document.getElementById('live-positions-pct'); if (el) el.textContent = posPct.toFixed(1) + '%';
+
+        el = document.getElementById('live-pnl-val');
+        if (el) { el.textContent = (pnl >= 0 ? '+' : '') + fmtUSD(Math.abs(pnl)); el.className = pnlClass; el.style.fontFamily = 'var(--mono)'; el.style.fontSize = '1.1rem'; el.style.fontWeight = '700'; }
+        el = document.getElementById('live-pnl-pct');
+        if (el) { el.textContent = fmtPct(pnlPct); el.className = pnlClass; el.style.fontSize = '11px'; el.style.fontWeight = '600'; }
+
+        // Positions table
+        var container = document.getElementById('live-positions-container');
+        var countEl = document.getElementById('live-pos-count');
+        if (container) {
+          if (data.positions && data.positions.length > 0) {
+            if (countEl) countEl.textContent = data.positions.length + ' open';
+            var html = '<table class="trade-table"><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Current</th><th>P&L</th><th>%</th></tr></thead><tbody>';
+            data.positions.forEach(function(p) {
+              var pl = parseFloat(p.unrealized_pl) || 0;
+              var plPct = (parseFloat(p.unrealized_plpc) || 0) * 100;
+              var cls = pl >= 0 ? 'pos' : 'neg';
+              var side = parseFloat(p.qty) < 0 ? 'SHORT' : (p.side === 'short' ? 'SHORT' : 'LONG');
+              html += '<tr><td style="font-weight:600;color:var(--text)">' + p.symbol + '</td>';
+              html += '<td>' + side + '</td>';
+              html += '<td>' + Math.abs(parseFloat(p.qty)) + '</td>';
+              html += '<td>$' + parseFloat(p.avg_entry_price).toFixed(2) + '</td>';
+              html += '<td>$' + parseFloat(p.current_price).toFixed(2) + '</td>';
+              html += '<td class="' + cls + '">' + (pl >= 0 ? '+' : '') + '$' + Math.abs(pl).toFixed(2) + '</td>';
+              html += '<td class="' + cls + '">' + (plPct >= 0 ? '+' : '') + plPct.toFixed(2) + '%</td></tr>';
+            });
+            html += '</tbody></table>';
+            container.innerHTML = html;
+          } else {
+            if (countEl) countEl.textContent = '0 open';
+            container.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-dim);font-size:12px">No open positions</div>';
+          }
+        }
+      }
+
+      // -- VIX / Signals --
+      if (results[1].ok) {
+        var sig = await results[1].json();
+        var vixEl = document.getElementById('vix-value');
+        var vixChgEl = document.getElementById('vix-change');
+        var updateEl = document.getElementById('last-update');
+
+        if (vixEl && sig.vix !== null) {
+          vixEl.textContent = sig.vix.toFixed(2);
+        }
+        if (vixChgEl && sig.vix_change_pct !== null) {
+          var cls = sig.vix_change_pct <= 0 ? 'pos' : 'neg';
+          vixChgEl.className = 'mono ' + cls;
+          vixChgEl.style.fontSize = '13px';
+          vixChgEl.textContent = (sig.vix_change_pct >= 0 ? '+' : '') + sig.vix_change_pct.toFixed(2) + '%';
+        }
+        if (updateEl) {
+          var d = new Date(sig.asof);
+          updateEl.textContent = d.toLocaleString('en-US', {timeZone:'America/New_York', month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit', hour12:true}) + ' EST';
+        }
+      }
+    } catch (e) {
+      console.error('Live data fetch failed:', e);
+    }
+  }
+
+  loadLiveData();
+  setInterval(loadLiveData, 60000);
 
 });
 </script>
