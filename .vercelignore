@@ -1,0 +1,7 @@
+.paper_trader.lock
+logs/
+models/*.pt
+__pycache__/
+*.pyc
+.git
+node_modules
