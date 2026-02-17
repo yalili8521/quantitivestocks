@@ -2293,7 +2293,7 @@ document.addEventListener('DOMContentLoaded', function() {
   var STARTING_EQUITY = 100000;
 
   function fmtUSD(n) { return '$' + parseFloat(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}); }
-  function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(3) + '%'; }
+  function fmtPct(n) { return (n >= 0 ? '+' : '-') + Math.abs(n).toFixed(3) + '%'; }
 
   async function loadLiveData() {
     try {
@@ -2306,22 +2306,28 @@ document.addEventListener('DOMContentLoaded', function() {
         var data = await results[0].json();
         var equity = parseFloat(data.account.equity) || 0;
         var cash = parseFloat(data.account.cash) || 0;
-        var inPositions = equity - cash;
+        // Sum position market values (positive for long, negative for short)
+        var positionsVal = 0;
+        if (data.positions) {
+          data.positions.forEach(function(p) {
+            positionsVal += Math.abs(parseFloat(p.market_value) || 0);
+          });
+        }
         var pnl = equity - STARTING_EQUITY;
         var pnlPct = STARTING_EQUITY > 0 ? (pnl / STARTING_EQUITY * 100) : 0;
         var cashPct = equity > 0 ? (cash / equity * 100) : 0;
-        var posPct = equity > 0 ? (inPositions / equity * 100) : 0;
+        var posPct = equity > 0 ? (positionsVal / equity * 100) : 0;
         var pnlClass = pnl >= 0 ? 'pos' : 'neg';
 
         var el;
         el = document.getElementById('live-equity'); if (el) el.textContent = fmtUSD(equity);
         el = document.getElementById('live-cash'); if (el) el.textContent = fmtUSD(cash);
         el = document.getElementById('live-cash-pct'); if (el) el.textContent = cashPct.toFixed(1) + '%';
-        el = document.getElementById('live-positions-val'); if (el) el.textContent = fmtUSD(inPositions);
+        el = document.getElementById('live-positions-val'); if (el) el.textContent = fmtUSD(positionsVal);
         el = document.getElementById('live-positions-pct'); if (el) el.textContent = posPct.toFixed(1) + '%';
 
         el = document.getElementById('live-pnl-val');
-        if (el) { el.textContent = (pnl >= 0 ? '+' : '') + fmtUSD(Math.abs(pnl)); el.className = pnlClass; el.style.fontFamily = 'var(--mono)'; el.style.fontSize = '1.1rem'; el.style.fontWeight = '700'; }
+        if (el) { el.textContent = (pnl >= 0 ? '+' : '-') + fmtUSD(Math.abs(pnl)); el.className = pnlClass; el.style.fontFamily = 'var(--mono)'; el.style.fontSize = '1.1rem'; el.style.fontWeight = '700'; }
         el = document.getElementById('live-pnl-pct');
         if (el) { el.textContent = fmtPct(pnlPct); el.className = pnlClass; el.style.fontSize = '11px'; el.style.fontWeight = '600'; }
 
@@ -2342,8 +2348,8 @@ document.addEventListener('DOMContentLoaded', function() {
               html += '<td>' + Math.abs(parseFloat(p.qty)) + '</td>';
               html += '<td>$' + parseFloat(p.avg_entry_price).toFixed(2) + '</td>';
               html += '<td>$' + parseFloat(p.current_price).toFixed(2) + '</td>';
-              html += '<td class="' + cls + '">' + (pl >= 0 ? '+' : '') + '$' + Math.abs(pl).toFixed(2) + '</td>';
-              html += '<td class="' + cls + '">' + (plPct >= 0 ? '+' : '') + plPct.toFixed(2) + '%</td></tr>';
+              html += '<td class="' + cls + '">' + (pl >= 0 ? '+$' : '-$') + Math.abs(pl).toFixed(2) + '</td>';
+              html += '<td class="' + cls + '">' + (plPct >= 0 ? '+' : '-') + Math.abs(plPct).toFixed(2) + '%</td></tr>';
             });
             html += '</tbody></table>';
             container.innerHTML = html;
