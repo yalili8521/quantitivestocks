@@ -2251,7 +2251,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var lastVal = eq[eq.length - 1] || startVal;
     var lineColor = lastVal >= startVal ? '#22c55e' : '#ef4444';
     var fillColor = lastVal >= startVal ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)';
-    var trace = {x:dates,y:eq,type:'scatter',mode:'lines',fill:'tozeroy',fillcolor:fillColor,line:{color:lineColor,width:2.5},hovertemplate:'%{x|%b %d %H:%M}<br>Equity: $%{y:,.2f}<extra></extra>'};
+    var trace = {x:dates,y:eq,type:'scatter',mode:'lines',fill:'tozeroy',fillcolor:fillColor,line:{color:lineColor,width:2.5,shape:'spline',smoothing:1.3},hovertemplate:'%{x|%b %d %H:%M}<br>Equity: $%{y:,.2f}<extra></extra>'};
     var baseline = {x:[dates[0],dates[dates.length-1]],y:[STARTING_EQUITY,STARTING_EQUITY],type:'scatter',mode:'lines',line:{color:'rgba(255,255,255,0.2)',width:1,dash:'dot'},hoverinfo:'skip'};
     var yMin = Math.min.apply(null,eq);
     var yMax = Math.max.apply(null,eq);
@@ -2271,7 +2271,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var dates = bars.map(function(b) { return b.t; });
     var closes = bars.map(function(b) { return b.c; });
     var traces = [];
-    traces.push({x:dates,y:closes,type:'scatter',mode:'lines',name:symbol + ' Price',line:{color:'#3b82f6',width:1.5},hovertemplate:'%{x|%b %d %H:%M}<br>$%{y:.2f}<extra></extra>'});
+    traces.push({x:dates,y:closes,type:'scatter',mode:'lines',name:symbol + ' Price',line:{color:'#3b82f6',width:2,shape:'spline',smoothing:1.3},hovertemplate:'%{x|%b %d %H:%M}<br>$%{y:.2f}<extra></extra>'});
 
     // Entry markers from orders
     var symOrders = orders.filter(function(o) { return o.symbol === symbol; });
