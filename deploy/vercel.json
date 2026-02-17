@@ -4,12 +4,14 @@
   "builds": [
     { "src": "api/positions.py", "use": "@vercel/python" },
     { "src": "api/signals.py", "use": "@vercel/python" },
+    { "src": "api/history.py", "use": "@vercel/python" },
     { "src": "index.html", "use": "@vercel/static" },
     { "src": "favicon.svg", "use": "@vercel/static" }
   ],
   "routes": [
     { "src": "/api/positions", "dest": "/api/positions.py" },
     { "src": "/api/signals", "dest": "/api/signals.py" },
+    { "src": "/api/history", "dest": "/api/history.py" },
     { "src": "/favicon.ico", "dest": "/favicon.svg" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
