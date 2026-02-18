@@ -42,7 +42,7 @@ def main() -> None:
     predict      Run ML prediction for a symbol
     backtest     Walk-forward backtest with ML predictions
     trade        Start Alpaca paper trading loop (stocks)
-    trade-options Start Alpaca options spread trading loop
+    trade-options Start Long ATM Straddle options trader (VIX spike entry)
 
   Examples:
     python main.py signals       --provider yahoo --ml
@@ -54,7 +54,7 @@ def main() -> None:
     python main.py trade         --confidence 0.2 --trailing-stop 0.05
     python main.py trade         --mode intraday --interval 5min
     python main.py trade-options --confidence 0.2 --put-confidence 0.15
-    python main.py trade-options --symbols SPY,QQQ --spread-width 3
+    python main.py trade-options --symbols SPY,QQQ --vix-spike-threshold 15
 
   Run `python main.py <command> --help` for command-specific options.
 """)
