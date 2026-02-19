@@ -164,8 +164,13 @@ section,.section-wrap{padding:100px 0}
 .live-dot{width:6px;height:6px;border-radius:50%;background:var(--positive);animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
-.signals-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
-.sig-card{padding:20px}
+.signals-grid{display:flex;flex-direction:column;gap:16px}
+.sig-card{padding:20px;display:grid;grid-template-columns:300px 1fr;gap:24px;align-items:start}
+@media(max-width:768px){.sig-card{grid-template-columns:1fr;gap:12px}}
+.chart-toggle-btn{background:rgba(255,255,255,0.05);border:1px solid var(--border-muted);color:var(--text-muted);font-size:9px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:2px 8px;border-radius:4px;cursor:pointer;line-height:1.6;transition:background .15s,color .15s}
+.chart-toggle-btn:hover{background:rgba(255,255,255,0.1);color:var(--text)}
+.sig-chart-wrap{overflow:hidden;transition:height .25s ease}
+.sig-chart-wrap.collapsed{height:0!important}
 .sig-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
 .sig-symbol{font-size:15px;font-weight:700;color:var(--text)}
 .sig-dir{font-size:11px;font-weight:700;letter-spacing:.06em;padding:3px 10px;border-radius:var(--radius-xs)}
@@ -270,17 +275,9 @@ section,.section-wrap{padding:100px 0}
 @media(max-width:768px){.pipe-conn{width:auto;height:24px;transform:rotate(90deg)}}
 .pipe-conn-line{width:40px;height:2px;background:linear-gradient(90deg,var(--border),var(--accent),var(--border))}
 
-/* ============ LOGS ============ */
-.logs-box{padding:0;max-height:400px;overflow-y:auto}
-.logs-box::-webkit-scrollbar{width:4px}
-.logs-box::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
-.log-entry{display:flex;align-items:flex-start;gap:12px;padding:10px 20px;border-bottom:1px solid var(--border-muted);font-size:12px}
-.log-entry:last-child{border-bottom:none}
-.log-time{font-family:var(--mono);color:var(--text-muted);white-space:nowrap;min-width:60px}
-.log-cycle{font-family:var(--mono);color:var(--accent);white-space:nowrap;min-width:60px}
-.log-equity{font-family:var(--mono);color:var(--text);white-space:nowrap;min-width:100px}
-.log-detail{color:var(--text-sec);flex:1;word-break:break-word}
-.logs-empty{padding:40px;text-align:center;color:var(--text-dim)}
+/* ============ CONTACT ============ */
+.contact-box{max-width:800px;margin:0 auto}
+.giscus{margin-top:16px}
 
 /* ============ FAQ ============ */
 .faq-list{max-width:800px;margin:0 auto;display:flex;flex-direction:column;gap:8px}
@@ -351,7 +348,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
     <a href="#strategies">Strategies</a>
     <a href="#research">Research</a>
     <a href="#pipeline">Pipeline</a>
-    <a href="#logs">Logs</a>
+    <a href="#contact">Contact</a>
     <a href="#faq">FAQ</a>
   </div>
 </nav>
@@ -560,51 +557,18 @@ footer{border-top:1px solid var(--border);padding:40px 0}
         <span class="live-dot"></span>
       </div>
       <div class="market-stat">
+        <span class="market-label">ACTIVELY TRADING</span>
+        <span class="market-val mono" id="active-symbols" style="font-size:13px">Loading...</span>
+      </div>
+      <div class="market-stat">
         <span class="market-label">LAST UPDATE</span>
         <span class="market-val mono" id="last-update" style="font-size:13px">Loading...</span>
       </div>
     </div>
-    <div class="signals-grid">
-      
-      <div class="sig-card glass" style="border-top: 2px solid var(--positive)">
-        <div class="sig-header">
-          <span class="sig-symbol" style="font-size: 18px;">SPY</span>
-          <span class="sig-dir" style="font-weight: 800; font-size: 14px; color: var(--positive)">BULLISH</span>
-        </div>
-        <div class="conf-bar-wrap"><div class="conf-bar" style="width:14.7%; background: var(--positive)"></div></div>
-        
-        <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
-            <div style="text-align: left;">
-                <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase;">Confidence</div>
-                <div style="font-family: var(--mono); font-weight: 700; color: var(--text);">14.7%</div>
-            </div>
-            <div style="text-align: right;">
-                <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase;">Est. Move</div>
-                <div style="font-family: var(--mono); font-weight: 700; color: var(--text-sec);">Dynamic</div>
-            </div>
-        </div>
-        
-        <div style="display: flex; justify-content: space-between; margin-bottom: 12px; background: rgba(255,255,255,0.02); padding: 8px; border-radius: 4px;">
-            <div style="text-align: left;">
-                <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase;">Rec. Size</div>
-                <div style="font-family: var(--mono); font-weight: 700; color: var(--text-muted);">0.0%</div>
-            </div>
-            <div style="text-align: right;">
-                 <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase;">Action</div>
-                 <div style="font-family: var(--mono); font-weight: 700; color: var(--positive);">BULLISH</div>
-            </div>
-        </div>
-
-        <div class="sig-metrics" style="border-top: 1px solid var(--border-muted); padding-top: 12px; margin-bottom: 16px;">
-          <div class="sig-m"><span class="sig-m-label">RSI (14)</span><span class="sig-m-val">43.4</span></div>
-          <div class="sig-m"><span class="sig-m-label">5d Ret</span><span class="sig-m-val pos">+0.54%</span></div>
-          <div class="sig-m"><span class="sig-m-label">Vol</span><span class="sig-m-val">0.14</span></div>
-        </div>
-
-        <details class="trade-history-details" data-symbol="SPY">
-            <summary class="trade-history-summary">View Live Price Action</summary>
-            <div id="trade_curve_live_SPY" style="height:200px; margin-top:16px;"></div>
-        </details>
+    <!-- Dynamic signal cards populated by JS -->
+    <div id="signals-grid-container" class="signals-grid">
+      <div class="glass" style="padding:40px;text-align:center;grid-column:1/-1">
+        <div style="color:var(--text-dim);font-size:13px">Loading live trading data...</div>
       </div>
     </div>
   </div>
@@ -617,71 +581,47 @@ footer{border-top:1px solid var(--border);padding:40px 0}
     <div class="sec-label">PAPER TRADING</div>
     <h2 class="sec-title" style="margin-bottom:24px">Live Performance</h2>
 
-    <!-- Full Equity Breakdown -->
-    <div class="glass" style="padding:28px;margin-bottom:24px">
-      <div class="live-breakdown" style="display:grid;grid-template-columns:1fr auto 1fr;gap:32px;align-items:center;margin-bottom:24px">
-        <div>
-          <div class="live-pos-label">Total Equity</div>
-          <div id="live-equity" style="font-family:var(--mono);font-size:2.4rem;font-weight:700;color:var(--text);line-height:1">$99,900.53</div>
+    <!-- Equity Chart Card (primary visual) -->
+    <div class="glass" style="padding:0;margin-bottom:24px;overflow:hidden">
+      <!-- Metrics overlay row -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1px solid var(--border-muted)">
+        <div style="padding:20px 24px;border-right:1px solid var(--border-muted)">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Total Equity</div>
+          <div id="live-equity" style="font-family:var(--mono);font-size:1.6rem;font-weight:700;color:var(--text);line-height:1.2">--</div>
         </div>
-        <div class="live-divider" style="width:1px;height:48px;background:var(--border-muted)"></div>
-        <div class="live-breakdown-stats" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px">
-          <div>
-            <div class="live-pos-label">Cash</div>
-            <div id="live-cash" style="font-family:var(--mono);font-size:1.1rem;font-weight:600;color:var(--text)">$128,950.95</div>
-            <div id="live-cash-pct" style="font-size:11px;color:var(--text-dim)">129.1%</div>
-          </div>
-          <div>
-            <div class="live-pos-label">In Positions</div>
-            <div id="live-positions-val" style="font-family:var(--mono);font-size:1.1rem;font-weight:600;color:var(--text)">-$29,050.42</div>
-            <div id="live-positions-pct" style="font-size:11px;color:var(--text-dim)">Short positions</div>
-          </div>
-          <div>
-            <div class="live-pos-label">Session P&amp;L</div>
-            <div id="live-pnl-val" class="neg" style="font-family:var(--mono);font-size:1.1rem;font-weight:700">-$99.47</div>
-            <div id="live-pnl-pct" class="neg" style="font-size:11px;font-weight:600">-0.100%</div>
-          </div>
+        <div style="padding:20px 24px;border-right:1px solid var(--border-muted)">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Session P&amp;L</div>
+          <div id="live-pnl-val" style="font-family:var(--mono);font-size:1.6rem;font-weight:700;line-height:1.2">--</div>
+          <div id="live-pnl-pct" style="font-size:11px;font-weight:600;margin-top:2px">--</div>
+        </div>
+        <div style="padding:20px 24px;border-right:1px solid var(--border-muted)">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Cash</div>
+          <div id="live-cash" style="font-family:var(--mono);font-size:1.1rem;font-weight:600;color:var(--text);line-height:1.2">--</div>
+          <div id="live-cash-pct" style="font-size:11px;color:var(--text-dim);margin-top:2px">--</div>
+        </div>
+        <div style="padding:20px 24px">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">In Positions</div>
+          <div id="live-positions-val" style="font-family:var(--mono);font-size:1.1rem;font-weight:600;color:var(--text);line-height:1.2">--</div>
+          <div id="live-positions-pct" style="font-size:11px;color:var(--text-dim);margin-top:2px">--</div>
         </div>
       </div>
-
-      <!-- Equity Composition Bar -->
-      <div style="margin-bottom:20px">
-        <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:rgba(255,255,255,0.03)">
-          <div id="comp-bar-cash" style="width:100%;background:var(--accent);border-radius:4px 0 0 4px" title="Cash (short proceeds)"></div>
-          <div id="comp-bar-pos" style="width:0%;background:var(--positive)" title="Long positions"></div>
-        </div>
-        <div id="live-composition-legend" class="live-composition-legend" style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--text-dim)">
-          <span>3 positions (1 long, 2 short)</span>
-          <span>Starting: $100,000</span>
-          <span>Current: $99,900.53</span>
-          <span>P&amp;L: <span class="neg">-$99.47</span></span>
-        </div>
-      </div>
-
-      <!-- Equity Chart -->
-      <div id="live-equity-chart" style="height:160px"></div>
+      <!-- Equity Curve -->
+      <div id="live-equity-chart" style="height:280px;padding:8px 8px 0"></div>
     </div>
 
     <!-- Current Positions Table -->
     <div class="glass" style="padding:0;overflow:hidden;margin-bottom:16px">
       <div style="padding:20px 24px 12px;display:flex;justify-content:space-between;align-items:center">
         <div style="font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted)">Current Positions</div>
-        <div id="live-pos-count" style="font-size:11px;color:var(--text-dim)">3 open</div>
+        <div id="live-pos-count" style="font-size:11px;color:var(--text-dim)">Loading...</div>
       </div>
       <div id="live-positions-container" class="live-positions-table-wrap">
-        <table class="trade-table">
-          <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Current</th><th>P&L</th><th>%</th></tr></thead>
-          <tbody>
-            <tr><td style="font-weight:600;color:var(--text)">SPY</td><td>LONG</td><td>10</td><td>$692.27</td><td>$680.18</td><td class="neg">-$120.90</td><td class="neg">-1.75%</td></tr>
-            <tr><td style="font-weight:600;color:var(--text)">QQQ</td><td>SHORT</td><td>30</td><td>$598.67</td><td>$598.42</td><td class="pos">+$7.47</td><td class="pos">+0.04%</td></tr>
-            <tr><td style="font-weight:600;color:var(--text)">IGV</td><td>SHORT</td><td>223</td><td>$80.33</td><td>$80.28</td><td class="pos">+$12.27</td><td class="pos">+0.07%</td></tr>
-          </tbody>
-        </table>
+        <div style="text-align:center;padding:24px;color:var(--text-dim);font-size:12px">Loading positions...</div>
       </div>
     </div>
 
     <div id="live-footer" style="font-size:10px;color:var(--text-dim);text-align:center">
-      Live &bull; Alpaca Paper Trading
+      Live &bull; Alpaca Paper Trading &bull; Auto-refreshes every 60s
     </div>
   </div>
 </section>
@@ -1832,13 +1772,27 @@ footer{border-top:1px solid var(--border);padding:40px 0}
 </section>
 
 
-<!-- LOGS -->
-<section id="logs" class="section-wrap reveal">
+<!-- CONTACT -->
+<section id="contact" class="section-wrap reveal">
   <div class="container">
-    <div class="sec-label">ACTIVITY</div>
-    <h2 class="sec-title">Paper Trading Log</h2>
-    <div class="logs-box glass">
-      <div class="logs-empty">No paper trading activity recorded yet. Run: python main.py trade</div>
+    <div class="sec-label">FEEDBACK</div>
+    <h2 class="sec-title">Comments & Contact</h2>
+    <div class="contact-box">
+      <script src="https://giscus.app/client.js"
+        data-repo="yalili8521/quantitivestocks"
+        data-repo-id="R_kgDORNpWdQ"
+        data-category="General"
+        data-category-id="DIC_kwDORNpWdc4C2qL-"
+        data-mapping="pathname"
+        data-strict="0"
+        data-reactions-enabled="1"
+        data-emit-metadata="0"
+        data-input-position="top"
+        data-theme="dark_dimmed"
+        data-lang="en"
+        crossorigin="anonymous"
+        async>
+      </script>
     </div>
   </div>
 </section>
@@ -2024,7 +1978,7 @@ document.addEventListener('DOMContentLoaded', function() {
       type: 'scatter',
       mode: 'lines',
       name: 'Equity',
-      line: { color: lineCol, width: 2, shape:'spline', smoothing: 1.3 },
+      line: { color: lineCol, width: 2, shape:'linear' },
       fill: 'tozeroy',
       fillcolor: fillCol,
       hovertemplate: '$%{y:,.2f}<extra></extra>'
@@ -2291,27 +2245,178 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // ---- Live Data Fetch ----
   var STARTING_EQUITY = 100000;
+  var darkPlotLayout = {paper_bgcolor:'transparent',plot_bgcolor:'transparent',font:{family:'Inter,sans-serif',color:'#94a3b8',size:11},margin:{l:55,r:16,t:8,b:32},xaxis:{gridcolor:'rgba(255,255,255,0.04)',linecolor:'rgba(255,255,255,0.06)'},yaxis:{gridcolor:'rgba(255,255,255,0.04)',linecolor:'rgba(255,255,255,0.06)',tickprefix:'$',separatethousands:true},hovermode:'x unified',showlegend:false};
+  var plotConfig = {displayModeBar:false,responsive:true};
 
   function fmtUSD(n) { return '$' + parseFloat(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}); }
   function fmtPct(n) { return (n >= 0 ? '+' : '-') + Math.abs(n).toFixed(3) + '%'; }
 
+  // ---- Render equity curve chart ----
+  function renderEquityChart(portfolio) {
+    var el = document.getElementById('live-equity-chart');
+    if (!el || !portfolio.timestamps || portfolio.timestamps.length === 0) return;
+    var dates = portfolio.timestamps.map(function(ts) { return new Date(ts * 1000); });
+    var eq = portfolio.equity;
+    var startVal = eq[0] || STARTING_EQUITY;
+    var lastVal = eq[eq.length - 1] || startVal;
+    var lineColor = lastVal >= startVal ? '#22c55e' : '#ef4444';
+    var fillColor = lastVal >= startVal ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)';
+    var trace = {x:dates,y:eq,type:'scatter',mode:'lines',fill:'tozeroy',fillcolor:fillColor,line:{color:lineColor,width:2.5,shape:'linear'},hovertemplate:'%{x|%b %d %H:%M}<br>Equity: $%{y:,.2f}<extra></extra>'};
+    var baseline = {x:[dates[0],dates[dates.length-1]],y:[STARTING_EQUITY,STARTING_EQUITY],type:'scatter',mode:'lines',line:{color:'rgba(255,255,255,0.2)',width:1,dash:'dot'},hoverinfo:'skip'};
+    var yMin = Math.min.apply(null,eq);
+    var yMax = Math.max.apply(null,eq);
+    var yPad = (yMax - yMin) * 0.1 || 50;
+    var layout = Object.assign({},JSON.parse(JSON.stringify(darkPlotLayout)),{height:260,yaxis:{gridcolor:'rgba(255,255,255,0.04)',linecolor:'rgba(255,255,255,0.06)',tickprefix:'$',separatethousands:true,range:[yMin - yPad, yMax + yPad]}});
+    Plotly.react(el,[trace,baseline],layout,plotConfig);
+  }
+
+  // ---- Render per-symbol intraday chart with trade markers ----
+  function renderSymbolChart(containerId, symbol, bars, orders, position) {
+    var el = document.getElementById(containerId);
+    if (!el) return;
+    if (!bars || bars.length === 0) {
+      el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-dim);font-size:12px">No intraday data available</div>';
+      return;
+    }
+    var dates = bars.map(function(b) { return b.t; });
+    var closes = bars.map(function(b) { return b.c; });
+    var traces = [];
+    traces.push({x:dates,y:closes,type:'scatter',mode:'lines',name:symbol + ' Price',line:{color:'#3b82f6',width:2,shape:'linear'},hovertemplate:'%{x|%b %d %H:%M}<br>$%{y:.2f}<extra></extra>'});
+
+    // Entry markers from orders
+    var symOrders = orders.filter(function(o) { return o.symbol === symbol; });
+    var entryX=[], entryY=[], entryText=[];
+    var exitX=[], exitY=[], exitText=[];
+    symOrders.forEach(function(o) {
+      var price = parseFloat(o.price);
+      var dt = o.filled_at;
+      var intent = o.intent || '';
+      if (intent.indexOf('open') >= 0) {
+        entryX.push(dt); entryY.push(price);
+        entryText.push((o.side==='buy'?'BUY':'SELL') + ' ' + o.qty + ' @ $' + price.toFixed(2));
+      } else if (intent.indexOf('close') >= 0) {
+        exitX.push(dt); exitY.push(price);
+        exitText.push('CLOSE ' + o.qty + ' @ $' + price.toFixed(2));
+      }
+    });
+    if (entryX.length > 0) {
+      traces.push({x:entryX,y:entryY,type:'scatter',mode:'markers+text',name:'Entry',marker:{color:'#22c55e',size:12,symbol:'triangle-up',line:{color:'#fff',width:1}},text:entryText,textposition:'top center',textfont:{size:9,color:'#22c55e'},hovertemplate:'%{text}<extra>ENTRY</extra>'});
+    }
+    if (exitX.length > 0) {
+      traces.push({x:exitX,y:exitY,type:'scatter',mode:'markers+text',name:'Exit',marker:{color:'#ef4444',size:12,symbol:'x',line:{color:'#fff',width:1}},text:exitText,textposition:'bottom center',textfont:{size:9,color:'#ef4444'},hovertemplate:'%{text}<extra>EXIT</extra>'});
+    }
+    // Current position entry price line
+    if (position) {
+      var ep = parseFloat(position.avg_entry_price);
+      traces.push({x:[dates[0],dates[dates.length-1]],y:[ep,ep],type:'scatter',mode:'lines',name:'Entry @ $' + ep.toFixed(2),line:{color:'#f59e0b',width:1,dash:'dash'},hovertemplate:'Entry: $' + ep.toFixed(2) + '<extra></extra>'});
+    }
+    var layout = Object.assign({},JSON.parse(JSON.stringify(darkPlotLayout)),{height:195,showlegend:true,legend:{x:0,y:1.15,orientation:'h',font:{size:9}},yaxis:{gridcolor:'rgba(255,255,255,0.04)',linecolor:'rgba(255,255,255,0.06)',tickprefix:'$',separatethousands:true}});
+    Plotly.react(el,traces,layout,plotConfig);
+  }
+
+  // ---- Build signal cards for all traded symbols ----
+  function renderSignalCards(positions, orders, bars) {
+    var grid = document.getElementById('signals-grid-container');
+    var symEl = document.getElementById('active-symbols');
+    if (!grid) return;
+    if (!positions || positions.length === 0) {
+      grid.innerHTML = '<div class="glass" style="padding:40px;text-align:center;grid-column:1/-1"><div style="color:var(--text-dim)">No active positions</div></div>';
+      if (symEl) symEl.textContent = 'None';
+      return;
+    }
+    var symbolNames = positions.map(function(p) { return p.symbol; });
+    if (symEl) symEl.textContent = symbolNames.join(', ');
+
+    var html = '';
+    positions.forEach(function(p) {
+      var sym = p.symbol;
+      var pl = parseFloat(p.unrealized_pl) || 0;
+      var plPct = (parseFloat(p.unrealized_plpc) || 0) * 100;
+      var side = parseFloat(p.qty) < 0 ? 'SHORT' : 'LONG';
+      var borderColor = side === 'LONG' ? 'var(--positive)' : '#f59e0b';
+      var sideColor = side === 'LONG' ? 'var(--positive)' : '#f59e0b';
+      var plCls = pl >= 0 ? 'pos' : 'neg';
+      var qty = Math.abs(parseFloat(p.qty));
+      var entry = parseFloat(p.avg_entry_price).toFixed(2);
+      var current = parseFloat(p.current_price).toFixed(2);
+      var mktVal = Math.abs(parseFloat(p.market_value) || 0);
+      var chartId = 'symbol-chart-' + sym;
+
+      html += '<div class="sig-card glass" style="border-left:3px solid ' + borderColor + ';border-top:none">';
+
+      // LEFT: Info panel
+      html += '<div>';
+      html += '<div class="sig-header" style="margin-bottom:14px">';
+      html += '<span class="sig-symbol" style="font-size:22px">' + sym + '</span>';
+      html += '<span style="font-weight:800;font-size:12px;color:' + sideColor + ';background:rgba(255,255,255,0.04);padding:3px 8px;border-radius:4px">' + side + ' ' + qty + '</span>';
+      html += '</div>';
+
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">';
+      html += '<div style="background:rgba(255,255,255,0.02);padding:8px 10px;border-radius:5px"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;margin-bottom:2px">Entry</div><div style="font-family:var(--mono);font-weight:700;color:var(--text)">$' + entry + '</div></div>';
+      html += '<div style="background:rgba(255,255,255,0.02);padding:8px 10px;border-radius:5px"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;margin-bottom:2px">Current</div><div style="font-family:var(--mono);font-weight:700;color:var(--text)">$' + current + '</div></div>';
+      html += '</div>';
+
+      html += '<div style="background:rgba(255,255,255,0.02);padding:10px 12px;border-radius:5px;margin-bottom:10px">';
+      html += '<div style="display:flex;justify-content:space-between;margin-bottom:6px"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">P&L</div><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">Return</div></div>';
+      html += '<div style="display:flex;justify-content:space-between"><div class="' + plCls + '" style="font-family:var(--mono);font-weight:700;font-size:1.15rem">' + (pl >= 0 ? '+$' : '-$') + Math.abs(pl).toFixed(2) + '</div>';
+      html += '<div class="' + plCls + '" style="font-family:var(--mono);font-weight:700;font-size:1.15rem">' + (plPct >= 0 ? '+' : '-') + Math.abs(plPct).toFixed(2) + '%</div></div>';
+      html += '</div>';
+
+      html += '<div style="font-size:11px;color:var(--text-dim)">Mkt Value: ' + fmtUSD(mktVal) + '</div>';
+      html += '</div>';
+
+      // RIGHT: Chart
+      var toggleId = 'toggle-' + sym;
+      var wrapId   = 'chartwrap-' + sym;
+      html += '<div style="min-width:0">';
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">';
+      html += '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em">Price Action &amp; Trade History</div>';
+      html += '<button class="chart-toggle-btn" id="' + toggleId + '" onclick="toggleSigChart(\'' + sym + '\')">Hide</button>';
+      html += '</div>';
+      html += '<div id="' + wrapId + '" class="sig-chart-wrap" style="height:200px">';
+      html += '<div id="' + chartId + '" style="height:200px"></div>';
+      html += '</div>';
+      html += '</div>';
+
+      html += '</div>';
+    });
+    grid.innerHTML = html;
+
+    // Render charts after DOM insert
+    setTimeout(function() {
+      positions.forEach(function(p) {
+        renderSymbolChart('symbol-chart-' + p.symbol, p.symbol, bars[p.symbol] || [], orders, p);
+      });
+    }, 50);
+  }
+
+  // ---- Toggle Price Action chart visibility ----
+  function toggleSigChart(sym) {
+    var wrap = document.getElementById('chartwrap-' + sym);
+    var btn  = document.getElementById('toggle-' + sym);
+    if (!wrap || !btn) return;
+    var hidden = wrap.classList.toggle('collapsed');
+    btn.textContent = hidden ? 'Show' : 'Hide';
+  }
+
+  // ---- Main data loader ----
   async function loadLiveData() {
     try {
       var posRes = fetch('/api/positions');
       var sigRes = fetch('/api/signals');
-      var results = await Promise.all([posRes, sigRes]);
+      var histRes = fetch('/api/history');
+      var results = await Promise.all([posRes, sigRes, histRes]);
+
+      var posData = null, sigData = null, histData = null;
 
       // -- Positions & Account --
       if (results[0].ok) {
-        var data = await results[0].json();
-        var equity = parseFloat(data.account.equity) || 0;
-        var cash = parseFloat(data.account.cash) || 0;
-        // Sum position market values (always positive)
+        posData = await results[0].json();
+        var equity = parseFloat(posData.account.equity) || 0;
+        var cash = parseFloat(posData.account.cash) || 0;
         var positionsVal = 0;
-        if (data.positions) {
-          data.positions.forEach(function(p) {
-            positionsVal += Math.abs(parseFloat(p.market_value) || 0);
-          });
+        if (posData.positions) {
+          posData.positions.forEach(function(p) { positionsVal += Math.abs(parseFloat(p.market_value) || 0); });
         }
         var pnl = equity - STARTING_EQUITY;
         var pnlPct = STARTING_EQUITY > 0 ? (pnl / STARTING_EQUITY * 100) : 0;
@@ -2322,34 +2427,36 @@ document.addEventListener('DOMContentLoaded', function() {
         var el;
         el = document.getElementById('live-equity'); if (el) el.textContent = fmtUSD(equity);
         el = document.getElementById('live-cash'); if (el) el.textContent = fmtUSD(cash);
-        el = document.getElementById('live-cash-pct'); if (el) el.textContent = cashPct.toFixed(1) + '%';
+        el = document.getElementById('live-cash-pct'); if (el) el.textContent = cashPct.toFixed(1) + '% of equity';
         el = document.getElementById('live-positions-val'); if (el) el.textContent = fmtUSD(positionsVal);
-        el = document.getElementById('live-positions-pct'); if (el) el.textContent = posPct.toFixed(1) + '%';
+        el = document.getElementById('live-positions-pct'); if (el) el.textContent = posPct.toFixed(1) + '% of equity';
 
         el = document.getElementById('live-pnl-val');
-        if (el) { el.textContent = (pnl >= 0 ? '+' : '-') + fmtUSD(Math.abs(pnl)); el.className = pnlClass; el.style.fontFamily = 'var(--mono)'; el.style.fontSize = '1.1rem'; el.style.fontWeight = '700'; }
+        if (el) { el.textContent = (pnl >= 0 ? '+' : '-') + fmtUSD(Math.abs(pnl)); el.className = pnlClass; }
         el = document.getElementById('live-pnl-pct');
-        if (el) { el.textContent = fmtPct(pnlPct); el.className = pnlClass; el.style.fontSize = '11px'; el.style.fontWeight = '600'; }
+        if (el) { el.textContent = fmtPct(pnlPct); el.className = pnlClass; }
 
         // Positions table
         var container = document.getElementById('live-positions-container');
         var countEl = document.getElementById('live-pos-count');
-        if (container) {
-          if (data.positions && data.positions.length > 0) {
-            if (countEl) countEl.textContent = data.positions.length + ' open';
-            var html = '<table class="trade-table"><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Current</th><th>P&L</th><th>%</th></tr></thead><tbody>';
-            data.positions.forEach(function(p) {
-              var pl = parseFloat(p.unrealized_pl) || 0;
-              var plPct = (parseFloat(p.unrealized_plpc) || 0) * 100;
-              var cls = pl >= 0 ? 'pos' : 'neg';
-              var side = parseFloat(p.qty) < 0 ? 'SHORT' : (p.side === 'short' ? 'SHORT' : 'LONG');
+        if (container && posData.positions) {
+          if (posData.positions.length > 0) {
+            if (countEl) countEl.textContent = posData.positions.length + ' open';
+            var html = '<table class="trade-table"><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Current</th><th>Mkt Value</th><th>P&L</th><th>%</th></tr></thead><tbody>';
+            posData.positions.forEach(function(p) {
+              var ppl = parseFloat(p.unrealized_pl) || 0;
+              var pplPct = (parseFloat(p.unrealized_plpc) || 0) * 100;
+              var cls = ppl >= 0 ? 'pos' : 'neg';
+              var side = parseFloat(p.qty) < 0 ? 'SHORT' : 'LONG';
+              var mv = Math.abs(parseFloat(p.market_value) || 0);
               html += '<tr><td style="font-weight:600;color:var(--text)">' + p.symbol + '</td>';
               html += '<td>' + side + '</td>';
               html += '<td>' + Math.abs(parseFloat(p.qty)) + '</td>';
               html += '<td>$' + parseFloat(p.avg_entry_price).toFixed(2) + '</td>';
               html += '<td>$' + parseFloat(p.current_price).toFixed(2) + '</td>';
-              html += '<td class="' + cls + '">' + (pl >= 0 ? '+$' : '-$') + Math.abs(pl).toFixed(2) + '</td>';
-              html += '<td class="' + cls + '">' + (plPct >= 0 ? '+' : '-') + Math.abs(plPct).toFixed(2) + '%</td></tr>';
+              html += '<td>' + fmtUSD(mv) + '</td>';
+              html += '<td class="' + cls + '">' + (ppl >= 0 ? '+$' : '-$') + Math.abs(ppl).toFixed(2) + '</td>';
+              html += '<td class="' + cls + '">' + (pplPct >= 0 ? '+' : '-') + Math.abs(pplPct).toFixed(2) + '%</td></tr>';
             });
             html += '</tbody></table>';
             container.innerHTML = html;
@@ -2362,23 +2469,29 @@ document.addEventListener('DOMContentLoaded', function() {
 
       // -- VIX / Signals --
       if (results[1].ok) {
-        var sig = await results[1].json();
+        sigData = await results[1].json();
         var vixEl = document.getElementById('vix-value');
         var vixChgEl = document.getElementById('vix-change');
         var updateEl = document.getElementById('last-update');
-
-        if (vixEl && sig.vix !== null) {
-          vixEl.textContent = sig.vix.toFixed(2);
-        }
-        if (vixChgEl && sig.vix_change_pct !== null) {
-          var cls = sig.vix_change_pct <= 0 ? 'pos' : 'neg';
-          vixChgEl.className = 'mono ' + cls;
+        if (vixEl && sigData.vix !== null) vixEl.textContent = sigData.vix.toFixed(2);
+        if (vixChgEl && sigData.vix_change_pct !== null) {
+          var vcls = sigData.vix_change_pct <= 0 ? 'pos' : 'neg';
+          vixChgEl.className = 'mono ' + vcls;
           vixChgEl.style.fontSize = '13px';
-          vixChgEl.textContent = (sig.vix_change_pct >= 0 ? '+' : '') + sig.vix_change_pct.toFixed(2) + '%';
+          vixChgEl.textContent = (sigData.vix_change_pct >= 0 ? '+' : '') + sigData.vix_change_pct.toFixed(2) + '%';
         }
         if (updateEl) {
-          var d = new Date(sig.asof);
+          var d = new Date(sigData.asof);
           updateEl.textContent = d.toLocaleString('en-US', {timeZone:'America/New_York', month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit', hour12:true}) + ' EST';
+        }
+      }
+
+      // -- History / Charts --
+      if (results[2].ok) {
+        histData = await results[2].json();
+        renderEquityChart(histData.portfolio);
+        if (posData && posData.positions) {
+          renderSignalCards(posData.positions, histData.orders || [], histData.bars || {});
         }
       }
     } catch (e) {
