@@ -75,11 +75,15 @@ class handler(BaseHTTPRequestHandler):
         except Exception:
             pass
 
-        # Start from Feb 11, use 15min bars for more data points
-        start_dt = "2026-02-11T00:00:00Z"
+        # Per-symbol start dates based on when positions were opened
+        symbol_start = {
+            "SPY": "2026-02-11T00:00:00Z",
+        }
+        default_start = "2026-02-17T00:00:00Z"
 
         data_base = "https://data.alpaca.markets/v2"
         for sym in traded_symbols[:6]:  # limit to 6 symbols
+            start_dt = symbol_start.get(sym, default_start)
             try:
                 resp = req.get(
                     f"{data_base}/stocks/{sym}/bars",

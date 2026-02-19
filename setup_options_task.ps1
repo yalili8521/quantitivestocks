@@ -25,11 +25,11 @@ $action = New-ScheduledTaskAction -Execute $CmdPath
 $trigger = New-ScheduledTaskTrigger `
     -Weekly `
     -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday `
-    -At '09:25AM'
+    -At '06:25AM'
 
 $settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Hours 72) `
-    -MultipleInstances IgnoreNew `
+    -MultipleInstances Parallel `
     -StartWhenAvailable `
     -WakeToRun:$true
 
@@ -48,7 +48,7 @@ Register-ScheduledTask `
 
 Write-Host "  Done! Task registered." -ForegroundColor Green
 Write-Host ""
-Write-Host "  Schedule : Mon-Fri at 9:25 AM"
+Write-Host "  Schedule : Mon-Fri at 6:25 AM PST (= 9:25 AM EST, 5 min before NYSE open)"
 Write-Host "  Runs     : automatically, no login required"
 Write-Host "  Log      : logs\options_trader_YYYYMMDD_HHmmss.log"
 Write-Host ""
