@@ -167,10 +167,12 @@ section,.section-wrap{padding:100px 0}
 .signals-grid{display:flex;flex-direction:column;gap:16px}
 .sig-card{padding:20px;display:grid;grid-template-columns:300px 1fr;gap:24px;align-items:start}
 @media(max-width:768px){.sig-card{grid-template-columns:1fr;gap:12px}}
-.chart-toggle-btn{background:rgba(255,255,255,0.05);border:1px solid var(--border-muted);color:var(--text-muted);font-size:9px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:2px 8px;border-radius:4px;cursor:pointer;line-height:1.6;transition:background .15s,color .15s}
-.chart-toggle-btn:hover{background:rgba(255,255,255,0.1);color:var(--text)}
-.sig-chart-wrap{overflow:hidden;transition:height .25s ease}
-.sig-chart-wrap.collapsed{height:0!important}
+.sig-chart-details{margin-top:4px}
+.sig-chart-summary{cursor:pointer;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);list-style:none;display:flex;align-items:center;gap:5px;padding:6px 0;user-select:none;-webkit-tap-highlight-color:transparent}
+.sig-chart-summary::-webkit-details-marker{display:none}
+.sig-chart-summary::before{content:'▶';font-size:7px;display:inline-block;transition:transform .2s}
+.sig-chart-details[open] .sig-chart-summary::before{transform:rotate(90deg)}
+.sig-chart-details[open] .sig-chart-summary{color:var(--text-dim)}
 .sig-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
 .sig-symbol{font-size:15px;font-weight:700;color:var(--text)}
 .sig-dir{font-size:11px;font-weight:700;letter-spacing:.06em;padding:3px 10px;border-radius:var(--radius-xs)}
@@ -2365,38 +2367,36 @@ document.addEventListener('DOMContentLoaded', function() {
       html += '<div style="font-size:11px;color:var(--text-dim)">Mkt Value: ' + fmtUSD(mktVal) + '</div>';
       html += '</div>';
 
-      // RIGHT: Chart
-      var toggleId = 'toggle-' + sym;
-      var wrapId   = 'chartwrap-' + sym;
+      // RIGHT: Chart (collapsed by default, lazy-rendered on first open)
       html += '<div style="min-width:0">';
-      html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">';
-      html += '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em">Price Action &amp; Trade History</div>';
-      html += '<button class="chart-toggle-btn" id="' + toggleId + '" onclick="toggleSigChart(\'' + sym + '\')">Hide</button>';
-      html += '</div>';
-      html += '<div id="' + wrapId + '" class="sig-chart-wrap" style="height:200px">';
-      html += '<div id="' + chartId + '" style="height:200px"></div>';
-      html += '</div>';
+      html += '<details class="sig-chart-details" id="details-' + sym + '">';
+      html += '<summary class="sig-chart-summary">Price Action &amp; Trade History</summary>';
+      html += '<div id="' + chartId + '" style="height:200px;margin-top:8px"></div>';
+      html += '</details>';
       html += '</div>';
 
       html += '</div>';
     });
     grid.innerHTML = html;
 
-    // Render charts after DOM insert
+    // Lazy-render chart on first open of each details element
     setTimeout(function() {
       positions.forEach(function(p) {
-        renderSymbolChart('symbol-chart-' + p.symbol, p.symbol, bars[p.symbol] || [], orders, p);
+        var det = document.getElementById('details-' + p.symbol);
+        if (!det) return;
+        det.addEventListener('toggle', function() {
+          if (!det.open) return;
+          var el = document.getElementById('symbol-chart-' + p.symbol);
+          if (!el) return;
+          if (el.dataset.rendered) {
+            Plotly.Plots.resize(el);
+          } else {
+            renderSymbolChart('symbol-chart-' + p.symbol, p.symbol, bars[p.symbol] || [], orders, p);
+            el.dataset.rendered = '1';
+          }
+        });
       });
     }, 50);
-  }
-
-  // ---- Toggle Price Action chart visibility ----
-  function toggleSigChart(sym) {
-    var wrap = document.getElementById('chartwrap-' + sym);
-    var btn  = document.getElementById('toggle-' + sym);
-    if (!wrap || !btn) return;
-    var hidden = wrap.classList.toggle('collapsed');
-    btn.textContent = hidden ? 'Show' : 'Hide';
   }
 
   // ---- Main data loader ----
