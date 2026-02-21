@@ -85,7 +85,7 @@ if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
 }
 
 $Args = @(
-    'main.py','trade',
+    '-u','main.py','trade',
     '--provider','alpaca',
     '--mode','intraday',
     '--interval','5min',
@@ -123,7 +123,13 @@ if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
     exit 1
 }
 
-# Capture Python stdout+stderr to the log (cmd redirection is the most reliable across PS versions)
+# Launch Python as a detached process so it survives VS Code / terminal being closed.
 $ArgLine = $Args -join ' '
 $CmdLine = "`"$PythonExe`" $ArgLine >> `"$LogFile`" 2>&1"
-& cmd.exe /c $CmdLine
+$proc = Start-Process -FilePath "cmd.exe" `
+    -ArgumentList "/c $CmdLine" `
+    -WorkingDirectory $ProjectRoot `
+    -WindowStyle Hidden `
+    -PassThru
+"Launched detached process PID: $($proc.Id)" | Out-File -FilePath $LogFile -Encoding utf8 -Append
+Write-Host "Paper trader started (PID $($proc.Id)). Log: $LogFile"
