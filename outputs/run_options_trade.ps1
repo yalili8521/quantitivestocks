@@ -80,7 +80,7 @@ if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
     }
 }
 
-$Args = @(
+$PythonArgs = @(
     '-u','main.py','trade-options',
     '--symbols','SPY,QQQ,IWM,SLV,GLD,XLE,IGV',
     '--vix-spike-threshold','15',
@@ -106,7 +106,7 @@ foreach ($candidate in $EnvCandidates) {
         "Env file present: $candidate" | Out-File -FilePath $LogFile -Encoding utf8 -Append
     }
 }
-"Args: $($Args -join ' ')" | Out-File -FilePath $LogFile -Encoding utf8 -Append
+"Args: $($PythonArgs -join ' ')" | Out-File -FilePath $LogFile -Encoding utf8 -Append
 if ($existingTraders) {
     "Stopped existing options trader process count: $($existingTraders.Count)" | Out-File -FilePath $LogFile -Encoding utf8 -Append
 }
@@ -116,12 +116,13 @@ if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
     exit 1
 }
 
-$ArgLine = $Args -join ' '
+$ArgLine = $PythonArgs -join ' '
 $CmdLine = "`"$PythonExe`" $ArgLine >> `"$LogFile`" 2>&1"
-$proc = Start-Process -FilePath "cmd.exe" `
-    -ArgumentList "/c $CmdLine" `
-    -WorkingDirectory $ProjectRoot `
-    -WindowStyle Hidden `
-    -PassThru
+$psi = New-Object System.Diagnostics.ProcessStartInfo("cmd.exe")
+$psi.Arguments        = "/c $CmdLine"
+$psi.WorkingDirectory = $ProjectRoot
+$psi.UseShellExecute  = $false
+$psi.CreateNoWindow   = $true
+$proc = [System.Diagnostics.Process]::Start($psi)
 "Launched detached process PID: $($proc.Id)" | Out-File -FilePath $LogFile -Encoding utf8 -Append
 Write-Host "Options trader started (PID $($proc.Id)). Log: $LogFile"

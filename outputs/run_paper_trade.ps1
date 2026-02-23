@@ -84,7 +84,7 @@ if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
     }
 }
 
-$Args = @(
+$PythonArgs = @(
     '-u','main.py','trade',
     '--provider','alpaca',
     '--mode','intraday',
@@ -113,7 +113,7 @@ foreach ($candidate in $EnvCandidates) {
         "Env file present: $candidate" | Out-File -FilePath $LogFile -Encoding utf8 -Append
     }
 }
-"Args: $($Args -join ' ')" | Out-File -FilePath $LogFile -Encoding utf8 -Append
+"Args: $($PythonArgs -join ' ')" | Out-File -FilePath $LogFile -Encoding utf8 -Append
 if ($existingTraders) {
     "Stopped existing trader process count: $($existingTraders.Count)" | Out-File -FilePath $LogFile -Encoding utf8 -Append
 }
@@ -123,13 +123,16 @@ if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
     exit 1
 }
 
-# Launch Python as a detached process so it survives VS Code / terminal being closed.
-$ArgLine = $Args -join ' '
+# Launch Python as a detached process that inherits env vars (including those loaded from .env)
+# and survives VS Code / terminal being closed.
+# UseShellExecute=false is required so Set-Item Env: assignments above are inherited by the child.
+$ArgLine = $PythonArgs -join ' '
 $CmdLine = "`"$PythonExe`" $ArgLine >> `"$LogFile`" 2>&1"
-$proc = Start-Process -FilePath "cmd.exe" `
-    -ArgumentList "/c $CmdLine" `
-    -WorkingDirectory $ProjectRoot `
-    -WindowStyle Hidden `
-    -PassThru
+$psi = New-Object System.Diagnostics.ProcessStartInfo("cmd.exe")
+$psi.Arguments       = "/c $CmdLine"
+$psi.WorkingDirectory = $ProjectRoot
+$psi.UseShellExecute = $false
+$psi.CreateNoWindow  = $true
+$proc = [System.Diagnostics.Process]::Start($psi)
 "Launched detached process PID: $($proc.Id)" | Out-File -FilePath $LogFile -Encoding utf8 -Append
 Write-Host "Paper trader started (PID $($proc.Id)). Log: $LogFile"
