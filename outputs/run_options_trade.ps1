@@ -81,8 +81,8 @@ if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
 }
 
 $Args = @(
-    'main.py','trade-options',
-    '--symbols','SPY,QQQ,IWM',
+    '-u','main.py','trade-options',
+    '--symbols','SPY,QQQ,IWM,SLV,GLD,XLE,IGV',
     '--vix-spike-threshold','15',
     '--max-risk','5000',
     '--confidence','0.30',
@@ -118,4 +118,10 @@ if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
 
 $ArgLine = $Args -join ' '
 $CmdLine = "`"$PythonExe`" $ArgLine >> `"$LogFile`" 2>&1"
-& cmd.exe /c $CmdLine
+$proc = Start-Process -FilePath "cmd.exe" `
+    -ArgumentList "/c $CmdLine" `
+    -WorkingDirectory $ProjectRoot `
+    -WindowStyle Hidden `
+    -PassThru
+"Launched detached process PID: $($proc.Id)" | Out-File -FilePath $LogFile -Encoding utf8 -Append
+Write-Host "Options trader started (PID $($proc.Id)). Log: $LogFile"

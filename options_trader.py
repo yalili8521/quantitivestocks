@@ -801,9 +801,8 @@ class StraddleTrader:
                 continue
 
             try:
-                # Refresh VIX each cycle
-                vix_fetcher       = FREDVixFetcher(api_key=self.fred_key)
-                vix_df            = vix_fetcher.fetch(lookback_days=365)
+                # Refresh VIX each cycle (FRED with yfinance ^VIX fallback)
+                vix_df            = _fetch_vix_for_training(self.fred_key, lookback_days=365)
                 self.iv_estimator = IVEstimator(vix_df)
 
                 account = self.get_account_summary()
@@ -880,7 +879,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--symbols", type=str, default=None,
-        help="Comma-separated symbols (default: SPY,QQQ,IWM)",
+        help="Comma-separated symbols (default: SPY,QQQ,IWM,SLV,GLD,XLE,IGV)",
     )
     parser.add_argument(
         "--provider", default="yahoo", choices=["yahoo", "alpaca", "hybrid"],
@@ -919,7 +918,7 @@ def main() -> None:
 
     symbols = (
         [s.strip().upper() for s in args.symbols.split(",")]
-        if args.symbols else ["SPY", "QQQ", "IWM"]
+        if args.symbols else ["SPY", "QQQ", "IWM", "SLV", "GLD", "XLE", "IGV"]
     )
 
     trader = StraddleTrader(
