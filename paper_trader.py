@@ -53,38 +53,86 @@ _INSTANCE_LOCK_FH = None
 def _acquire_single_instance_lock() -> bool:
     """Return False if another paper trader instance is already running.
 
-    Uses a non-blocking lock file to enforce one active `main.py trade` loop.
+    Uses a PID file + byte-range lock. Stale locks (PID no longer running)
+    are automatically cleared so a force-killed process never blocks restarts.
     """
     global _INSTANCE_LOCK_FH
 
-    project_root = os.path.dirname(os.path.abspath(__file__))
-    lock_path = os.path.join(project_root, ".paper_trader.lock")
+    lock_path = os.path.join(
+        os.environ.get("TEMP", os.path.dirname(os.path.abspath(__file__))),
+        ".paper_trader.lock",
+    )
 
-    try:
-        lock_fh = open(lock_path, "a+")
-    except OSError:
-        log.warning("Could not open single-instance lock file; continuing without lock.")
-        return True
+    def _pid_alive(pid: int) -> bool:
+        """Return True if a process with this PID is still running."""
+        try:
+            if os.name == "nt":
+                import ctypes
+                SYNCHRONIZE = 0x00100000
+                handle = ctypes.windll.kernel32.OpenProcess(SYNCHRONIZE, False, pid)
+                if not handle:
+                    return False
+                result = ctypes.windll.kernel32.WaitForSingleObject(handle, 0)
+                ctypes.windll.kernel32.CloseHandle(handle)
+                return result != 0  # 0 = WAIT_OBJECT_0 means process exited
+            else:
+                os.kill(pid, 0)
+                return True
+        except (OSError, PermissionError):
+            return False
 
-    try:
-        if os.name == "nt":
-            import msvcrt
+    for attempt in range(2):
+        try:
+            lock_fh = open(lock_path, "w+")
+        except OSError:
+            log.warning("Could not open single-instance lock file; continuing without lock.")
+            return True
 
+        try:
+            if os.name == "nt":
+                import msvcrt
+                lock_fh.seek(0)
+                msvcrt.locking(lock_fh.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+            # Lock acquired — write our PID so future starts can detect stale locks
             lock_fh.seek(0)
-            lock_fh.write("1")
+            lock_fh.write(str(os.getpid()))
             lock_fh.flush()
-            lock_fh.seek(0)
-            msvcrt.locking(lock_fh.fileno(), msvcrt.LK_NBLCK, 1)
-        else:
-            import fcntl
+            _INSTANCE_LOCK_FH = lock_fh
+            return True
 
-            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except (OSError, BlockingIOError):
-        lock_fh.close()
-        return False
+        except (OSError, BlockingIOError):
+            lock_fh.close()
+            if attempt == 0:
+                # Read the PID from the lock file to check if it's actually alive
+                try:
+                    with open(lock_path) as f:
+                        owner_pid = int(f.read().strip())
+                    if not _pid_alive(owner_pid):
+                        log.warning(
+                            "Stale lock file (PID %d no longer running) — removing and retrying.",
+                            owner_pid,
+                        )
+                        try:
+                            os.remove(lock_path)
+                        except OSError:
+                            pass
+                        time.sleep(0.5)
+                        continue  # retry
+                except (ValueError, OSError):
+                    # Can't read PID; remove and retry once
+                    try:
+                        os.remove(lock_path)
+                    except OSError:
+                        pass
+                    time.sleep(0.5)
+                    continue
+            return False
 
-    _INSTANCE_LOCK_FH = lock_fh
-    return True
+    return False
 
 
 # ===================================================================
