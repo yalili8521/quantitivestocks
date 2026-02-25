@@ -1,0 +1,2 @@
+timestamp,symbol,action,strategy,strike,expiry,call_contract,put_contract,entry_price,call_cost,put_cost,total_cost,entry_vix,entry_vix_change,pnl,reason
+2026-02-19T12:25:25.985117,SPY,OPEN,LONG_STRADDLE,683.0,2026-03-13,SPY260313C00683000,SPY260313P00683000,682.84,12.63,11.065,2369.5,19.62,-3.30211927057663,,

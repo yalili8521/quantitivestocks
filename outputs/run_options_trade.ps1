@@ -98,31 +98,30 @@ foreach ($proc in $existingTraders) {
     } catch { }
 }
 
-"[$(Get-Date -Format s)] Starting options trader..." | Out-File -FilePath $LogFile -Encoding utf8
-"Python: $PythonExe" | Out-File -FilePath $LogFile -Encoding utf8 -Append
-"Log: $LogFile" | Out-File -FilePath $LogFile -Encoding utf8 -Append
+Write-Host "[$(Get-Date -Format s)] Starting options trader..."
+Write-Host "Python: $PythonExe"
+Write-Host "Log: $LogFile"
 foreach ($candidate in $EnvCandidates) {
-    if (Test-Path -LiteralPath $candidate) {
-        "Env file present: $candidate" | Out-File -FilePath $LogFile -Encoding utf8 -Append
-    }
+    if (Test-Path -LiteralPath $candidate) { Write-Host "Env file present: $candidate" }
 }
-"Args: $($PythonArgs -join ' ')" | Out-File -FilePath $LogFile -Encoding utf8 -Append
+Write-Host "Args: $($PythonArgs -join ' ')"
 if ($existingTraders) {
-    "Stopped existing options trader process count: $($existingTraders.Count)" | Out-File -FilePath $LogFile -Encoding utf8 -Append
+    Write-Host "Stopped existing options trader process count: $($existingTraders.Count)"
 }
 
 if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
-    "ERROR: Missing ALPACA_API_KEY / ALPACA_API_SECRET. Set machine env vars or add one of: $($EnvCandidates -join ', ')" | Out-File -FilePath $LogFile -Encoding utf8 -Append
+    Write-Error "ERROR: Missing ALPACA_API_KEY / ALPACA_API_SECRET. Set machine env vars or add one of: $($EnvCandidates -join ', ')"
     exit 1
 }
 
 $ArgLine = $PythonArgs -join ' '
-$CmdLine = "`"$PythonExe`" $ArgLine >> `"$LogFile`" 2>&1"
-$psi = New-Object System.Diagnostics.ProcessStartInfo("cmd.exe")
-$psi.Arguments        = "/c $CmdLine"
-$psi.WorkingDirectory = $ProjectRoot
-$psi.UseShellExecute  = $false
-$psi.CreateNoWindow   = $true
-$proc = [System.Diagnostics.Process]::Start($psi)
-"Launched detached process PID: $($proc.Id)" | Out-File -FilePath $LogFile -Encoding utf8 -Append
+$ErrLog  = $LogFile -replace '\.log$', '_err.log'
+$proc = Start-Process `
+    -FilePath        $PythonExe `
+    -ArgumentList    $ArgLine `
+    -WorkingDirectory $ProjectRoot `
+    -RedirectStandardOutput $LogFile `
+    -RedirectStandardError  $ErrLog `
+    -WindowStyle     Hidden `
+    -PassThru
 Write-Host "Options trader started (PID $($proc.Id)). Log: $LogFile"

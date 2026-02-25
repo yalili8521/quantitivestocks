@@ -1,4 +1,4 @@
-# Run this script once to register the options trader as a scheduled task.
+# Run this script once to register the paper (equity) trader as a scheduled task.
 # The task will run even when you are NOT logged in (computer must be on and online).
 # It will self-elevate to admin and prompt once for your Windows password.
 
@@ -19,7 +19,7 @@ if (-not (Test-Admin)) {
 }
 
 Write-Host ""
-Write-Host "  Registering QuantitativeStocks-OptionsTrader-Weekdays..." -ForegroundColor Cyan
+Write-Host "  Registering QuantitativeStocks-PaperTrader-Weekdays..." -ForegroundColor Cyan
 Write-Host "  (Runs whether you are logged in or not)" -ForegroundColor Gray
 Write-Host ""
 
@@ -41,14 +41,14 @@ if ([string]::IsNullOrEmpty($password)) {
     exit 1
 }
 
-$CmdPath = Join-Path $ProjectRoot 'run_options_trade.cmd'
+$CmdPath = Join-Path $ProjectRoot 'run_paper_trade.cmd'
 
 $action = New-ScheduledTaskAction -Execute $CmdPath -WorkingDirectory $ProjectRoot
 
 $trigger = New-ScheduledTaskTrigger `
     -Weekly `
     -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday `
-    -At '06:25AM'
+    -At '09:25AM'
 
 $settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Hours 72) `
@@ -57,7 +57,7 @@ $settings = New-ScheduledTaskSettingsSet `
     -WakeToRun:$true
 
 Register-ScheduledTask `
-    -TaskName 'QuantitativeStocks-OptionsTrader-Weekdays' `
+    -TaskName 'QuantitativeStocks-PaperTrader-Weekdays' `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
@@ -70,8 +70,8 @@ $password = $null
 
 Write-Host "  Done! Task registered." -ForegroundColor Green
 Write-Host ""
-Write-Host "  Schedule : Mon-Fri at 6:25 AM (5 min before NYSE open)"
+Write-Host "  Schedule : Mon-Fri at 9:25 AM (market open)"
 Write-Host "  Runs     : automatically when PC is on — no login required"
-Write-Host "  Log      : logs\options_trader_YYYYMMDD_HHmmss.log"
+Write-Host "  Log      : logs\paper_trader_YYYYMMDD_HHmmss.log"
 Write-Host ""
 Read-Host "  Press Enter to close"
