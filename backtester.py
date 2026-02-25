@@ -28,7 +28,10 @@ import numpy as np
 import pandas as pd
 import torch
 
-from signals_engine import build_adapter, FREDVixFetcher, PROJECT_ROOT
+from signals_engine import (
+    build_adapter, FREDVixFetcher, PROJECT_ROOT,
+    compute_atr, compute_adx, compute_bollinger_bands,
+)
 from ml_model import (
     FeatureEngine, DirectionLSTM, Predictor, FEATURE_COLS, SEQ_LEN,
     DEFAULT_MODEL_DIR, _fetch_vix_for_training,
@@ -54,6 +57,9 @@ class Trade:
     direction: str              # "LONG" or "SHORT"
     size: float                 # number of shares
     peak_price: float = 0.0     # best price since entry (highest for LONG, lowest for SHORT)
+    atr_at_entry: float = 0.0   # ATR at entry for adaptive stop
+    tp_activated: bool = False   # trailing take-profit activated
+    tp_trail_peak: float = 0.0   # highest P&L since TP activation
     exit_date: object = None
     exit_price: Optional[float] = None
     pnl: Optional[float] = None
@@ -101,8 +107,11 @@ class BacktestResult:
 class Backtester:
     """Walk-forward backtester driven by ML predictions.
 
-    Supports LONG and SHORT positions with trailing stop-loss,
-    take-profit, and immediate position flipping.
+    Supports LONG and SHORT positions with:
+    - ATR-based adaptive trailing stop
+    - Volatility-adjusted, confidence-scaled position sizing
+    - Regime filter (ADX-based trend detection)
+    - Trailing take-profit that locks in gains progressively
     """
 
     def __init__(
@@ -112,14 +121,25 @@ class Backtester:
         fred_key: Optional[str] = None,
         model_dir: str = DEFAULT_MODEL_DIR,
         initial_capital: float = 100_000.0,
-        confidence_threshold: float = 0.2,         # LONG threshold
-        short_confidence_threshold: float = 0.15,  # SHORT threshold (more aggressive)
+        confidence_threshold: float = 0.2,
+        short_confidence_threshold: float = 0.15,
         exit_confidence: float = 0.1,
         trailing_stop_pct: float = 0.05,
         take_profit_pct: float = 0.08,
         position_pct: float = 0.95,
         mode: str = "daily",
         intraday_interval: str = "5min",
+        # --- New optimization parameters ---
+        use_atr_stop: bool = True,
+        atr_stop_mult: float = 2.5,
+        use_regime_filter: bool = True,
+        adx_threshold: float = 20.0,
+        use_vol_sizing: bool = True,
+        target_vol: float = 0.15,
+        use_confidence_sizing: bool = True,
+        use_trailing_tp: bool = True,
+        trailing_tp_activation: float = 0.04,
+        trailing_tp_trail: float = 0.02,
     ):
         self.symbol = symbol
         self.adapter = adapter
@@ -134,10 +154,21 @@ class Backtester:
         self.position_pct = position_pct
         self.mode = mode
         self.intraday_interval = intraday_interval
+        # New parameters
+        self.use_atr_stop = use_atr_stop
+        self.atr_stop_mult = atr_stop_mult
+        self.use_regime_filter = use_regime_filter
+        self.adx_threshold = adx_threshold
+        self.use_vol_sizing = use_vol_sizing
+        self.target_vol = target_vol
+        self.use_confidence_sizing = use_confidence_sizing
+        self.use_trailing_tp = use_trailing_tp
+        self.trailing_tp_activation = trailing_tp_activation
+        self.trailing_tp_trail = trailing_tp_trail
 
     def run(self, start_date: str, end_date: Optional[str] = None,
             seq_len: int = SEQ_LEN) -> BacktestResult:
-        """Run the walk-forward backtest."""
+        """Run the walk-forward backtest with optimized strategy."""
         # Fetch data
         if self.mode == "daily":
             lookback = 1000
@@ -147,7 +178,7 @@ class Backtester:
             start_dt_temp = pd.to_datetime(start_date).date()
             end_dt_temp = (pd.to_datetime(end_date).date() if end_date
                           else datetime.now(timezone.utc).date())
-            days_needed = (end_dt_temp - start_dt_temp).days + 60  # extra for warmup
+            days_needed = (end_dt_temp - start_dt_temp).days + 60
             lookback = days_needed
             log.info("Fetching %d days of %s intraday data for %s...",
                      days_needed, self.intraday_interval, self.symbol)
@@ -182,6 +213,15 @@ class Backtester:
             torch.load(weights_path, map_location="cpu", weights_only=True))
         model.eval()
 
+        # Pre-compute technical indicators for the strategy
+        close_s = bars["close"].astype(float)
+        high_s = bars["high"].astype(float)
+        low_s = bars["low"].astype(float)
+        annualize = np.sqrt(78 * 252) if self.mode == "intraday" else np.sqrt(252)
+        atr_series = compute_atr(high_s, low_s, close_s, period=14)
+        adx_series = compute_adx(high_s, low_s, close_s, period=14)
+        vol20_series = close_s.pct_change().rolling(20).std() * annualize
+
         # Date filtering
         bar_timestamps = pd.to_datetime(bars["ts"])
         bar_dates = bar_timestamps.dt.date
@@ -193,7 +233,6 @@ class Backtester:
             cash=self.initial_capital,
         )
 
-        # Walk through each bar
         feature_indices = features_norm.index.tolist()
         log.info("Walking %d bars from %s to %s...", len(feature_indices), start_dt, end_dt)
 
@@ -211,7 +250,10 @@ class Backtester:
                            (idx_pos + 1 < len(feature_indices) and
                             bar_dates.iloc[feature_indices[idx_pos + 1]] > end_dt))
 
-            bar_close = float(bars["close"].iloc[feat_idx])
+            bar_close = float(close_s.iloc[feat_idx])
+            bar_atr = float(atr_series.iloc[feat_idx]) if not np.isnan(atr_series.iloc[feat_idx]) else bar_close * 0.02
+            bar_adx = float(adx_series.iloc[feat_idx]) if not np.isnan(adx_series.iloc[feat_idx]) else 25.0
+            bar_vol = float(vol20_series.iloc[feat_idx]) if not np.isnan(vol20_series.iloc[feat_idx]) else 0.15
 
             # Get prediction
             window_start = idx_pos - seq_len
@@ -227,23 +269,34 @@ class Backtester:
             if portfolio.position is not None:
                 pos = portfolio.position
 
-                # Update peak tracking
                 if pos.direction == "LONG":
                     pos.peak_price = max(pos.peak_price, bar_close)
                     unrealized_pct = (bar_close - pos.entry_price) / pos.entry_price
                     drawdown_from_peak = (pos.peak_price - bar_close) / pos.peak_price
-                else:  # SHORT
+                else:
                     pos.peak_price = min(pos.peak_price, bar_close)
                     unrealized_pct = (pos.entry_price - bar_close) / pos.entry_price
                     drawdown_from_peak = (bar_close - pos.peak_price) / pos.peak_price if pos.peak_price > 0 else 0
 
-                # Take profit - DISABLED: Only exit on signal flip or trailing stop
-                # if unrealized_pct >= self.take_profit_pct:
-                #     self._close_position(portfolio, bar_date, bar_close, "take_profit")
+                # Determine stop level: ATR-based or fixed percentage
+                if self.use_atr_stop and pos.atr_at_entry > 0:
+                    stop_distance = self.atr_stop_mult * pos.atr_at_entry / pos.entry_price
+                else:
+                    stop_distance = self.trailing_stop_pct
+
+                # Trailing take-profit: once activated, use a tighter trail
+                if self.use_trailing_tp and unrealized_pct >= self.trailing_tp_activation:
+                    if not pos.tp_activated:
+                        pos.tp_activated = True
+                        pos.tp_trail_peak = unrealized_pct
+                    pos.tp_trail_peak = max(pos.tp_trail_peak, unrealized_pct)
+                    if unrealized_pct < pos.tp_trail_peak - self.trailing_tp_trail:
+                        self._close_position(portfolio, bar_date, bar_close, "trailing_tp")
+                        continue
+
                 # Trailing stop
-                if drawdown_from_peak >= self.trailing_stop_pct:
+                if drawdown_from_peak >= stop_distance:
                     self._close_position(portfolio, bar_date, bar_close, "trailing_stop")
-                # Signal flip (lower exit confidence threshold)
                 elif (pos.direction == "LONG" and direction == "DOWN"
                       and confidence >= self.exit_confidence):
                     self._close_position(portfolio, bar_date, bar_close, "signal_flip")
@@ -253,29 +306,38 @@ class Backtester:
                     self._close_position(portfolio, bar_date, bar_close, "signal_flip")
                     flip_direction = "LONG"
 
-            # --- Entry logic (includes immediate flip) ---
-            # Don't open new positions on the last bar (would be force-closed at same price)
+            # --- Entry logic ---
             if portfolio.position is None and not is_last_bar:
-                if flip_direction is not None and confidence >= self.exit_confidence:
-                    # Immediate flip — enter opposite direction
-                    self._open_position(portfolio, bar_date, bar_close, flip_direction)
-                elif direction == "UP" and confidence >= self.long_confidence_threshold:
-                    self._open_position(portfolio, bar_date, bar_close, "LONG")
-                elif direction == "DOWN" and confidence >= self.short_confidence_threshold:
-                    self._open_position(portfolio, bar_date, bar_close, "SHORT")
+                # Regime filter: skip entries when market is trendless (low ADX)
+                if self.use_regime_filter and bar_adx < self.adx_threshold:
+                    self._record_equity(portfolio, bar_date, bar_close)
+                    continue
 
-            # Record equity
+                enter_dir = None
+                if flip_direction is not None and confidence >= self.exit_confidence:
+                    enter_dir = flip_direction
+                elif direction == "UP" and confidence >= self.long_confidence_threshold:
+                    enter_dir = "LONG"
+                elif direction == "DOWN" and confidence >= self.short_confidence_threshold:
+                    enter_dir = "SHORT"
+
+                if enter_dir is not None:
+                    self._open_position(
+                        portfolio, bar_date, bar_close, enter_dir,
+                        confidence=confidence, bar_vol=bar_vol, bar_atr=bar_atr,
+                    )
+
             self._record_equity(portfolio, bar_date, bar_close)
 
         # Close any open position at end
         if portfolio.position is not None:
             last_idx = feature_indices[-1]
-            last_close = float(bars["close"].iloc[last_idx])
+            last_close = float(close_s.iloc[last_idx])
             last_date = bar_dates.iloc[last_idx]
             self._close_position(portfolio, last_date, last_close, "end_of_backtest")
             self._record_equity(portfolio, last_date, last_close)
 
-        # Build price series for charts (only the backtest date range)
+        # Build price series for charts
         price_rows = []
         for idx_pos in range(seq_len, len(feature_indices)):
             feat_idx = feature_indices[idx_pos]
@@ -286,22 +348,37 @@ class Backtester:
                 break
             price_rows.append({
                 "date": bd,
-                "close": float(bars["close"].iloc[feat_idx]),
+                "close": float(close_s.iloc[feat_idx]),
             })
         price_df = pd.DataFrame(price_rows)
 
         return self._compute_results(portfolio, price_df)
 
     def _open_position(self, portfolio: Portfolio, date, price: float,
-                       direction: str = "LONG") -> None:
+                       direction: str = "LONG", confidence: float = 0.5,
+                       bar_vol: float = 0.15, bar_atr: float = 0.0) -> None:
         equity = self._current_equity(portfolio, price)
-        invest = equity * self.position_pct
+        base_pct = self.position_pct
+
+        # Volatility-adjusted sizing: scale down when vol is high
+        if self.use_vol_sizing and bar_vol > 0:
+            vol_scalar = min(2.0, max(0.3, self.target_vol / bar_vol))
+            base_pct *= vol_scalar
+
+        # Confidence-scaled sizing: bigger positions when ML is more certain
+        if self.use_confidence_sizing:
+            conf_scalar = 0.5 + confidence  # range [0.5, 1.5]
+            base_pct *= conf_scalar
+
+        base_pct = min(base_pct, 0.98)  # never exceed 98% of equity
+
+        invest = equity * base_pct
         shares = invest / price
-        portfolio.cash -= invest  # held as collateral for both LONG and SHORT
+        portfolio.cash -= invest
         portfolio.position = Trade(
             entry_date=date, entry_price=price,
             direction=direction, size=shares,
-            peak_price=price,
+            peak_price=price, atr_at_entry=bar_atr,
         )
 
     def _close_position(self, portfolio: Portfolio, date, price: float,
@@ -747,6 +824,27 @@ def main() -> None:
                         help="Backtest mode (default: daily)")
     parser.add_argument("--interval", default="5min", choices=["1min", "5min"],
                         help="Intraday bar interval (default: 5min)")
+    # Optimization flags
+    parser.add_argument("--no-atr-stop", action="store_true",
+                        help="Disable ATR-based adaptive trailing stop (use fixed %%)")
+    parser.add_argument("--atr-stop-mult", type=float, default=2.5,
+                        help="ATR multiplier for trailing stop (default: 2.5)")
+    parser.add_argument("--no-regime-filter", action="store_true",
+                        help="Disable ADX regime filter")
+    parser.add_argument("--adx-threshold", type=float, default=20.0,
+                        help="Min ADX to allow entries (default: 20.0)")
+    parser.add_argument("--no-vol-sizing", action="store_true",
+                        help="Disable volatility-adjusted position sizing")
+    parser.add_argument("--target-vol", type=float, default=0.15,
+                        help="Target annualized vol for position sizing (default: 0.15)")
+    parser.add_argument("--no-confidence-sizing", action="store_true",
+                        help="Disable confidence-scaled position sizing")
+    parser.add_argument("--no-trailing-tp", action="store_true",
+                        help="Disable trailing take-profit")
+    parser.add_argument("--trailing-tp-activation", type=float, default=0.04,
+                        help="Unrealized P&L %% to activate trailing TP (default: 0.04)")
+    parser.add_argument("--trailing-tp-trail", type=float, default=0.02,
+                        help="Trail distance after TP activation (default: 0.02)")
 
     args = parser.parse_args()
 
@@ -765,6 +863,16 @@ def main() -> None:
         take_profit_pct=args.take_profit,
         mode=args.mode,
         intraday_interval=args.interval,
+        use_atr_stop=not args.no_atr_stop,
+        atr_stop_mult=args.atr_stop_mult,
+        use_regime_filter=not args.no_regime_filter,
+        adx_threshold=args.adx_threshold,
+        use_vol_sizing=not args.no_vol_sizing,
+        target_vol=args.target_vol,
+        use_confidence_sizing=not args.no_confidence_sizing,
+        use_trailing_tp=not args.no_trailing_tp,
+        trailing_tp_activation=args.trailing_tp_activation,
+        trailing_tp_trail=args.trailing_tp_trail,
     )
 
     result = bt.run(start_date=args.start, end_date=args.end)

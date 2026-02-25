@@ -71,6 +71,12 @@ VIX_SPIKE_THRESHOLD = 15.0   # % daily VIX change to trigger entry
 PROFIT_TARGET_MULT  = 1.8    # close both legs when one leg reaches 1.8x entry cost
 STOP_LOSS_MULT      = 0.6    # close both legs when total value drops to 0.6x total cost
 
+# Dynamic VIX thresholds based on IV rank
+IV_RANK_LOW = 30.0            # below this, use more aggressive VIX spike threshold
+IV_RANK_HIGH = 70.0           # above this, use less aggressive threshold
+VIX_SPIKE_AGGRESSIVE = 8.0   # threshold when IV rank is low (cheap options)
+VIX_SPIKE_CONSERVATIVE = 20.0  # threshold when IV rank is high (expensive options)
+
 
 # ===================================================================
 # Math helpers (no scipy dependency)
@@ -259,8 +265,9 @@ class StraddleTrader:
         check_interval_min: int = 15,
         vix_spike_threshold: float = VIX_SPIKE_THRESHOLD,
         model_dir: str = DEFAULT_MODEL_DIR,
+        use_dynamic_vix_threshold: bool = True,
+        max_risk_pct: float = 0.03,
     ):
-        # Paper trading only — hardcoded for safety
         self.trading_client = TradingClient(
             api_key=api_key, secret_key=api_secret, paper=True,
         )
@@ -273,6 +280,8 @@ class StraddleTrader:
         self.max_risk_per_straddle  = max_risk_per_straddle
         self.check_interval         = check_interval_min * 60
         self.vix_spike_threshold    = vix_spike_threshold
+        self.use_dynamic_vix_threshold = use_dynamic_vix_threshold
+        self.max_risk_pct           = max_risk_pct
 
         self.adapter  = build_adapter(provider)
         self.fred_key = os.environ.get("FRED_API_KEY")
@@ -749,21 +758,43 @@ class StraddleTrader:
         # ============================================================
         # PATH B — No position: check VIX spike for entry
         # ============================================================
-        if vix_change_pct >= self.vix_spike_threshold:
+        # Dynamic VIX threshold: when IV rank is low (cheap options), be more
+        # aggressive; when IV rank is high (expensive options), be conservative
+        effective_threshold = self.vix_spike_threshold
+        iv_rank = self.iv_estimator.iv_rank() if self.iv_estimator else 50.0
+        if self.use_dynamic_vix_threshold:
+            if iv_rank < IV_RANK_LOW:
+                effective_threshold = VIX_SPIKE_AGGRESSIVE
+            elif iv_rank > IV_RANK_HIGH:
+                effective_threshold = VIX_SPIKE_CONSERVATIVE
+            else:
+                t = (iv_rank - IV_RANK_LOW) / (IV_RANK_HIGH - IV_RANK_LOW)
+                effective_threshold = VIX_SPIKE_AGGRESSIVE + t * (VIX_SPIKE_CONSERVATIVE - VIX_SPIKE_AGGRESSIVE)
+
+        # Equity-based max risk: don't risk more than max_risk_pct of account
+        account = self.get_account_summary()
+        equity_risk = account["equity"] * self.max_risk_pct
+        effective_max_risk = min(self.max_risk_per_straddle, equity_risk)
+
+        if vix_change_pct >= effective_threshold:
+            old_max = self.max_risk_per_straddle
+            self.max_risk_per_straddle = effective_max_risk
             opened = self.execute_straddle(symbol, current_price, vix_now, vix_change_pct)
+            self.max_risk_per_straddle = old_max
             if opened:
                 s = self.active_straddles[symbol]
                 return (
                     f"OPEN  straddle | strike={s['strike']:.0f} | "
                     f"expiry={s['expiry']} | total=${s['total_cost']:.0f} | "
-                    f"VIX={vix_now:.1f} spike={vix_change_pct:+.1f}%"
+                    f"VIX={vix_now:.1f} spike={vix_change_pct:+.1f}% | "
+                    f"IVR={iv_rank:.0f} thresh={effective_threshold:.0f}%"
                 )
-            return f"SKIP  (no contracts found or cost > ${self.max_risk_per_straddle:.0f})"
+            return f"SKIP  (no contracts found or cost > ${effective_max_risk:.0f})"
 
         return (
             f"WAIT  VIX spike needed | "
             f"VIX={vix_now:.1f} chg={vix_change_pct:+.1f}% "
-            f"(need >={self.vix_spike_threshold:.0f}%) | "
+            f"(need >={effective_threshold:.0f}% @ IVR={iv_rank:.0f}) | "
             f"ML:{direction}({confidence:.2f})"
         )
 
@@ -907,6 +938,14 @@ def main() -> None:
         help="Min VIX daily %% change to trigger entry (default: 15.0). "
              "Use 1.0 to test immediately.",
     )
+    parser.add_argument(
+        "--no-dynamic-vix", action="store_true",
+        help="Disable dynamic VIX threshold based on IV rank",
+    )
+    parser.add_argument(
+        "--max-risk-pct", type=float, default=0.03,
+        help="Max risk per straddle as %% of equity (default: 0.03 = 3%%)",
+    )
 
     args = parser.parse_args()
 
@@ -931,6 +970,8 @@ def main() -> None:
         max_risk_per_straddle=args.max_risk,
         check_interval_min=args.check_interval,
         vix_spike_threshold=args.vix_spike_threshold,
+        use_dynamic_vix_threshold=not args.no_dynamic_vix,
+        max_risk_pct=args.max_risk_pct,
     )
 
     try:
@@ -938,11 +979,12 @@ def main() -> None:
         print(f"\n  Connected to Alpaca Paper Trading  (Long ATM Straddle — REAL ORDERS)")
         print(f"  Account equity:    ${account['equity']:,.2f}")
         print(f"  Strategy:          Buy real ATM call + put contracts")
-        print(f"  Entry trigger:     VIX daily change >= {args.vix_spike_threshold:.0f}%")
+        dyn = "ON (8-20% based on IV rank)" if not args.no_dynamic_vix else "OFF"
+        print(f"  Entry trigger:     VIX daily change >= {args.vix_spike_threshold:.0f}% (dynamic: {dyn})")
         print(f"  Profit target:     +{(PROFIT_TARGET_MULT - 1) * 100:.0f}% on either leg")
         print(f"  Stop loss:         -{(1 - STOP_LOSS_MULT) * 100:.0f}% on total position")
         print(f"  ML signal exit:    confidence >= {args.confidence:.2f}")
-        print(f"  Max risk/straddle: ${args.max_risk:,.0f}")
+        print(f"  Max risk/straddle: ${args.max_risk:,.0f} or {args.max_risk_pct:.0%} of equity")
         print()
         print("  NOTE: If you see 'forbidden' errors, complete your Alpaca account")
         print("        application to enable options on your paper account.")

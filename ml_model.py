@@ -33,6 +33,11 @@ from signals_engine import (
     FREDVixFetcher,
     build_adapter,
     compute_rsi,
+    compute_atr,
+    compute_macd,
+    compute_bollinger_bands,
+    compute_adx,
+    compute_momentum_quality,
     RSI_PERIOD,
     DAILY_LOOKBACK,
     PROJECT_ROOT,
@@ -54,6 +59,9 @@ FEATURE_COLS = [
     "rsi14", "ret5", "ret10", "wk_ret", "mo_ret", "vol20",
     "log_dollar_vol", "vix", "vix_chg",
     "vol_imbalance", "vwap_ratio", "dv_accel", "spread_proxy",
+    # Enhanced features for strategy optimization
+    "atr_pct", "macd_hist_norm", "bb_pct_b", "bb_bandwidth",
+    "adx", "momentum_quality", "vol_regime", "trend_strength",
 ]
 
 DEFAULT_MODEL_DIR = os.path.join(PROJECT_ROOT, "models")
@@ -62,20 +70,39 @@ DEFAULT_MODEL_DIR = os.path.join(PROJECT_ROOT, "models")
 # ===================================================================
 # LSTM Model
 # ===================================================================
+class TemporalAttention(nn.Module):
+    """Soft attention over LSTM time steps — lets the model focus on key bars."""
+
+    def __init__(self, hidden_size: int):
+        super().__init__()
+        self.attn = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size // 2),
+            nn.Tanh(),
+            nn.Linear(hidden_size // 2, 1, bias=False),
+        )
+
+    def forward(self, lstm_out: torch.Tensor) -> torch.Tensor:
+        scores = self.attn(lstm_out).squeeze(-1)
+        weights = torch.softmax(scores, dim=1)
+        context = (lstm_out * weights.unsqueeze(-1)).sum(dim=1)
+        return context
+
+
 class DirectionLSTM(nn.Module):
-    """LSTM that predicts next-bar direction (up/down).
+    """LSTM with temporal attention for next-bar direction prediction.
 
     Architecture:
-        Input:  (batch, seq_len, n_features)
-        LSTM:   2-layer, hidden_size=64, dropout=0.2
-        FC:     64 -> 32 -> ReLU -> 1 -> Sigmoid
-
-    Output: probability that next bar closes higher than current bar.
+        Input:      (batch, seq_len, n_features)
+        LayerNorm:  normalize input features
+        LSTM:       2-layer, hidden_size=96, dropout=0.25
+        Attention:  soft attention over all time steps
+        FC:         96 -> 48 -> ReLU -> Dropout -> 1 -> Sigmoid
     """
 
-    def __init__(self, n_features: int, hidden_size: int = 64,
-                 num_layers: int = 2, dropout: float = 0.2):
+    def __init__(self, n_features: int, hidden_size: int = 96,
+                 num_layers: int = 2, dropout: float = 0.25):
         super().__init__()
+        self.input_norm = nn.LayerNorm(n_features)
         self.lstm = nn.LSTM(
             input_size=n_features,
             hidden_size=hidden_size,
@@ -83,18 +110,20 @@ class DirectionLSTM(nn.Module):
             batch_first=True,
             dropout=dropout if num_layers > 1 else 0.0,
         )
+        self.attention = TemporalAttention(hidden_size)
         self.classifier = nn.Sequential(
-            nn.Linear(hidden_size, 32),
+            nn.Linear(hidden_size, 48),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(32, 1),
+            nn.Linear(48, 1),
             nn.Sigmoid(),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.input_norm(x)
         lstm_out, _ = self.lstm(x)
-        last_hidden = lstm_out[:, -1, :]
-        return self.classifier(last_hidden).squeeze(-1)
+        context = self.attention(lstm_out)
+        return self.classifier(context).squeeze(-1)
 
 
 # ===================================================================
@@ -172,6 +201,29 @@ class FeatureEngine:
         df["dv_accel"] = (dv_ma_5 - dv_ma_10) / dv_ma_10.replace(0, np.nan)
 
         df["spread_proxy"] = (high - low) / close.replace(0, np.nan)
+
+        # --- Enhanced features ---
+        atr = compute_atr(high, low, close, period=14)
+        df["atr_pct"] = atr / close.replace(0, np.nan)
+
+        _, _, macd_hist = compute_macd(close)
+        df["macd_hist_norm"] = macd_hist / close.replace(0, np.nan)
+
+        _, _, _, pct_b, bandwidth = compute_bollinger_bands(close, window=20)
+        df["bb_pct_b"] = pct_b
+        df["bb_bandwidth"] = bandwidth
+
+        df["adx"] = compute_adx(high, low, close, period=14) / 100.0
+
+        df["momentum_quality"] = compute_momentum_quality(close, window=20)
+
+        vol_short = close.pct_change().rolling(10).std() * annualize
+        vol_long = close.pct_change().rolling(30).std() * annualize
+        df["vol_regime"] = vol_short / vol_long.replace(0, np.nan)
+
+        ema_fast = close.ewm(span=10, adjust=False).mean()
+        ema_slow = close.ewm(span=30, adjust=False).mean()
+        df["trend_strength"] = (ema_fast - ema_slow) / close.replace(0, np.nan)
 
         # Drop warm-up rows
         df = df.dropna(subset=FEATURE_COLS)
@@ -332,21 +384,30 @@ def train_model(
     log.info("Class balance — train UP: %.1f%%, val UP: %.1f%%",
              y_train.mean() * 100, y_val.mean() * 100 if len(y_val) > 0 else 0)
 
-    # 4. Create model
+    # 4. Create model with improved architecture
     n_features = len(FEATURE_COLS)
     model = DirectionLSTM(n_features=n_features)
+
+    # Label smoothing: soft targets reduce overconfidence (0.95/0.05 instead of 1/0)
+    LABEL_SMOOTH = 0.05
     criterion = nn.BCELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
 
     train_ds = TensorDataset(torch.FloatTensor(X_train), torch.FloatTensor(y_train))
     val_ds = TensorDataset(torch.FloatTensor(X_val), torch.FloatTensor(y_val))
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
 
-    # 5. Training with early stopping
+    # Cosine annealing LR schedule — warm restarts improve convergence
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer, T_0=10, T_mult=2, eta_min=lr * 0.01,
+    )
+
+    # 5. Training with early stopping, gradient clipping, label smoothing
     best_val_loss = float("inf")
     patience_counter = 0
-    PATIENCE = 7
+    PATIENCE = 10
+    GRAD_CLIP = 1.0
 
     for epoch in range(epochs):
         model.train()
@@ -354,13 +415,16 @@ def train_model(
         for xb, yb in train_loader:
             optimizer.zero_grad()
             preds = model(xb)
-            loss = criterion(preds, yb)
+            yb_smooth = yb * (1.0 - LABEL_SMOOTH) + 0.5 * LABEL_SMOOTH
+            loss = criterion(preds, yb_smooth)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
             optimizer.step()
             train_loss += loss.item() * len(xb)
         train_loss /= len(train_ds)
+        scheduler.step()
 
-        # Validation
+        # Validation (use hard labels for unbiased eval)
         model.eval()
         val_loss = 0.0
         correct = 0
@@ -373,8 +437,9 @@ def train_model(
         val_loss /= max(len(val_ds), 1)
         val_acc = correct / max(len(val_ds), 1)
 
-        log.info("Epoch %2d/%d  train_loss=%.4f  val_loss=%.4f  val_acc=%.3f",
-                 epoch + 1, epochs, train_loss, val_loss, val_acc)
+        current_lr = optimizer.param_groups[0]["lr"]
+        log.info("Epoch %2d/%d  train=%.4f  val=%.4f  acc=%.3f  lr=%.2e",
+                 epoch + 1, epochs, train_loss, val_loss, val_acc, current_lr)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss

@@ -26,3 +26,11 @@ secrets/
 Thumbs.db
 .DS_Store
 nul
+
+# Temp files
+tmpclaude-*
+
+# Logs
+logs/
+
+.vercel

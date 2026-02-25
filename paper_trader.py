@@ -36,6 +36,7 @@ from alpaca.trading.enums import OrderSide, TimeInForce
 
 from signals_engine import (
     DEFAULT_UNIVERSE, DAILY_LOOKBACK, build_adapter, FREDVixFetcher,
+    compute_atr, compute_adx,
 )
 from ml_model import Predictor, _fetch_vix_for_training, DEFAULT_MODEL_DIR
 
@@ -185,8 +186,11 @@ def _time_until_next_open() -> str:
 class AlpacaPaperTrader:
     """Continuous paper trading loop driven by ML predictions.
 
-    Supports LONG and SHORT positions with trailing stop-loss,
-    take-profit, and immediate position flipping.
+    Supports LONG and SHORT positions with:
+    - ATR-based adaptive trailing stop
+    - Volatility-adjusted, confidence-scaled position sizing
+    - Regime filter (ADX-based trend detection)
+    - Trailing take-profit that locks in gains progressively
     """
 
     def __init__(
@@ -195,8 +199,8 @@ class AlpacaPaperTrader:
         api_secret: str,
         symbols: List[str],
         provider: str = "yahoo",
-        confidence_threshold: float = 0.2,  # LONG threshold
-        short_confidence_threshold: float = 0.15,  # SHORT threshold (more aggressive)
+        confidence_threshold: float = 0.2,
+        short_confidence_threshold: float = 0.15,
         exit_confidence: float = 0.1,
         trailing_stop_pct: float = 0.05,
         take_profit_pct: float = 0.08,
@@ -205,8 +209,18 @@ class AlpacaPaperTrader:
         model_dir: str = DEFAULT_MODEL_DIR,
         mode: str = "daily",
         intraday_interval: str = "5min",
+        # --- Optimization parameters ---
+        use_atr_stop: bool = True,
+        atr_stop_mult: float = 2.5,
+        use_regime_filter: bool = True,
+        adx_threshold: float = 20.0,
+        use_vol_sizing: bool = True,
+        target_vol: float = 0.15,
+        use_confidence_sizing: bool = True,
+        use_trailing_tp: bool = True,
+        trailing_tp_activation: float = 0.04,
+        trailing_tp_trail: float = 0.02,
     ):
-        # Trading client — PAPER ONLY
         self.trading_client = TradingClient(
             api_key=api_key,
             secret_key=api_secret,
@@ -219,18 +233,30 @@ class AlpacaPaperTrader:
         self.trailing_stop_pct = trailing_stop_pct
         self.take_profit_pct = take_profit_pct
         self.position_pct = position_pct
-        self.check_interval = check_interval_min * 60  # seconds
+        self.check_interval = check_interval_min * 60
         self.mode = mode
         self.intraday_interval = intraday_interval
+        # Optimization params
+        self.use_atr_stop = use_atr_stop
+        self.atr_stop_mult = atr_stop_mult
+        self.use_regime_filter = use_regime_filter
+        self.adx_threshold = adx_threshold
+        self.use_vol_sizing = use_vol_sizing
+        self.target_vol = target_vol
+        self.use_confidence_sizing = use_confidence_sizing
+        self.use_trailing_tp = use_trailing_tp
+        self.trailing_tp_activation = trailing_tp_activation
+        self.trailing_tp_trail = trailing_tp_trail
 
-        # Data adapter for fetching prices
         self.adapter = build_adapter(provider)
         self.fred_key = os.environ.get("FRED_API_KEY")
 
-        # Peak price tracking for trailing stop {symbol: peak_price}
+        # Per-symbol tracking
         self._peak_prices: Dict[str, float] = {}
+        self._entry_atrs: Dict[str, float] = {}
+        self._tp_activated: Dict[str, bool] = {}
+        self._tp_trail_peaks: Dict[str, float] = {}
 
-        # ML predictors — one per symbol
         self.predictors: Dict[str, Optional[Predictor]] = {}
         for sym in symbols:
             try:
@@ -379,19 +405,45 @@ class AlpacaPaperTrader:
         except Exception:
             return None
 
+    def _get_market_context(self, symbol: str) -> Dict[str, float]:
+        """Fetch ATR, ADX, and realized vol for position sizing and stops."""
+        try:
+            bars = self.adapter.fetch_daily(symbol, 60)
+            if len(bars) < 30:
+                return {"atr": 0.0, "adx": 25.0, "vol20": 0.15}
+            close = bars["close"].astype(float)
+            high = bars["high"].astype(float)
+            low = bars["low"].astype(float)
+            atr_s = compute_atr(high, low, close, period=14)
+            adx_s = compute_adx(high, low, close, period=14)
+            vol_s = close.pct_change().rolling(20).std() * np.sqrt(252)
+            return {
+                "atr": float(atr_s.iloc[-1]) if not np.isnan(atr_s.iloc[-1]) else 0.0,
+                "adx": float(adx_s.iloc[-1]) if not np.isnan(adx_s.iloc[-1]) else 25.0,
+                "vol20": float(vol_s.iloc[-1]) if not np.isnan(vol_s.iloc[-1]) else 0.15,
+            }
+        except Exception as exc:
+            log.warning("Market context fetch failed for %s: %s", symbol, exc)
+            return {"atr": 0.0, "adx": 25.0, "vol20": 0.15}
+
     # -- Trading logic (one symbol) ------------------------------------
     def check_and_trade(self, symbol: str, positions: Dict[str, dict],
                         allocation: float) -> str:
         """Check ML signal and manage position for one symbol.
 
-        Supports LONG/SHORT positions with trailing stop, take-profit,
-        and immediate flip on signal change.
+        Optimized strategy with ATR-based stops, vol sizing, regime filter,
+        and trailing take-profit.
 
         Returns action string for display.
         """
         pred = self.get_prediction(symbol)
         direction = pred["direction"]
         confidence = pred["confidence"]
+
+        ctx = self._get_market_context(symbol)
+        bar_atr = ctx["atr"]
+        bar_adx = ctx["adx"]
+        bar_vol = ctx["vol20"]
 
         pos = positions.get(symbol)
         has_position = pos is not None and pos["qty"] > 0
@@ -405,56 +457,77 @@ class AlpacaPaperTrader:
             entry_price = pos["entry_price"]
             pnl_pct = pos["unrealized_pnl_pct"]
 
-            # Update peak tracking
             if symbol not in self._peak_prices:
                 self._peak_prices[symbol] = current_price
             if side == "LONG":
                 self._peak_prices[symbol] = max(self._peak_prices[symbol], current_price)
                 drawdown_from_peak = ((self._peak_prices[symbol] - current_price)
                                       / self._peak_prices[symbol])
-            else:  # SHORT
+            else:
                 self._peak_prices[symbol] = min(self._peak_prices[symbol], current_price)
                 drawdown_from_peak = ((current_price - self._peak_prices[symbol])
                                       / self._peak_prices[symbol]
                                       if self._peak_prices[symbol] > 0 else 0)
 
-            # Take profit - DISABLED: Only exit on signal flip or trailing stop
-            # if pnl_pct >= self.take_profit_pct:
-            #     if side == "LONG":
-            #         self.sell(symbol, qty, reason=f"take_profit ({pnl_pct:.2%})")
-            #     else:
-            #         self.buy_to_cover(symbol, qty, reason=f"take_profit ({pnl_pct:.2%})")
-            #     self._peak_prices.pop(symbol, None)
-            #     return (f"EXIT  (take profit {pnl_pct:+.2%}, {qty} sh {side})  "
-            #             f"ML: {direction} {confidence:.2f}")
+            # ATR-based or fixed stop distance
+            entry_atr = self._entry_atrs.get(symbol, bar_atr)
+            if self.use_atr_stop and entry_atr > 0 and entry_price > 0:
+                stop_distance = self.atr_stop_mult * entry_atr / entry_price
+            else:
+                stop_distance = self.trailing_stop_pct
+
+            # Trailing take-profit: lock in gains once threshold is reached
+            if self.use_trailing_tp and pnl_pct >= self.trailing_tp_activation:
+                if not self._tp_activated.get(symbol, False):
+                    self._tp_activated[symbol] = True
+                    self._tp_trail_peaks[symbol] = pnl_pct
+                    log.info("Trailing TP activated for %s at %+.2f%%", symbol, pnl_pct * 100)
+                self._tp_trail_peaks[symbol] = max(
+                    self._tp_trail_peaks.get(symbol, pnl_pct), pnl_pct)
+                if pnl_pct < self._tp_trail_peaks[symbol] - self.trailing_tp_trail:
+                    if side == "LONG":
+                        self.sell(symbol, qty, reason=f"trailing_tp ({pnl_pct:+.2%})")
+                    else:
+                        self.buy_to_cover(symbol, qty, reason=f"trailing_tp ({pnl_pct:+.2%})")
+                    self._clear_symbol_state(symbol)
+                    return (f"EXIT  (trailing TP {pnl_pct:+.2%}, peak {self._tp_trail_peaks.get(symbol, 0):+.2%}, "
+                            f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
 
             # Trailing stop
-            if drawdown_from_peak >= self.trailing_stop_pct:
+            if drawdown_from_peak >= stop_distance:
                 if side == "LONG":
                     self.sell(symbol, qty, reason=f"trailing_stop ({drawdown_from_peak:.2%})")
                 else:
                     self.buy_to_cover(symbol, qty, reason=f"trailing_stop ({drawdown_from_peak:.2%})")
-                self._peak_prices.pop(symbol, None)
+                self._clear_symbol_state(symbol)
                 return (f"EXIT  (trailing stop {drawdown_from_peak:.2%} from peak, "
                         f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
 
-            # Signal flip (lower exit confidence)
+            # Signal flip
             if (side == "LONG" and direction == "DOWN"
                     and confidence >= self.exit_confidence):
                 self.sell(symbol, qty, reason="signal_flip")
-                self._peak_prices.pop(symbol, None)
+                self._clear_symbol_state(symbol)
                 flip_direction = "SHORT"
             elif (side == "SHORT" and direction == "UP"
                   and confidence >= self.exit_confidence):
                 self.buy_to_cover(symbol, qty, reason="signal_flip")
-                self._peak_prices.pop(symbol, None)
+                self._clear_symbol_state(symbol)
                 flip_direction = "LONG"
             else:
-                # Hold
+                stop_info = f"ATR×{self.atr_stop_mult}" if self.use_atr_stop else f"{self.trailing_stop_pct:.0%}"
                 return (f"HOLD  ({side} {qty} sh @ ${entry_price:.2f}, "
-                        f"P&L: {pnl_pct:+.2%})  ML: {direction} {confidence:.2f}")
+                        f"P&L: {pnl_pct:+.2%}, stop={stop_info})  "
+                        f"ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}")
 
-        # --- Entry logic (includes immediate flip) ---
+        # --- Entry logic ---
+        # Regime filter: skip in trendless markets
+        if self.use_regime_filter and bar_adx < self.adx_threshold:
+            if flip_direction:
+                return (f"EXIT  (signal flip, no re-entry: ADX={bar_adx:.0f}<{self.adx_threshold:.0f})  "
+                        f"ML: {direction} {confidence:.2f}")
+            return f"SKIP  (low trend ADX={bar_adx:.0f}<{self.adx_threshold:.0f})  ML: {direction} {confidence:.2f}"
+
         enter_dir = None
         if flip_direction is not None and confidence >= self.exit_confidence:
             enter_dir = flip_direction
@@ -470,29 +543,49 @@ class AlpacaPaperTrader:
                 return (f"SKIP  (price fetch failed for {action})  "
                         f"ML: {direction} {confidence:.2f}")
 
-            invest = allocation * self.position_pct
+            # Volatility-adjusted + confidence-scaled sizing
+            sizing_pct = self.position_pct
+            if self.use_vol_sizing and bar_vol > 0:
+                vol_scalar = min(2.0, max(0.3, self.target_vol / bar_vol))
+                sizing_pct *= vol_scalar
+            if self.use_confidence_sizing:
+                conf_scalar = 0.5 + confidence
+                sizing_pct *= conf_scalar
+            sizing_pct = min(sizing_pct, 0.98)
+
+            invest = allocation * sizing_pct
             qty = int(invest / current_price)
             if qty <= 0:
                 return f"SKIP  (insufficient allocation)  ML: {direction} {confidence:.2f}"
 
             if enter_dir == "LONG":
                 self.buy(symbol, qty)
-                self._peak_prices[symbol] = current_price
                 verb = "FLIP->BUY" if flip_direction else "BUY"
             else:
                 self.sell_short(symbol, qty)
-                self._peak_prices[symbol] = current_price
                 verb = "FLIP->SHORT" if flip_direction else "SHORT"
 
+            self._peak_prices[symbol] = current_price
+            self._entry_atrs[symbol] = bar_atr
+            self._tp_activated[symbol] = False
+            self._tp_trail_peaks[symbol] = 0.0
+
             return (f"{verb}  ({qty} sh @ ~${current_price:.2f}, "
-                    f"${qty * current_price:,.0f})  ML: {direction} {confidence:.2f}")
+                    f"${qty * current_price:,.0f}, size={sizing_pct:.0%})  "
+                    f"ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}")
 
         if flip_direction:
             return (f"EXIT  (signal flip, no re-entry)  "
                     f"ML: {direction} {confidence:.2f}")
 
-        # No signal
-        return f"SKIP  (no signal)  ML: {direction} {confidence:.2f}"
+        return f"SKIP  (no signal)  ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}"
+
+    def _clear_symbol_state(self, symbol: str) -> None:
+        """Reset tracking state for a symbol after exit."""
+        self._peak_prices.pop(symbol, None)
+        self._entry_atrs.pop(symbol, None)
+        self._tp_activated.pop(symbol, None)
+        self._tp_trail_peaks.pop(symbol, None)
 
     # -- Main loop -----------------------------------------------------
     def run_loop(self) -> None:
@@ -500,10 +593,15 @@ class AlpacaPaperTrader:
         log.info("Starting paper trading loop (%s mode)...", self.mode)
         log.info("Symbols: %s", ", ".join(self.symbols))
         log.info("Check interval: %d min", self.check_interval // 60)
-        log.info("Entry confidence: LONG %.2f, SHORT %.2f (more aggressive), Exit confidence: %.2f",
+        log.info("Entry confidence: LONG %.2f, SHORT %.2f, Exit: %.2f",
                  self.long_confidence_threshold, self.short_confidence_threshold, self.exit_confidence)
-        log.info("Trailing stop: %.1f%% (take profit: DISABLED - exit only on signal flip)",
-                 self.trailing_stop_pct * 100)
+        log.info("Stops: %s | Regime filter: %s (ADX>%.0f) | Vol sizing: %s (target=%.0f%%) | "
+                 "Confidence sizing: %s | Trailing TP: %s",
+                 f"ATR×{self.atr_stop_mult}" if self.use_atr_stop else f"Fixed {self.trailing_stop_pct:.0%}",
+                 "ON" if self.use_regime_filter else "OFF", self.adx_threshold,
+                 "ON" if self.use_vol_sizing else "OFF", self.target_vol * 100,
+                 "ON" if self.use_confidence_sizing else "OFF",
+                 "ON" if self.use_trailing_tp else "OFF")
         print()
 
         # Graceful shutdown
@@ -596,10 +694,26 @@ def main() -> None:
                         help="Trading mode (default: daily)")
     parser.add_argument("--interval", default="5min", choices=["1min", "5min"],
                         help="Intraday bar interval (default: 5min)")
+    # Optimization flags
+    parser.add_argument("--no-atr-stop", action="store_true",
+                        help="Disable ATR-based adaptive trailing stop")
+    parser.add_argument("--atr-stop-mult", type=float, default=2.5,
+                        help="ATR multiplier for trailing stop (default: 2.5)")
+    parser.add_argument("--no-regime-filter", action="store_true",
+                        help="Disable ADX regime filter")
+    parser.add_argument("--adx-threshold", type=float, default=20.0,
+                        help="Min ADX to allow entries (default: 20.0)")
+    parser.add_argument("--no-vol-sizing", action="store_true",
+                        help="Disable volatility-adjusted position sizing")
+    parser.add_argument("--target-vol", type=float, default=0.15,
+                        help="Target annualized vol for sizing (default: 0.15)")
+    parser.add_argument("--no-confidence-sizing", action="store_true",
+                        help="Disable confidence-scaled position sizing")
+    parser.add_argument("--no-trailing-tp", action="store_true",
+                        help="Disable trailing take-profit")
 
     args = parser.parse_args()
 
-    # Validate API keys
     api_key = os.environ.get("ALPACA_API_KEY", "")
     api_secret = os.environ.get("ALPACA_API_SECRET", "")
     if not api_key or not api_secret:
@@ -610,7 +724,6 @@ def main() -> None:
     symbols = ([s.strip().upper() for s in args.symbols.split(",")]
                if args.symbols else DEFAULT_UNIVERSE)
 
-    # Default check interval: 1 min for intraday, 5 min for daily
     check_interval = args.check_interval
     if check_interval is None:
         check_interval = 1 if args.mode == "intraday" else 5
@@ -628,6 +741,14 @@ def main() -> None:
         check_interval_min=check_interval,
         mode=args.mode,
         intraday_interval=args.interval,
+        use_atr_stop=not args.no_atr_stop,
+        atr_stop_mult=args.atr_stop_mult,
+        use_regime_filter=not args.no_regime_filter,
+        adx_threshold=args.adx_threshold,
+        use_vol_sizing=not args.no_vol_sizing,
+        target_vol=args.target_vol,
+        use_confidence_sizing=not args.no_confidence_sizing,
+        use_trailing_tp=not args.no_trailing_tp,
     )
 
     # Show account before starting

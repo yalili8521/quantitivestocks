@@ -434,6 +434,70 @@ def compute_spread_proxy(df: pd.DataFrame) -> float:
 
 
 # ===================================================================
+# Enhanced technical indicators for strategy optimization
+# ===================================================================
+def compute_atr(high: pd.Series, low: pd.Series, close: pd.Series,
+                period: int = 14) -> pd.Series:
+    """Average True Range — measures volatility in price units."""
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    return tr.rolling(period).mean()
+
+
+def compute_macd(close: pd.Series,
+                 fast: int = 12, slow: int = 26, signal: int = 9
+                 ) -> tuple:
+    """MACD line, signal line, and histogram."""
+    ema_fast = close.ewm(span=fast, adjust=False).mean()
+    ema_slow = close.ewm(span=slow, adjust=False).mean()
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    histogram = macd_line - signal_line
+    return macd_line, signal_line, histogram
+
+
+def compute_bollinger_bands(close: pd.Series, window: int = 20,
+                            num_std: float = 2.0) -> tuple:
+    """Bollinger Bands — returns (upper, middle, lower, %B, bandwidth)."""
+    middle = close.rolling(window).mean()
+    std = close.rolling(window).std()
+    upper = middle + num_std * std
+    lower = middle - num_std * std
+    pct_b = (close - lower) / (upper - lower).replace(0, np.nan)
+    bandwidth = (upper - lower) / middle.replace(0, np.nan)
+    return upper, middle, lower, pct_b, bandwidth
+
+
+def compute_adx(high: pd.Series, low: pd.Series, close: pd.Series,
+                period: int = 14) -> pd.Series:
+    """Average Directional Index — measures trend strength (0-100)."""
+    plus_dm = high.diff()
+    minus_dm = -low.diff()
+    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
+    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
+
+    atr = compute_atr(high, low, close, period)
+    atr_safe = atr.replace(0, np.nan)
+
+    plus_di = 100 * plus_dm.rolling(period).mean() / atr_safe
+    minus_di = 100 * minus_dm.rolling(period).mean() / atr_safe
+    dx = (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan) * 100
+    adx = dx.rolling(period).mean()
+    return adx
+
+
+def compute_momentum_quality(close: pd.Series, window: int = 20) -> pd.Series:
+    """Fraction of up-days in a rolling window — measures trend consistency."""
+    daily_ret = close.pct_change()
+    up_days = (daily_ret > 0).astype(float)
+    return up_days.rolling(window).mean()
+
+
+# ===================================================================
 # Scoring helpers (normalize to 0-1)
 # ===================================================================
 def _clip01(x: float) -> float:
