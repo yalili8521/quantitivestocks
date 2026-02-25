@@ -362,8 +362,8 @@ footer{border-top:1px solid var(--border);padding:40px 0}
   <div class="hero-content" style="position:relative;z-index:1; width: 100%; display: flex; flex-direction: column; align-items: center; text-shadow: 0 4px 20px rgba(0,0,0,0.8);">
     <p class="hero-eyebrow" style="background: rgba(34, 197, 94, 0.1); color: #4ade80; padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(34, 197, 94, 0.2); backdrop-filter: blur(4px);">AI-NATIVE QUANTITATIVE TRADING</p>
     <h1 class="hero-title" style="margin-top: 16px;">Quantitative Stocks</h1>
-    <p class="hero-tagline">Result-driven systematic trading across equity and commodity ETFs, powered by LSTM neural networks.</p>
-    <p style="margin-top: 12px; font-size: 11px; color: var(--text-muted); opacity: 0.7; font-family: var(--mono);">Latest Build: 2026-02-13 08:46:21</p>
+    <p class="hero-tagline">Result-driven systematic trading across equity and commodity ETFs, powered by LSTM neural networks with temporal attention.</p>
+    <p style="margin-top: 12px; font-size: 11px; color: var(--text-muted); opacity: 0.7; font-family: var(--mono);">Latest Build: 2026-02-25 15:10:00</p>
   </div>
   <script>
     (function() {
@@ -1666,23 +1666,28 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       <div class="glass" style="padding:32px;display:flex;flex-direction:column;align-items:center">
         <div class="lstm-diagram">
           <div class="lstm-layer input-layer">
-            <span class="layer-label">Input</span>
-            <span class="layer-detail mono">20 &times; 13 features</span>
+            <span class="layer-label">Input + LayerNorm</span>
+            <span class="layer-detail mono">20 &times; 21 features</span>
           </div>
           <div class="lstm-arrow"></div>
           <div class="lstm-layer">
             <span class="layer-label">LSTM Layer 1</span>
-            <span class="layer-detail mono">hidden = 64</span>
+            <span class="layer-detail mono">hidden = 96</span>
           </div>
           <div class="lstm-arrow"></div>
           <div class="lstm-layer">
             <span class="layer-label">LSTM Layer 2</span>
-            <span class="layer-detail mono">hidden = 64, dropout 0.2</span>
+            <span class="layer-detail mono">hidden = 96, dropout 0.25</span>
+          </div>
+          <div class="lstm-arrow"></div>
+          <div class="lstm-layer" style="border-color: var(--accent);">
+            <span class="layer-label">Temporal Attention</span>
+            <span class="layer-detail mono">soft attention over all steps</span>
           </div>
           <div class="lstm-arrow"></div>
           <div class="lstm-layer">
             <span class="layer-label">Fully Connected</span>
-            <span class="layer-detail mono">64 &rarr; 32 &rarr; ReLU</span>
+            <span class="layer-detail mono">96 &rarr; 48 &rarr; ReLU</span>
           </div>
           <div class="lstm-arrow"></div>
           <div class="lstm-layer output-layer">
@@ -1694,7 +1699,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
 
       <div class="research-details">
         <div class="research-card glass">
-          <h4>13 Input Features</h4>
+          <h4>21 Input Features</h4>
           <div class="features-grid">
             <span class="feat-tag">RSI-14</span>
             <span class="feat-tag">5d Return</span>
@@ -1709,24 +1714,35 @@ footer{border-top:1px solid var(--border);padding:40px 0}
             <span class="feat-tag">VWAP Ratio</span>
             <span class="feat-tag">DV Acceleration</span>
             <span class="feat-tag">Spread Proxy</span>
+            <span class="feat-tag" style="border-color: var(--accent);">ATR %</span>
+            <span class="feat-tag" style="border-color: var(--accent);">MACD Histogram</span>
+            <span class="feat-tag" style="border-color: var(--accent);">Bollinger %B</span>
+            <span class="feat-tag" style="border-color: var(--accent);">BB Bandwidth</span>
+            <span class="feat-tag" style="border-color: var(--accent);">ADX Trend</span>
+            <span class="feat-tag" style="border-color: var(--accent);">Momentum Quality</span>
+            <span class="feat-tag" style="border-color: var(--accent);">Vol Regime</span>
+            <span class="feat-tag" style="border-color: var(--accent);">Trend Strength</span>
           </div>
         </div>
         <div class="research-card glass">
           <h4>Training Methodology</h4>
           <ul class="research-list">
-            <li>Binary cross-entropy loss, Adam optimizer (lr=1e-3)</li>
-            <li>Early stopping with patience = 7 epochs</li>
+            <li>BCE loss with label smoothing (0.05), AdamW optimizer + weight decay</li>
+            <li>Cosine annealing LR with warm restarts + gradient clipping (1.0)</li>
+            <li>Early stopping with patience = 10 epochs</li>
             <li>Temporal 80/20 train-validation split (no lookahead bias)</li>
-            <li>~45,000 parameters per model (~227 KB)</li>
+            <li>~130,000 parameters per model (~513 KB)</li>
             <li>Separate model trained per symbol</li>
           </ul>
         </div>
         <div class="research-card glass">
-          <h4>Prediction Pipeline</h4>
+          <h4>Prediction &amp; Risk Pipeline</h4>
           <ul class="research-list">
             <li>Confidence = |sigmoid(output) &minus; 0.5| &times; 2</li>
-            <li>Entry threshold: confidence &gt; 0.20</li>
-            <li>Supports daily and 5-minute intraday modes</li>
+            <li>Entry threshold: confidence &gt; 0.20 (filtered by ADX regime)</li>
+            <li>ATR-based adaptive trailing stop (ATR &times; 2.5)</li>
+            <li>Volatility-adjusted + confidence-scaled position sizing</li>
+            <li>Trailing take-profit activates at +4%, trails with 2% distance</li>
             <li>Z-score normalization via per-symbol scaler</li>
           </ul>
         </div>
@@ -1752,12 +1768,12 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       <div class="pipe-stage glass">
         <div class="pipe-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.38.17.63.54.68.94V10a2 2 0 0 1 0 4v.09c-.05.4-.3.77-.68.94Z"/></svg></div>
         <h4>Feature Engineering</h4>
-        <p>13 technical indicators per symbol</p>
+        <p>21 technical indicators per symbol</p>
       </div><div class="pipe-conn"><div class="pipe-conn-line"></div></div>
       <div class="pipe-stage glass">
         <div class="pipe-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 3 2 5.5 4 7l1 1.5V20h4v-2.5L15 16c2-1.5 4-4 4-7a7 7 0 0 0-7-7Z"/><path d="M9 20h6M10 23h4"/></svg></div>
         <h4>ML Prediction</h4>
-        <p>LSTM neural network, SEQ_LEN=20</p>
+        <p>LSTM + Attention network, SEQ_LEN=20</p>
       </div><div class="pipe-conn"><div class="pipe-conn-line"></div></div>
       <div class="pipe-stage glass">
         <div class="pipe-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M2 20h.01M7 20v-4M12 20v-8M17 20V8M22 20V4"/></svg></div>
@@ -1767,7 +1783,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       <div class="pipe-stage glass">
         <div class="pipe-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>
         <h4>Execution</h4>
-        <p>Alpaca paper trading, trailing stops</p>
+        <p>Alpaca paper trading, ATR-adaptive stops, vol sizing</p>
       </div>
     </div>
   </div>
@@ -1809,11 +1825,11 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       
       <details class="faq-item glass">
         <summary>How does the ML model generate predictions?</summary>
-        <div class="faq-answer"><p>A 2-layer LSTM neural network processes 20-bar sliding windows of 13 technical features (RSI, returns, volatility, VIX, volume metrics). The sigmoid output represents the probability of the next bar closing higher. Confidence is computed as |probability - 0.5| &times; 2, ranging from 0 (uncertain) to 1 (very confident).</p></div>
+        <div class="faq-answer"><p>A 2-layer LSTM with temporal attention processes 20-bar sliding windows of 21 technical features (RSI, returns, volatility, VIX, MACD, Bollinger Bands, ATR, ADX, momentum quality, and more). LayerNorm stabilizes inputs, and soft attention lets the model focus on the most informative bars. The sigmoid output represents the probability of the next bar closing higher. Confidence is computed as |probability &minus; 0.5| &times; 2, ranging from 0 (uncertain) to 1 (very confident).</p></div>
       </details>
       <details class="faq-item glass">
         <summary>What risk management is in place?</summary>
-        <div class="faq-answer"><p>Each position uses a 5% trailing stop from peak price. Take-profit targets (8%) are available but currently disabled. Position sizing allocates capital equally across the symbol universe. The system can immediately flip from LONG to SHORT on strong reversal signals.</p></div>
+        <div class="faq-answer"><p>Positions use ATR-based adaptive trailing stops (ATR &times; 2.5) that automatically widen in volatile markets and tighten in calm ones. A trailing take-profit activates at +4% gain and locks in profits with a 2% trail. Position sizing is volatility-adjusted (targeting 15% annualized vol) and confidence-scaled (higher ML confidence = larger position). An ADX regime filter skips entries when markets are trendless (ADX &lt; 20). The system can immediately flip from LONG to SHORT on strong reversal signals.</p></div>
       </details>
       <details class="faq-item glass">
         <summary>What data sources are used?</summary>
@@ -1829,7 +1845,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       </details>
       <details class="faq-item glass">
         <summary>What is the confidence threshold for trading?</summary>
-        <div class="faq-answer"><p>A minimum confidence of 0.20 (20%) is required for LONG entries. SHORT entries use a lower threshold of 0.15 (15%) since short signals are less frequent. Exit signals use an even lower threshold of 0.10 to allow quicker position exits.</p></div>
+        <div class="faq-answer"><p>A minimum confidence of 0.20 (20%) is required for LONG entries. SHORT entries use a lower threshold of 0.15 (15%) since short signals are less frequent. Exit signals use a threshold of 0.10 for quicker position exits. Additionally, an ADX regime filter (ADX &gt; 20) must be satisfied before any entry &mdash; this prevents trading in choppy, trendless markets.</p></div>
       </details>
       <details class="faq-item glass">
         <summary>Can this system trade with real money?</summary>
@@ -1858,7 +1874,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
         Past performance does not indicate future results.
       </div>
       <div class="footer-meta">
-        <span class="mono">2026-02-13 08:46</span>
+        <span class="mono">2026-02-25 15:10</span>
         <span>7 symbols</span>
         <span>68 backtest trades</span>
       </div>
