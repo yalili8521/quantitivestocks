@@ -31,12 +31,13 @@ import numpy as np
 import pandas as pd
 
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
 
 from signals_engine import (
-    DEFAULT_UNIVERSE, DAILY_LOOKBACK, build_adapter, FREDVixFetcher,
-    compute_atr, compute_adx,
+    DEFAULT_UNIVERSE, EXTENDED_HOURS_UNIVERSE,
+    DAILY_LOOKBACK, build_adapter, FREDVixFetcher,
+    compute_atr, compute_adx_full, compute_hurst_exponent,
 )
 from ml_model import Predictor, _fetch_vix_for_training, DEFAULT_MODEL_DIR
 
@@ -137,44 +138,51 @@ def _acquire_single_instance_lock() -> bool:
 
 
 # ===================================================================
-# Market hours helper
+# Session helpers  (regular | extended | closed)
 # ===================================================================
-def _is_market_open() -> bool:
-    """Check if US stock market is currently open (9:30-16:00 ET, weekdays)."""
+def _get_session() -> str:
+    """Return the current Alpaca-tradeable session for ET equities.
+
+    regular  — 09:30–16:00 ET Mon–Fri  (market orders allowed)
+    extended — 04:00–09:30 and 16:00–20:00 ET Mon–Fri  (limit orders only)
+    closed   — 20:00–04:00 ET and all day Sat/Sun
+    """
+    from datetime import time as dt_time
     try:
         from zoneinfo import ZoneInfo
     except ImportError:
         from backports.zoneinfo import ZoneInfo
 
     now_et = datetime.now(ZoneInfo("America/New_York"))
-
-    # Weekend check
     if now_et.weekday() >= 5:
-        return False
+        return "closed"
 
-    market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
-    market_close = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
-    return market_open <= now_et <= market_close
+    t = now_et.time()
+    if dt_time(4, 0) <= t < dt_time(9, 30):
+        return "extended"
+    if dt_time(9, 30) <= t <= dt_time(16, 0):
+        return "regular"
+    if dt_time(16, 0) < t <= dt_time(20, 0):
+        return "extended"
+    return "closed"
 
 
-def _time_until_next_open() -> str:
-    """Human-readable time until next market open."""
+def _time_until_next_session() -> str:
+    """Time until the next tradeable session opens (extended hours at 04:00 ET)."""
+    from datetime import time as dt_time
     try:
         from zoneinfo import ZoneInfo
     except ImportError:
         from backports.zoneinfo import ZoneInfo
 
     now_et = datetime.now(ZoneInfo("America/New_York"))
-    next_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+    candidate = now_et.replace(hour=4, minute=0, second=0, microsecond=0)
+    if now_et.time() >= dt_time(20, 0) or now_et.weekday() >= 5:
+        candidate += timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate += timedelta(days=1)
 
-    if now_et >= next_open:
-        next_open += timedelta(days=1)
-
-    # Skip weekends
-    while next_open.weekday() >= 5:
-        next_open += timedelta(days=1)
-
-    delta = next_open - now_et
+    delta = candidate - now_et
     hours = int(delta.total_seconds() // 3600)
     minutes = int((delta.total_seconds() % 3600) // 60)
     return f"{hours}h {minutes}m"
@@ -220,6 +228,12 @@ class AlpacaPaperTrader:
         use_trailing_tp: bool = True,
         trailing_tp_activation: float = 0.04,
         trailing_tp_trail: float = 0.02,
+        # --- Book-derived filters ---
+        use_hurst_filter: bool = True,          # Chan: skip entries when H < hurst_threshold
+        hurst_threshold: float = 0.55,          # H > 0.55 = confirmed trending regime
+        kelly_fraction: float = 0.5,            # Chan: half-Kelly multiplier (0 = off, 0.5 = half)
+        use_vix_halt: bool = True,              # Aldridge: halt new entries on VIX spike > 2σ
+        vix_halt_sigma: float = 2.0,            # Aldridge: # of σ for VIX halt
     ):
         self.trading_client = TradingClient(
             api_key=api_key,
@@ -247,6 +261,12 @@ class AlpacaPaperTrader:
         self.use_trailing_tp = use_trailing_tp
         self.trailing_tp_activation = trailing_tp_activation
         self.trailing_tp_trail = trailing_tp_trail
+        self.use_hurst_filter = use_hurst_filter
+        self.hurst_threshold  = hurst_threshold
+        self.kelly_fraction   = kelly_fraction
+        self.use_vix_halt     = use_vix_halt
+        self.vix_halt_sigma   = vix_halt_sigma
+        self._vix_halted      = False   # set each cycle by run_loop
 
         self.adapter = build_adapter(provider)
         self.fred_key = os.environ.get("FRED_API_KEY")
@@ -297,81 +317,89 @@ class AlpacaPaperTrader:
         return result
 
     # -- Order execution -----------------------------------------------
-    def buy(self, symbol: str, qty: int) -> Optional[str]:
-        """Submit a market buy order (open LONG). Returns order ID or None."""
-        if qty <= 0:
-            return None
+    def _submit_order_request(
+        self,
+        symbol: str,
+        qty: int,
+        side: OrderSide,
+        limit_price: Optional[float] = None,
+    ) -> Optional[str]:
+        """Submit the right order type for the current session.
+
+        Regular hours  → MarketOrder (immediate fill at best price).
+        Extended hours → LimitOrder with extended_hours=True.
+            BUY  limit: last_price × 1.001  (0.1% above to ensure fill)
+            SELL limit: last_price × 0.999  (0.1% below to ensure fill)
+        Alpaca rejects market orders outside regular hours.
+        """
+        session = _get_session()
         try:
-            order = self.trading_client.submit_order(
-                MarketOrderRequest(
-                    symbol=symbol,
-                    qty=qty,
-                    side=OrderSide.BUY,
-                    time_in_force=TimeInForce.DAY,
+            if session == "extended" and limit_price is not None:
+                if side == OrderSide.BUY:
+                    lp = round(limit_price * 1.001, 2)
+                else:
+                    lp = round(limit_price * 0.999, 2)
+                order = self.trading_client.submit_order(
+                    LimitOrderRequest(
+                        symbol=symbol,
+                        qty=qty,
+                        side=side,
+                        time_in_force=TimeInForce.DAY,
+                        limit_price=lp,
+                        extended_hours=True,
+                    )
                 )
-            )
-            log.info("BUY  %s x%d — order %s", symbol, qty, order.id)
+                log.info("LIMIT(%s) %s %s x%d @ $%.2f — order %s",
+                         session, side.value, symbol, qty, lp, order.id)
+            else:
+                order = self.trading_client.submit_order(
+                    MarketOrderRequest(
+                        symbol=symbol,
+                        qty=qty,
+                        side=side,
+                        time_in_force=TimeInForce.DAY,
+                    )
+                )
+                log.info("MARKET %s %s x%d — order %s",
+                         side.value, symbol, qty, order.id)
             return str(order.id)
         except Exception as exc:
-            log.error("BUY order failed for %s: %s", symbol, exc)
+            log.error("Order failed %s %s x%d: %s", side.value, symbol, qty, exc)
             return None
 
-    def sell(self, symbol: str, qty: int, reason: str = "") -> Optional[str]:
-        """Submit a market sell order (close LONG). Returns order ID or None."""
+    def buy(self, symbol: str, qty: int,
+            limit_price: Optional[float] = None) -> Optional[str]:
+        """Open LONG. Uses limit order during extended hours."""
         if qty <= 0:
             return None
-        try:
-            order = self.trading_client.submit_order(
-                MarketOrderRequest(
-                    symbol=symbol,
-                    qty=qty,
-                    side=OrderSide.SELL,
-                    time_in_force=TimeInForce.DAY,
-                )
-            )
-            log.info("SELL %s x%d (%s) — order %s", symbol, qty, reason, order.id)
-            return str(order.id)
-        except Exception as exc:
-            log.error("SELL order failed for %s: %s", symbol, exc)
-            return None
+        return self._submit_order_request(symbol, qty, OrderSide.BUY, limit_price)
 
-    def sell_short(self, symbol: str, qty: int) -> Optional[str]:
-        """Submit a market sell order to open a SHORT position."""
+    def sell(self, symbol: str, qty: int, reason: str = "",
+             limit_price: Optional[float] = None) -> Optional[str]:
+        """Close LONG. Uses limit order during extended hours."""
         if qty <= 0:
             return None
-        try:
-            order = self.trading_client.submit_order(
-                MarketOrderRequest(
-                    symbol=symbol,
-                    qty=qty,
-                    side=OrderSide.SELL,
-                    time_in_force=TimeInForce.DAY,
-                )
-            )
-            log.info("SHORT %s x%d — order %s", symbol, qty, order.id)
-            return str(order.id)
-        except Exception as exc:
-            log.error("SHORT order failed for %s: %s", symbol, exc)
-            return None
+        oid = self._submit_order_request(symbol, qty, OrderSide.SELL, limit_price)
+        if oid:
+            log.info("SELL reason: %s", reason)
+        return oid
 
-    def buy_to_cover(self, symbol: str, qty: int, reason: str = "") -> Optional[str]:
-        """Submit a market buy order to close a SHORT position."""
+    def sell_short(self, symbol: str, qty: int,
+                   limit_price: Optional[float] = None) -> Optional[str]:
+        """Open SHORT. Uses limit order during extended hours."""
         if qty <= 0:
             return None
-        try:
-            order = self.trading_client.submit_order(
-                MarketOrderRequest(
-                    symbol=symbol,
-                    qty=qty,
-                    side=OrderSide.BUY,
-                    time_in_force=TimeInForce.DAY,
-                )
-            )
-            log.info("COVER %s x%d (%s) — order %s", symbol, qty, reason, order.id)
-            return str(order.id)
-        except Exception as exc:
-            log.error("COVER order failed for %s: %s", symbol, exc)
+        return self._submit_order_request(symbol, qty, OrderSide.SELL, limit_price)
+
+    def buy_to_cover(self, symbol: str, qty: int, reason: str = "",
+                     limit_price: Optional[float] = None) -> Optional[str]:
+        """Close SHORT. Uses limit order during extended hours."""
+        if qty <= 0:
             return None
+        oid = self._submit_order_request(symbol, qty, OrderSide.BUY, limit_price)
+        if oid:
+            log.info("COVER reason: %s", reason)
+        return oid
 
     # -- ML prediction -------------------------------------------------
     def get_prediction(self, symbol: str) -> dict:
@@ -405,26 +433,74 @@ class AlpacaPaperTrader:
         except Exception:
             return None
 
+    def _get_hurst(self, symbol: str) -> float:
+        """Compute Hurst exponent from ~100 daily bars.
+
+        H > 0.55 → trending (momentum strategy valid).
+        H < 0.45 → mean-reverting (momentum signals unreliable).
+        Per Ernest Chan, *Algorithmic Trading*, Chapter 2.
+        """
+        try:
+            bars = self.adapter.fetch_daily(symbol, 100)
+            if len(bars) < 30:
+                return 0.5
+            return compute_hurst_exponent(bars["close"].astype(float))
+        except Exception as exc:
+            log.warning("Hurst fetch failed for %s: %s", symbol, exc)
+            return 0.5
+
+    def _check_vix_halt(self) -> bool:
+        """Return True if today's VIX move is anomalously large (> vix_halt_sigma × σ).
+
+        When True, halt ALL new entries for this cycle (exits still allowed).
+        Per Irene Aldridge, *High-Frequency Trading* — cease new entries during
+        structural regime changes flagged by abnormal VIX spikes.
+        """
+        try:
+            vix_df = _fetch_vix_for_training(self.fred_key, lookback_days=60)
+            if len(vix_df) < 22:
+                return False
+            vix_chg = vix_df["vix"].pct_change().dropna()
+            rolling_std = float(vix_chg.rolling(20).std().iloc[-1])
+            today_chg   = float(vix_chg.iloc[-1])
+            if rolling_std > 0 and abs(today_chg) > self.vix_halt_sigma * rolling_std:
+                log.warning(
+                    "VIX HALT: today_chg=%.2f%% > %.1fσ (σ=%.2f%%) — no new entries this cycle.",
+                    today_chg * 100, self.vix_halt_sigma, rolling_std * 100,
+                )
+                return True
+            return False
+        except Exception as exc:
+            log.warning("VIX halt check failed: %s", exc)
+            return False
+
     def _get_market_context(self, symbol: str) -> Dict[str, float]:
-        """Fetch ATR, ADX, and realized vol for position sizing and stops."""
+        """Fetch ATR, ADX, +DI, -DI, and realized vol for position sizing, stops, and DI filter."""
         try:
             bars = self.adapter.fetch_daily(symbol, 60)
             if len(bars) < 30:
-                return {"atr": 0.0, "adx": 25.0, "vol20": 0.15}
+                return {"atr": 0.0, "adx": 25.0, "plus_di": 25.0, "minus_di": 25.0, "vol20": 0.15}
             close = bars["close"].astype(float)
             high = bars["high"].astype(float)
             low = bars["low"].astype(float)
             atr_s = compute_atr(high, low, close, period=14)
-            adx_s = compute_adx(high, low, close, period=14)
+            adx_s, plus_di_s, minus_di_s = compute_adx_full(high, low, close, period=14)
             vol_s = close.pct_change().rolling(20).std() * np.sqrt(252)
+
+            def _safe(s: "pd.Series", default: float) -> float:
+                v = float(s.iloc[-1])
+                return default if np.isnan(v) else v
+
             return {
-                "atr": float(atr_s.iloc[-1]) if not np.isnan(atr_s.iloc[-1]) else 0.0,
-                "adx": float(adx_s.iloc[-1]) if not np.isnan(adx_s.iloc[-1]) else 25.0,
-                "vol20": float(vol_s.iloc[-1]) if not np.isnan(vol_s.iloc[-1]) else 0.15,
+                "atr":      _safe(atr_s,      0.0),
+                "adx":      _safe(adx_s,      25.0),
+                "plus_di":  _safe(plus_di_s,  25.0),
+                "minus_di": _safe(minus_di_s, 25.0),
+                "vol20":    _safe(vol_s,       0.15),
             }
         except Exception as exc:
             log.warning("Market context fetch failed for %s: %s", symbol, exc)
-            return {"atr": 0.0, "adx": 25.0, "vol20": 0.15}
+            return {"atr": 0.0, "adx": 25.0, "plus_di": 25.0, "minus_di": 25.0, "vol20": 0.15}
 
     # -- Trading logic (one symbol) ------------------------------------
     def check_and_trade(self, symbol: str, positions: Dict[str, dict],
@@ -441,9 +517,13 @@ class AlpacaPaperTrader:
         confidence = pred["confidence"]
 
         ctx = self._get_market_context(symbol)
-        bar_atr = ctx["atr"]
-        bar_adx = ctx["adx"]
-        bar_vol = ctx["vol20"]
+        bar_atr      = ctx["atr"]
+        bar_adx      = ctx["adx"]
+        bar_plus_di  = ctx["plus_di"]
+        bar_minus_di = ctx["minus_di"]
+        bar_vol      = ctx["vol20"]
+        # DI-implied direction: True when +DI > -DI (uptrend dominant)
+        di_bullish = bar_plus_di > bar_minus_di
 
         pos = positions.get(symbol)
         has_position = pos is not None and pos["qty"] > 0
@@ -486,9 +566,11 @@ class AlpacaPaperTrader:
                     self._tp_trail_peaks.get(symbol, pnl_pct), pnl_pct)
                 if pnl_pct < self._tp_trail_peaks[symbol] - self.trailing_tp_trail:
                     if side == "LONG":
-                        self.sell(symbol, qty, reason=f"trailing_tp ({pnl_pct:+.2%})")
+                        self.sell(symbol, qty, reason=f"trailing_tp ({pnl_pct:+.2%})",
+                                  limit_price=current_price)
                     else:
-                        self.buy_to_cover(symbol, qty, reason=f"trailing_tp ({pnl_pct:+.2%})")
+                        self.buy_to_cover(symbol, qty, reason=f"trailing_tp ({pnl_pct:+.2%})",
+                                          limit_price=current_price)
                     self._clear_symbol_state(symbol)
                     return (f"EXIT  (trailing TP {pnl_pct:+.2%}, peak {self._tp_trail_peaks.get(symbol, 0):+.2%}, "
                             f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
@@ -496,9 +578,11 @@ class AlpacaPaperTrader:
             # Trailing stop
             if drawdown_from_peak >= stop_distance:
                 if side == "LONG":
-                    self.sell(symbol, qty, reason=f"trailing_stop ({drawdown_from_peak:.2%})")
+                    self.sell(symbol, qty, reason=f"trailing_stop ({drawdown_from_peak:.2%})",
+                              limit_price=current_price)
                 else:
-                    self.buy_to_cover(symbol, qty, reason=f"trailing_stop ({drawdown_from_peak:.2%})")
+                    self.buy_to_cover(symbol, qty, reason=f"trailing_stop ({drawdown_from_peak:.2%})",
+                                      limit_price=current_price)
                 self._clear_symbol_state(symbol)
                 return (f"EXIT  (trailing stop {drawdown_from_peak:.2%} from peak, "
                         f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
@@ -506,12 +590,12 @@ class AlpacaPaperTrader:
             # Signal flip
             if (side == "LONG" and direction == "DOWN"
                     and confidence >= self.exit_confidence):
-                self.sell(symbol, qty, reason="signal_flip")
+                self.sell(symbol, qty, reason="signal_flip", limit_price=current_price)
                 self._clear_symbol_state(symbol)
                 flip_direction = "SHORT"
             elif (side == "SHORT" and direction == "UP"
                   and confidence >= self.exit_confidence):
-                self.buy_to_cover(symbol, qty, reason="signal_flip")
+                self.buy_to_cover(symbol, qty, reason="signal_flip", limit_price=current_price)
                 self._clear_symbol_state(symbol)
                 flip_direction = "LONG"
             else:
@@ -521,19 +605,38 @@ class AlpacaPaperTrader:
                         f"ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}")
 
         # --- Entry logic ---
-        # Regime filter: skip in trendless markets
+        # Aldridge: VIX halt — block ALL new entries on extreme VIX spikes
+        if self._vix_halted and not flip_direction:
+            return (f"SKIP  (VIX halt active — no new entries this cycle)  "
+                    f"ML: {direction} {confidence:.2f}")
+
+        # Regime filter: skip in trendless markets (ADX)
         if self.use_regime_filter and bar_adx < self.adx_threshold:
             if flip_direction:
                 return (f"EXIT  (signal flip, no re-entry: ADX={bar_adx:.0f}<{self.adx_threshold:.0f})  "
                         f"ML: {direction} {confidence:.2f}")
             return f"SKIP  (low trend ADX={bar_adx:.0f}<{self.adx_threshold:.0f})  ML: {direction} {confidence:.2f}"
 
+        # Chan: Hurst regime filter — skip momentum entries in mean-reverting markets
+        if self.use_hurst_filter and not flip_direction:
+            hurst = self._get_hurst(symbol)
+            if hurst < self.hurst_threshold:
+                regime = "mean-reverting" if hurst < 0.45 else "random-walk"
+                return (f"SKIP  (H={hurst:.2f}<{self.hurst_threshold} {regime}, "
+                        f"momentum invalid)  ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}")
+
         enter_dir = None
         if flip_direction is not None and confidence >= self.exit_confidence:
             enter_dir = flip_direction
         elif direction == "UP" and confidence >= self.long_confidence_threshold:
+            if not di_bullish:
+                return (f"SKIP  (ML=UP but -DI={bar_minus_di:.0f} > +DI={bar_plus_di:.0f}, "
+                        f"DI conflict)  ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}")
             enter_dir = "LONG"
         elif direction == "DOWN" and confidence >= self.short_confidence_threshold:
+            if di_bullish:
+                return (f"SKIP  (ML=DOWN but +DI={bar_plus_di:.0f} > -DI={bar_minus_di:.0f}, "
+                        f"DI conflict)  ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}")
             enter_dir = "SHORT"
 
         if enter_dir is not None:
@@ -543,7 +646,7 @@ class AlpacaPaperTrader:
                 return (f"SKIP  (price fetch failed for {action})  "
                         f"ML: {direction} {confidence:.2f}")
 
-            # Volatility-adjusted + confidence-scaled sizing
+            # Chan: volatility-adjusted + confidence-scaled sizing with half-Kelly multiplier
             sizing_pct = self.position_pct
             if self.use_vol_sizing and bar_vol > 0:
                 vol_scalar = min(2.0, max(0.3, self.target_vol / bar_vol))
@@ -551,6 +654,8 @@ class AlpacaPaperTrader:
             if self.use_confidence_sizing:
                 conf_scalar = 0.5 + confidence
                 sizing_pct *= conf_scalar
+            if self.kelly_fraction > 0:
+                sizing_pct *= self.kelly_fraction   # half-Kelly: halves size, cuts drawdown ~75%
             sizing_pct = min(sizing_pct, 0.98)
 
             invest = allocation * sizing_pct
@@ -559,10 +664,10 @@ class AlpacaPaperTrader:
                 return f"SKIP  (insufficient allocation)  ML: {direction} {confidence:.2f}"
 
             if enter_dir == "LONG":
-                self.buy(symbol, qty)
+                self.buy(symbol, qty, limit_price=current_price)
                 verb = "FLIP->BUY" if flip_direction else "BUY"
             else:
-                self.sell_short(symbol, qty)
+                self.sell_short(symbol, qty, limit_price=current_price)
                 verb = "FLIP->SHORT" if flip_direction else "SHORT"
 
             self._peak_prices[symbol] = current_price
@@ -572,7 +677,8 @@ class AlpacaPaperTrader:
 
             return (f"{verb}  ({qty} sh @ ~${current_price:.2f}, "
                     f"${qty * current_price:,.0f}, size={sizing_pct:.0%})  "
-                    f"ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}")
+                    f"ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}  "
+                    f"+DI={bar_plus_di:.0f}/-DI={bar_minus_di:.0f}")
 
         if flip_direction:
             return (f"EXIT  (signal flip, no re-entry)  "
@@ -595,13 +701,17 @@ class AlpacaPaperTrader:
         log.info("Check interval: %d min", self.check_interval // 60)
         log.info("Entry confidence: LONG %.2f, SHORT %.2f, Exit: %.2f",
                  self.long_confidence_threshold, self.short_confidence_threshold, self.exit_confidence)
-        log.info("Stops: %s | Regime filter: %s (ADX>%.0f) | Vol sizing: %s (target=%.0f%%) | "
-                 "Confidence sizing: %s | Trailing TP: %s",
+        log.info("Stops: %s | ADX filter: %s (>%.0f) | Vol sizing: %s (target=%.0f%%) | "
+                 "Conf sizing: %s | Trailing TP: %s | Kelly: %.1f | "
+                 "Hurst filter: %s (>%.2f) | VIX halt: %s (>%.1fσ)",
                  f"ATR×{self.atr_stop_mult}" if self.use_atr_stop else f"Fixed {self.trailing_stop_pct:.0%}",
                  "ON" if self.use_regime_filter else "OFF", self.adx_threshold,
                  "ON" if self.use_vol_sizing else "OFF", self.target_vol * 100,
                  "ON" if self.use_confidence_sizing else "OFF",
-                 "ON" if self.use_trailing_tp else "OFF")
+                 "ON" if self.use_trailing_tp else "OFF",
+                 self.kelly_fraction,
+                 "ON" if self.use_hurst_filter else "OFF", self.hurst_threshold,
+                 "ON" if self.use_vix_halt else "OFF", self.vix_halt_sigma)
         print()
 
         # Graceful shutdown
@@ -615,14 +725,16 @@ class AlpacaPaperTrader:
         while self._running:
             cycle += 1
 
-            # Market hours check
-            if not _is_market_open():
-                next_open = _time_until_next_open()
+            # Session check — only sleep during overnight + weekend closure
+            session = _get_session()
+            if session == "closed":
+                next_session = _time_until_next_session()
                 print(f"\n  [{datetime.now().strftime('%H:%M:%S')}] "
-                      f"Market closed. Next open in {next_open}. "
-                      f"Checking again in {self.check_interval // 60} min...")
+                      f"Market closed (overnight/weekend). "
+                      f"Next session (pre-market) in {next_session}.")
                 self._sleep(self.check_interval)
                 continue
+            session_label = "REGULAR" if session == "regular" else "EXTENDED HOURS"
 
             try:
                 # Get account + positions
@@ -632,15 +744,30 @@ class AlpacaPaperTrader:
 
                 # Print header
                 print(f"\n  [{datetime.now().strftime('%H:%M:%S')}] "
-                      f"=== Paper Trading Cycle #{cycle} ({self.mode}) ===")
+                      f"=== Paper Trading Cycle #{cycle} ({self.mode} | {session_label}) ===")
                 print(f"  Account: ${account['equity']:,.2f} equity | "
                       f"${account['cash']:,.2f} cash | "
                       f"${account['equity'] - account['cash']:,.2f} in positions")
                 print(f"  Allocation per symbol: ${allocation_per_sym:,.2f}")
                 print()
 
+                # Aldridge: compute VIX halt once per cycle (not per symbol)
+                if self.use_vix_halt:
+                    self._vix_halted = self._check_vix_halt()
+                    if self._vix_halted:
+                        print(f"  ⚠  VIX HALT ACTIVE — exits allowed, no new entries this cycle")
+
                 # Check each symbol
                 for sym in self.symbols:
+                    # Extended-hours guard: Asian/EM ETFs have near-zero volume
+                    # during US pre/after-market — underlying markets are closed.
+                    # Skipping avoids 0.5-2% spread costs on worthless signals.
+                    if session == "extended" and sym not in EXTENDED_HOURS_UNIVERSE:
+                        # Still allow exits on existing positions, block new entries
+                        pos = positions.get(sym)
+                        if pos is None or pos["qty"] == 0:
+                            print(f"  {sym:>5}:  SKIP  (extended hours — low liquidity for this ETF)")
+                            continue
                     action = self.check_and_trade(sym, positions, allocation_per_sym)
                     print(f"  {sym:>5}:  {action}")
 
@@ -674,7 +801,7 @@ def main() -> None:
         description="Alpaca paper trader — continuous ML-driven trading loop.",
     )
     parser.add_argument("--symbols", type=str, default=None,
-                        help="Comma-separated symbols (default: SPY,QQQ,IWM,IGV,SLV)")
+                        help="Comma-separated symbols (default: full 16-symbol universe)")
     parser.add_argument("--provider", default="yahoo",
                         choices=["yahoo", "alpaca", "hybrid"],
                         help="Data provider (default: yahoo)")
@@ -711,6 +838,17 @@ def main() -> None:
                         help="Disable confidence-scaled position sizing")
     parser.add_argument("--no-trailing-tp", action="store_true",
                         help="Disable trailing take-profit")
+    # Book-derived filters
+    parser.add_argument("--no-hurst-filter", action="store_true",
+                        help="Disable Hurst regime filter (Chan)")
+    parser.add_argument("--hurst-threshold", type=float, default=0.55,
+                        help="Min Hurst exponent to allow momentum entries (default: 0.55)")
+    parser.add_argument("--kelly-fraction", type=float, default=0.5,
+                        help="Kelly multiplier: 0.5=half-Kelly, 0=off (Chan, default: 0.5)")
+    parser.add_argument("--no-vix-halt", action="store_true",
+                        help="Disable VIX spike halt rule (Aldridge)")
+    parser.add_argument("--vix-halt-sigma", type=float, default=2.0,
+                        help="VIX change σ threshold for halt (Aldridge, default: 2.0)")
 
     args = parser.parse_args()
 
@@ -749,6 +887,11 @@ def main() -> None:
         target_vol=args.target_vol,
         use_confidence_sizing=not args.no_confidence_sizing,
         use_trailing_tp=not args.no_trailing_tp,
+        use_hurst_filter=not args.no_hurst_filter,
+        hurst_threshold=args.hurst_threshold,
+        kelly_fraction=args.kelly_fraction,
+        use_vix_halt=not args.no_vix_halt,
+        vix_halt_sigma=args.vix_halt_sigma,
     )
 
     # Show account before starting

@@ -264,23 +264,78 @@ class FeatureEngine:
 # ===================================================================
 # Training data preparation
 # ===================================================================
-def prepare_sequences(features_df: pd.DataFrame,
-                      daily_df: pd.DataFrame,
-                      seq_len: int = SEQ_LEN):
-    """Build (X, y) pairs for training.
+def prepare_sequences_triple_barrier(
+    features_df: pd.DataFrame,
+    bars_df: pd.DataFrame,
+    seq_len: int = SEQ_LEN,
+    pt_pct: float = 0.015,
+    sl_pct: float = 0.010,
+    horizon: int = 5,
+) -> tuple:
+    """Triple-barrier labeling (López de Prado, *AFML*, Chapter 3).
 
-    X[i] = features for days [i, i+seq_len)
-    y[i] = 1 if close[i+seq_len] > close[i+seq_len-1], else 0
+    For each sample ending at bar t, look forward up to `horizon` bars:
+      - Label 1 (UP):   price rises >= pt_pct before falling -sl_pct  (profit target)
+      - Label 0 (DOWN): price falls >= sl_pct before rising +pt_pct   (stop loss)
+      - Timeout:        neither barrier hit → label by final direction
+
+    This is far more informative than next-bar binary prediction because:
+      - Labels reflect economically meaningful price moves (not 1-bar noise)
+      - Timeout labels still carry directional signal
+      - Confidence of the training signal is higher (barrier = conviction)
+
+    Uses full bars_df for look-forward close prices, avoiding boundary issues
+    when features_df is a slice of the full dataset.
     """
     feature_values = features_df.values
-    close_values = daily_df.loc[features_df.index, "close"].astype(float).values
+    full_close = bars_df["close"].astype(float).values
+    # Map features_df row positions → positions in bars_df
+    bar_positions = bars_df.index.get_indexer(features_df.index)
+    n = len(feature_values)
 
-    X_list, y_list = [], []
-    for i in range(len(feature_values) - seq_len):
+    X_list: list = []
+    y_list: list = []
+
+    for i in range(n - seq_len):
+        entry_feat_pos = i + seq_len - 1          # last row of this window in features
+        entry_bar_pos  = bar_positions[entry_feat_pos]  # position in full bars
+
         X_list.append(feature_values[i: i + seq_len])
-        next_close = close_values[i + seq_len]
-        curr_close = close_values[i + seq_len - 1]
-        y_list.append(1.0 if next_close > curr_close else 0.0)
+
+        if entry_bar_pos < 0 or entry_bar_pos + horizon >= len(full_close):
+            # Not enough forward data — fall back to next-bar direction
+            if 0 <= entry_bar_pos + 1 < len(full_close):
+                curr = full_close[entry_bar_pos]
+                nxt  = full_close[entry_bar_pos + 1]
+                y_list.append(1.0 if nxt > curr else 0.0)
+            else:
+                y_list.append(0.5)
+            continue
+
+        entry_price = full_close[entry_bar_pos]
+        if entry_price <= 0:
+            y_list.append(0.5)
+            continue
+
+        label = None
+        for fwd in range(1, horizon + 1):
+            fwd_pos = entry_bar_pos + fwd
+            if fwd_pos >= len(full_close):
+                break
+            ret = (full_close[fwd_pos] - entry_price) / entry_price
+            if ret >= pt_pct:
+                label = 1.0   # profit target hit → UP
+                break
+            elif ret <= -sl_pct:
+                label = 0.0   # stop loss hit → DOWN
+                break
+
+        if label is None:   # timeout → final direction
+            final_pos = min(entry_bar_pos + horizon, len(full_close) - 1)
+            final_ret = (full_close[final_pos] - entry_price) / entry_price
+            label = 1.0 if final_ret > 0 else 0.0
+
+        y_list.append(label)
 
     return np.array(X_list, dtype=np.float32), np.array(y_list, dtype=np.float32)
 
@@ -368,19 +423,36 @@ def train_model(
                   seq_len + 10, len(features))
         sys.exit(1)
 
-    # 3. Temporal split: 80/20
+    # 3. Scaler: fit on training portion only to prevent look-ahead bias
     split_idx = int(len(features) * 0.8)
-    train_feat = features.iloc[:split_idx]
-    val_feat = features.iloc[split_idx:]
+    engine.fit_scaler(features.iloc[:split_idx])
+    full_norm = engine.transform(features)   # transform all with training-only scaler
 
-    engine.fit_scaler(train_feat)
-    train_norm = engine.transform(train_feat)
-    val_norm = engine.transform(val_feat)
+    # 4. Triple-barrier labels (López de Prado, AFML Chapter 3)
+    # Thresholds are tighter for intraday bars (smaller moves expected per bar).
+    if mode == "intraday":
+        pt_pct, sl_pct, horizon = 0.005, 0.003, 10   # 0.5% target / 0.3% stop / 10 bars
+    else:
+        pt_pct, sl_pct, horizon = 0.015, 0.010, 5    # 1.5% target / 1.0% stop / 5 bars
+    log.info(
+        "Triple-barrier labels: PT=%.1f%% SL=%.1f%% horizon=%d bars",
+        pt_pct * 100, sl_pct * 100, horizon,
+    )
 
-    X_train, y_train = prepare_sequences(train_norm, bars, seq_len)
-    X_val, y_val = prepare_sequences(val_norm, bars, seq_len)
+    X_all, y_all = prepare_sequences_triple_barrier(
+        full_norm, bars, seq_len, pt_pct=pt_pct, sl_pct=sl_pct, horizon=horizon,
+    )
 
-    log.info("Training samples: %d, Validation samples: %d", len(X_train), len(X_val))
+    # 5. Purge + embargo split (López de Prado, AFML Chapter 7)
+    # After the 80% split point, skip `seq_len` sequences so no validation
+    # window shares bars with any training window (prevents leakage).
+    seq_split  = int(len(X_all) * 0.8)
+    embargo    = seq_len
+    X_train, y_train = X_all[:seq_split], y_all[:seq_split]
+    X_val,   y_val   = X_all[seq_split + embargo:], y_all[seq_split + embargo:]
+
+    log.info("Training samples: %d, Validation samples: %d (embargo=%d seq)",
+             len(X_train), len(X_val), embargo)
     log.info("Class balance — train UP: %.1f%%, val UP: %.1f%%",
              y_train.mean() * 100, y_val.mean() * 100 if len(y_val) > 0 else 0)
 

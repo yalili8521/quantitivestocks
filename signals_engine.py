@@ -60,7 +60,33 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 # ---------------------------------------------------------------------------
 # Constants / default config
 # ---------------------------------------------------------------------------
-DEFAULT_UNIVERSE: List[str] = ["SPY", "QQQ", "IWM", "IGV", "SLV"]
+DEFAULT_UNIVERSE: List[str] = [
+    # US broad market
+    "SPY", "QQQ", "IWM",
+    # US sectors
+    "IGV", "XLE", "XLF", "XLV", "SOXX",
+    # Commodities
+    "GLD", "SLV",
+    # Asia / Emerging Markets (US-listed ETFs, regular hours only)
+    "EWJ",   # Japan
+    "EWT",   # Taiwan (TSMC)
+    "INDA",  # India
+    "FXI",   # China large-cap
+    "EEM",   # Broad emerging markets
+    # TLT (20yr Treasuries) intentionally excluded — bond dynamics
+    # are driven by macro/Fed policy, not technical indicators.
+]
+
+# Symbols allowed to trade in extended hours (pre-market 04:00–09:30 and
+# after-hours 16:00–20:00 ET).  Requirements: high US-hours volume and a
+# meaningful bid-ask spread during off-hours.
+# Asian/EM ETFs are excluded because their underlying markets are closed
+# during US extended hours → near-zero volume, spreads of 0.5–2%.
+EXTENDED_HOURS_UNIVERSE: List[str] = [
+    "SPY", "QQQ", "IWM",
+    "IGV", "XLE", "XLF", "XLV", "SOXX",
+    "GLD", "SLV",
+]
 DAILY_LOOKBACK = 120          # trading days
 RSI_PERIOD = 14
 RET5_DAYS = 5
@@ -472,9 +498,15 @@ def compute_bollinger_bands(close: pd.Series, window: int = 20,
     return upper, middle, lower, pct_b, bandwidth
 
 
-def compute_adx(high: pd.Series, low: pd.Series, close: pd.Series,
-                period: int = 14) -> pd.Series:
-    """Average Directional Index — measures trend strength (0-100)."""
+def compute_adx_full(
+    high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """Return (ADX, +DI, -DI) — trend strength plus directional components.
+
+    ADX: 0-100 strength gauge (direction-agnostic).
+    +DI > -DI  →  uptrend dominant.
+    -DI > +DI  →  downtrend dominant.
+    """
     plus_dm = high.diff()
     minus_dm = -low.diff()
     plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
@@ -487,6 +519,13 @@ def compute_adx(high: pd.Series, low: pd.Series, close: pd.Series,
     minus_di = 100 * minus_dm.rolling(period).mean() / atr_safe
     dx = (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan) * 100
     adx = dx.rolling(period).mean()
+    return adx, plus_di, minus_di
+
+
+def compute_adx(high: pd.Series, low: pd.Series, close: pd.Series,
+                period: int = 14) -> pd.Series:
+    """Average Directional Index — measures trend strength (0-100)."""
+    adx, _, _ = compute_adx_full(high, low, close, period)
     return adx
 
 
@@ -495,6 +534,50 @@ def compute_momentum_quality(close: pd.Series, window: int = 20) -> pd.Series:
     daily_ret = close.pct_change()
     up_days = (daily_ret > 0).astype(float)
     return up_days.rolling(window).mean()
+
+
+def compute_hurst_exponent(series: pd.Series, min_window: int = 8) -> float:
+    """Estimate Hurst exponent via Rescaled Range (R/S) analysis.
+
+    H < 0.45  →  mean-reverting  (anti-persistent)
+    H 0.45–0.55  →  random walk  (no persistent memory)
+    H > 0.55  →  trending  (persistent momentum)
+
+    Per Ernest Chan, *Algorithmic Trading*, Chapter 2.
+    Uses log-spaced windows and OLS regression on log(R/S) ~ H·log(n).
+    """
+    rets = series.pct_change().dropna().values
+    n = len(rets)
+    if n < 30:
+        return 0.5
+
+    max_window = n // 2
+    lags: list[float] = []
+    rs_vals: list[float] = []
+
+    windows = np.unique(np.geomspace(min_window, max_window, 20).astype(int))
+    for w in windows:
+        if w < 4:
+            continue
+        rs_list: list[float] = []
+        for start in range(0, n - w, w):
+            chunk = rets[start: start + w]
+            mean_c = chunk.mean()
+            dev = np.cumsum(chunk - mean_c)
+            R = dev.max() - dev.min()
+            S = chunk.std(ddof=1)
+            if S > 0:
+                rs_list.append(R / S)
+        if rs_list:
+            lags.append(np.log(w))
+            rs_vals.append(np.log(float(np.mean(rs_list))))
+
+    if len(lags) < 3:
+        return 0.5
+
+    A = np.vstack([np.array(lags), np.ones(len(lags))]).T
+    H = float(np.linalg.lstsq(A, np.array(rs_vals), rcond=None)[0][0])
+    return float(np.clip(H, 0.1, 0.9))
 
 
 # ===================================================================

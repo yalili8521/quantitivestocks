@@ -91,7 +91,8 @@ $PythonArgs = @(
     '--interval','5min',
     '--confidence','0.2',
     '--trailing-stop','0.05',
-    '--take-profit','0.08'
+    '--take-profit','0.08',
+    '--symbols','SPY,QQQ,IWM,IGV,XLE,SOXX,GLD,SLV,EWJ,EWT,EEM'
 )
 
 # Ensure a fresh daily run/log: stop any existing trader loop first.

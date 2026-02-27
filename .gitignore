@@ -6,10 +6,13 @@ dist/
 build/
 
 # Model weights (large binary files — regenerate with: python main.py train)
-data/models/*.pt
+models/*.pt
+models/*.json
 
 # Output files (regenerated on each run)
-data/output/
+outputs/*.csv
+outputs/*.html
+outputs/signals.json
 
 # Environment
 .env

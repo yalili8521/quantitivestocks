@@ -11,6 +11,8 @@ Usage:
     python main.py backtest      --symbol SPY --start 2024-01-01
     python main.py trade         --interval 5 --confidence 0.2
     python main.py trade-options --confidence 0.2 --put-confidence 0.15
+    python main.py report                          # generate outputs/report.html
+    python main.py report --open                   # generate + open in browser
 
 Environment variables:
     FRED_API_KEY      – FRED API key for VIX data
@@ -43,6 +45,7 @@ def main() -> None:
     backtest     Walk-forward backtest with ML predictions
     trade        Start Alpaca paper trading loop (stocks)
     trade-options Start Long ATM Straddle options trader (VIX spike entry)
+    report       Generate HTML dashboard (outputs/report.html)
 
   Examples:
     python main.py signals       --provider yahoo --ml
@@ -55,6 +58,8 @@ def main() -> None:
     python main.py trade         --mode intraday --interval 5min
     python main.py trade-options --confidence 0.2 --put-confidence 0.15
     python main.py trade-options --symbols SPY,QQQ --vix-spike-threshold 15
+    python main.py report
+    python main.py report        --open
 
   Run `python main.py <command> --help` for command-specific options.
 """)
@@ -91,6 +96,10 @@ def main() -> None:
     elif command == "trade-options":
         from options_trader import main as options_main
         options_main()
+
+    elif command == "report":
+        from reports import main as report_main
+        report_main()
 
     else:
         print(f"\n  Unknown command: {command!r}")
