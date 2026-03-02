@@ -395,8 +395,8 @@ footer{border-top:1px solid var(--border);padding:40px 0}
 <nav class="topnav">
   <span class="topnav-brand">QS</span>
   <div class="topnav-links">
-    <a href="#live-panel">Signals</a>
     <a href="#live-pnl">Live P&L</a>
+    <a href="#live-panel">Signals</a>
     <a href="#metrics">Metrics</a>
     <a href="#equity">Equity</a>
     <a href="#strategies">Strategies</a>
@@ -599,7 +599,65 @@ footer{border-top:1px solid var(--border);padding:40px 0}
 </section>
 
 
-<!-- LIVE PANEL -->
+<!-- LIVE P&L -->
+<section id="live-pnl" class="section-wrap reveal">
+  <div class="container">
+    <div class="sec-label">PAPER TRADING</div>
+    <h2 class="sec-title" style="margin-bottom:20px">Live Performance</h2>
+
+    <!-- Account tabs -->
+    <div class="acct-tabs">
+      <button class="acct-tab active" data-group="intraday">Options / Intraday</button>
+      <button class="acct-tab" data-group="swing">Swing</button>
+      <button class="acct-tab" data-group="expansion">Expansion</button>
+      <span class="acct-combined">All accounts: <span id="live-combined-equity">--</span></span>
+    </div>
+
+    <!-- Summary stats row -->
+    <div class="glass" style="padding:0;margin-bottom:24px;overflow:hidden">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1px solid var(--border-muted)">
+        <div style="padding:20px 24px;border-right:1px solid var(--border-muted)">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Total Equity</div>
+          <div id="live-equity" style="font-family:var(--mono);font-size:1.6rem;font-weight:700;color:var(--text);line-height:1.2">--</div>
+        </div>
+        <div style="padding:20px 24px;border-right:1px solid var(--border-muted)">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Total P&amp;L</div>
+          <div id="live-pnl-val" style="font-family:var(--mono);font-size:1.6rem;font-weight:700;line-height:1.2">--</div>
+          <div id="live-pnl-pct" style="font-size:11px;font-weight:600;margin-top:2px">--</div>
+        </div>
+        <div style="padding:20px 24px;border-right:1px solid var(--border-muted)">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Cash</div>
+          <div id="live-cash" style="font-family:var(--mono);font-size:1.1rem;font-weight:600;color:var(--text);line-height:1.2">--</div>
+          <div id="live-cash-pct" style="font-size:11px;color:var(--text-dim);margin-top:2px">--</div>
+        </div>
+        <div style="padding:20px 24px">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">In Positions</div>
+          <div id="live-positions-val" style="font-family:var(--mono);font-size:1.1rem;font-weight:600;color:var(--text);line-height:1.2">--</div>
+          <div id="live-positions-pct" style="font-size:11px;color:var(--text-dim);margin-top:2px">--</div>
+        </div>
+      </div>
+      <div id="live-equity-chart" style="height:260px;padding:8px 8px 0"></div>
+    </div>
+
+    <!-- Open Positions Table -->
+    <div class="glass" style="padding:0;overflow:hidden;margin-bottom:16px">
+      <div style="padding:18px 24px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border-muted)">
+        <div style="font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted)">Open Positions</div>
+        <div id="live-pos-count" style="font-size:11px;color:var(--text-dim)">Loading...</div>
+      </div>
+      <div id="live-positions-container" class="live-positions-table-wrap">
+        <div style="text-align:center;padding:24px;color:var(--text-dim);font-size:12px">Loading positions...</div>
+      </div>
+    </div>
+
+    <div id="live-footer" style="font-size:10px;color:var(--text-dim);text-align:center">
+      Live &bull; Alpaca Paper Trading (3 accounts) &bull; Auto-refreshes every 60s
+    </div>
+  </div>
+</section>
+
+
+<!-- LIVE SIGNALS -->
 <section id="live-panel" class="section-wrap reveal">
   <div class="container">
     <div class="sec-label">ACTIONABLE INTELLIGENCE</div>
@@ -620,71 +678,11 @@ footer{border-top:1px solid var(--border);padding:40px 0}
         <span class="market-val mono" id="last-update" style="font-size:13px">Loading...</span>
       </div>
     </div>
-    <!-- Dynamic signal cards populated by JS -->
-    <div id="signals-grid-container" class="signals-grid">
-      <div class="glass" style="padding:40px;text-align:center;grid-column:1/-1">
-        <div style="color:var(--text-dim);font-size:13px">Loading live trading data...</div>
+    <!-- Signal table populated by JS -->
+    <div class="glass" style="padding:0;overflow:hidden;margin-top:24px">
+      <div id="signals-grid-container">
+        <div style="padding:40px;text-align:center;color:var(--text-dim);font-size:13px">Loading live trading data...</div>
       </div>
-    </div>
-  </div>
-</section>
-
-
-<!-- LIVE P&L -->
-<section id="live-pnl" class="section-wrap reveal">
-  <div class="container">
-    <div class="sec-label">PAPER TRADING</div>
-    <h2 class="sec-title" style="margin-bottom:20px">Live Performance</h2>
-
-    <!-- Account tabs -->
-    <div class="acct-tabs">
-      <button class="acct-tab active" data-group="intraday">Options / Intraday</button>
-      <button class="acct-tab" data-group="swing">Swing</button>
-      <button class="acct-tab" data-group="expansion">Expansion</button>
-      <span class="acct-combined">All accounts: <span id="live-combined-equity">--</span></span>
-    </div>
-
-    <!-- Equity Chart Card (primary visual) -->
-    <div class="glass" style="padding:0;margin-bottom:24px;overflow:hidden">
-      <!-- Metrics overlay row -->
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1px solid var(--border-muted)">
-        <div style="padding:20px 24px;border-right:1px solid var(--border-muted)">
-          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Total Equity</div>
-          <div id="live-equity" style="font-family:var(--mono);font-size:1.6rem;font-weight:700;color:var(--text);line-height:1.2">--</div>
-        </div>
-        <div style="padding:20px 24px;border-right:1px solid var(--border-muted)">
-          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Session P&amp;L</div>
-          <div id="live-pnl-val" style="font-family:var(--mono);font-size:1.6rem;font-weight:700;line-height:1.2">--</div>
-          <div id="live-pnl-pct" style="font-size:11px;font-weight:600;margin-top:2px">--</div>
-        </div>
-        <div style="padding:20px 24px;border-right:1px solid var(--border-muted)">
-          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Cash</div>
-          <div id="live-cash" style="font-family:var(--mono);font-size:1.1rem;font-weight:600;color:var(--text);line-height:1.2">--</div>
-          <div id="live-cash-pct" style="font-size:11px;color:var(--text-dim);margin-top:2px">--</div>
-        </div>
-        <div style="padding:20px 24px">
-          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">In Positions</div>
-          <div id="live-positions-val" style="font-family:var(--mono);font-size:1.1rem;font-weight:600;color:var(--text);line-height:1.2">--</div>
-          <div id="live-positions-pct" style="font-size:11px;color:var(--text-dim);margin-top:2px">--</div>
-        </div>
-      </div>
-      <!-- Equity Curve -->
-      <div id="live-equity-chart" style="height:280px;padding:8px 8px 0"></div>
-    </div>
-
-    <!-- Current Positions Table -->
-    <div class="glass" style="padding:0;overflow:hidden;margin-bottom:16px">
-      <div style="padding:20px 24px 12px;display:flex;justify-content:space-between;align-items:center">
-        <div style="font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted)">Current Positions</div>
-        <div id="live-pos-count" style="font-size:11px;color:var(--text-dim)">Loading...</div>
-      </div>
-      <div id="live-positions-container" class="live-positions-table-wrap">
-        <div style="text-align:center;padding:24px;color:var(--text-dim);font-size:12px">Loading positions...</div>
-      </div>
-    </div>
-
-    <div id="live-footer" style="font-size:10px;color:var(--text-dim);text-align:center">
-      Live &bull; Alpaca Paper Trading (3 accounts) &bull; Auto-refreshes every 60s
     </div>
   </div>
 </section>
@@ -2459,87 +2457,57 @@ document.addEventListener('DOMContentLoaded', function() {
     Plotly.react(el,traces,layout,plotConfig);
   }
 
-  // ---- Build signal cards for all traded symbols ----
+  // ---- Build signals table for all open positions ----
   function renderSignalCards(positions, orders, bars) {
     var grid = document.getElementById('signals-grid-container');
     var symEl = document.getElementById('active-symbols');
     if (!grid) return;
+
     if (!positions || positions.length === 0) {
-      grid.innerHTML = '<div class="glass" style="padding:40px;text-align:center;grid-column:1/-1"><div style="color:var(--text-dim)">No active positions</div></div>';
+      grid.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-dim);font-size:13px">No active positions</div>';
       if (symEl) symEl.textContent = 'None';
       return;
     }
+
     var symbolNames = positions.map(function(p) { return p.symbol; });
     if (symEl) symEl.textContent = symbolNames.join(', ');
 
-    var html = '';
-    positions.forEach(function(p) {
-      var sym = p.symbol;
-      var pl = parseFloat(p.unrealized_pl) || 0;
-      var plPct = (parseFloat(p.unrealized_plpc) || 0) * 100;
-      var side = parseFloat(p.qty) < 0 ? 'SHORT' : 'LONG';
-      var borderColor = side === 'LONG' ? 'var(--positive)' : '#f59e0b';
-      var sideColor = side === 'LONG' ? 'var(--positive)' : '#f59e0b';
-      var plCls = pl >= 0 ? 'pos' : 'neg';
-      var qty = Math.abs(parseFloat(p.qty));
-      var entry = parseFloat(p.avg_entry_price).toFixed(2);
-      var current = parseFloat(p.current_price).toFixed(2);
-      var mktVal = Math.abs(parseFloat(p.market_value) || 0);
-      var chartId = 'symbol-chart-' + sym;
-
-      html += '<div class="sig-card glass" style="border-left:3px solid ' + borderColor + ';border-top:none">';
-
-      // LEFT: Info panel
-      html += '<div>';
-      html += '<div class="sig-header" style="margin-bottom:14px">';
-      html += '<span class="sig-symbol" style="font-size:22px">' + sym + '</span>';
-      html += '<span style="font-weight:800;font-size:12px;color:' + sideColor + ';background:rgba(255,255,255,0.04);padding:3px 8px;border-radius:4px">' + side + ' ' + qty + '</span>';
-      html += '</div>';
-
-      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">';
-      html += '<div style="background:rgba(255,255,255,0.02);padding:8px 10px;border-radius:5px"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;margin-bottom:2px">Entry</div><div style="font-family:var(--mono);font-weight:700;color:var(--text)">$' + entry + '</div></div>';
-      html += '<div style="background:rgba(255,255,255,0.02);padding:8px 10px;border-radius:5px"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;margin-bottom:2px">Current</div><div style="font-family:var(--mono);font-weight:700;color:var(--text)">$' + current + '</div></div>';
-      html += '</div>';
-
-      html += '<div style="background:rgba(255,255,255,0.02);padding:10px 12px;border-radius:5px;margin-bottom:10px">';
-      html += '<div style="display:flex;justify-content:space-between;margin-bottom:6px"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">P&L</div><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">Return</div></div>';
-      html += '<div style="display:flex;justify-content:space-between"><div class="' + plCls + '" style="font-family:var(--mono);font-weight:700;font-size:1.15rem">' + (pl >= 0 ? '+$' : '-$') + Math.abs(pl).toFixed(2) + '</div>';
-      html += '<div class="' + plCls + '" style="font-family:var(--mono);font-weight:700;font-size:1.15rem">' + (plPct >= 0 ? '+' : '-') + Math.abs(plPct).toFixed(2) + '%</div></div>';
-      html += '</div>';
-
-      html += '<div style="font-size:11px;color:var(--text-dim)">Mkt Value: ' + fmtUSD(mktVal) + '</div>';
-      html += '</div>';
-
-      // RIGHT: Chart (collapsed by default, lazy-rendered on first open)
-      html += '<div style="min-width:0">';
-      html += '<details class="sig-chart-details" id="details-' + sym + '">';
-      html += '<summary class="sig-chart-summary">Price Action &amp; Trade History</summary>';
-      html += '<div id="' + chartId + '" style="height:200px;margin-top:8px"></div>';
-      html += '</details>';
-      html += '</div>';
-
-      html += '</div>';
+    var html = '<div style="overflow-x:auto">';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:13px;font-family:var(--mono)">';
+    html += '<thead><tr style="border-bottom:1px solid var(--border)">';
+    var ths = ['Asset','Side','Qty','Entry Price','Current Price','Market Value','Total P&L ($)','Total P&L (%)'];
+    ths.forEach(function(h, i) {
+      var align = i >= 2 ? 'right' : 'left';
+      html += '<th style="padding:12px 20px;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);text-align:' + align + ';white-space:nowrap">' + h + '</th>';
     });
-    grid.innerHTML = html;
+    html += '</tr></thead><tbody>';
 
-    // Lazy-render chart on first open of each details element
-    setTimeout(function() {
-      positions.forEach(function(p) {
-        var det = document.getElementById('details-' + p.symbol);
-        if (!det) return;
-        det.addEventListener('toggle', function() {
-          if (!det.open) return;
-          var el = document.getElementById('symbol-chart-' + p.symbol);
-          if (!el) return;
-          if (el.dataset.rendered) {
-            Plotly.Plots.resize(el);
-          } else {
-            renderSymbolChart('symbol-chart-' + p.symbol, p.symbol, bars[p.symbol] || [], orders, p);
-            el.dataset.rendered = '1';
-          }
-        });
-      });
-    }, 50);
+    positions.forEach(function(p, idx) {
+      var pl    = parseFloat(p.unrealized_pl) || 0;
+      var plPct = (parseFloat(p.unrealized_plpc) || 0) * 100;
+      var side  = parseFloat(p.qty) < 0 ? 'SHORT' : 'LONG';
+      var qty   = Math.abs(parseFloat(p.qty));
+      var entry = parseFloat(p.avg_entry_price);
+      var curr  = parseFloat(p.current_price);
+      var mv    = parseFloat(p.market_value) || 0;
+      var plCls = pl >= 0 ? 'var(--positive)' : 'var(--negative)';
+      var sideColor = side === 'LONG' ? 'var(--positive)' : '#f59e0b';
+      var rowBg = idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)';
+
+      html += '<tr style="border-bottom:1px solid var(--border-muted);background:' + rowBg + '">';
+      html += '<td style="padding:14px 20px;font-weight:700;color:var(--text);font-size:14px">' + p.symbol + '</td>';
+      html += '<td style="padding:14px 20px"><span style="font-size:11px;font-weight:700;color:' + sideColor + ';background:rgba(255,255,255,0.05);padding:3px 9px;border-radius:4px">' + side + '</span></td>';
+      html += '<td style="padding:14px 20px;text-align:right;color:var(--text-sec)">' + qty + '</td>';
+      html += '<td style="padding:14px 20px;text-align:right;color:var(--text-sec)">$' + entry.toFixed(2) + '</td>';
+      html += '<td style="padding:14px 20px;text-align:right;color:var(--text)">$' + curr.toFixed(2) + '</td>';
+      html += '<td style="padding:14px 20px;text-align:right;color:var(--text-sec)">$' + Math.abs(mv).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2}) + '</td>';
+      html += '<td style="padding:14px 20px;text-align:right;font-weight:700;color:' + plCls + '">' + (pl >= 0 ? '+$' : '-$') + Math.abs(pl).toFixed(2) + '</td>';
+      html += '<td style="padding:14px 20px;text-align:right;font-weight:700;color:' + plCls + '">' + (plPct >= 0 ? '+' : '') + plPct.toFixed(2) + '%</td>';
+      html += '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+    grid.innerHTML = html;
   }
 
   // ---- Multi-account state ----
@@ -2593,23 +2561,33 @@ document.addEventListener('DOMContentLoaded', function() {
         var positions = posAcct.positions || [];
         if (positions.length > 0) {
           if (countEl) countEl.textContent = positions.length + ' open';
-          var html = '<table class="trade-table"><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Current</th><th>Mkt Value</th><th>P&amp;L</th><th>%</th></tr></thead><tbody>';
-          positions.forEach(function(p) {
+          var html = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;font-family:var(--mono)">';
+          html += '<thead><tr style="border-bottom:1px solid var(--border)">';
+          ['Asset','Side','Qty','Entry Price','Current Price','Market Value','Total P&L ($)','Total P&L (%)'].forEach(function(h, i) {
+            var align = i >= 2 ? 'right' : 'left';
+            html += '<th style="padding:12px 20px;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);text-align:' + align + ';white-space:nowrap">' + h + '</th>';
+          });
+          html += '</tr></thead><tbody>';
+          positions.forEach(function(p, idx) {
             var ppl    = parseFloat(p.unrealized_pl)   || 0;
             var pplPct = (parseFloat(p.unrealized_plpc) || 0) * 100;
-            var cls    = ppl >= 0 ? 'pos' : 'neg';
+            var plColor = ppl >= 0 ? 'var(--positive)' : 'var(--negative)';
             var side   = parseFloat(p.qty) < 0 ? 'SHORT' : 'LONG';
-            var mv     = Math.abs(parseFloat(p.market_value) || 0);
-            html += '<tr><td style="font-weight:600;color:var(--text)">' + p.symbol + '</td>';
-            html += '<td>' + side + '</td>';
-            html += '<td>' + Math.abs(parseFloat(p.qty)) + '</td>';
-            html += '<td>$' + parseFloat(p.avg_entry_price).toFixed(2) + '</td>';
-            html += '<td>$' + parseFloat(p.current_price).toFixed(2) + '</td>';
-            html += '<td>' + fmtUSD(mv) + '</td>';
-            html += '<td class="' + cls + '">' + (ppl >= 0 ? '+$' : '-$') + Math.abs(ppl).toFixed(2) + '</td>';
-            html += '<td class="' + cls + '">' + (pplPct >= 0 ? '+' : '-') + Math.abs(pplPct).toFixed(2) + '%</td></tr>';
+            var sideColor = side === 'LONG' ? 'var(--positive)' : '#f59e0b';
+            var mv     = parseFloat(p.market_value) || 0;
+            var rowBg = idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)';
+            html += '<tr style="border-bottom:1px solid var(--border-muted);background:' + rowBg + '">';
+            html += '<td style="padding:14px 20px;font-weight:700;color:var(--text);font-size:14px">' + p.symbol + '</td>';
+            html += '<td style="padding:14px 20px"><span style="font-size:11px;font-weight:700;color:' + sideColor + ';background:rgba(255,255,255,0.05);padding:3px 9px;border-radius:4px">' + side + '</span></td>';
+            html += '<td style="padding:14px 20px;text-align:right;color:var(--text-sec)">' + Math.abs(parseFloat(p.qty)) + '</td>';
+            html += '<td style="padding:14px 20px;text-align:right;color:var(--text-sec)">$' + parseFloat(p.avg_entry_price).toFixed(2) + '</td>';
+            html += '<td style="padding:14px 20px;text-align:right;color:var(--text)">$' + parseFloat(p.current_price).toFixed(2) + '</td>';
+            html += '<td style="padding:14px 20px;text-align:right;color:var(--text-sec)">$' + Math.abs(mv).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) + '</td>';
+            html += '<td style="padding:14px 20px;text-align:right;font-weight:700;color:' + plColor + '">' + (ppl >= 0 ? '+$' : '-$') + Math.abs(ppl).toFixed(2) + '</td>';
+            html += '<td style="padding:14px 20px;text-align:right;font-weight:700;color:' + plColor + '">' + (pplPct >= 0 ? '+' : '') + pplPct.toFixed(2) + '%</td>';
+            html += '</tr>';
           });
-          html += '</tbody></table>';
+          html += '</tbody></table></div>';
           container.innerHTML = html;
         } else {
           if (countEl) countEl.textContent = '0 open';
