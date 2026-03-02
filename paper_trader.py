@@ -262,7 +262,7 @@ class AlpacaPaperTrader:
         use_trailing_tp: bool = True,
         trailing_tp_activation: float = 0.04,
         trailing_tp_trail: float = 0.02,
-        max_loss_pct: float = 0.025,          # Hard cut: exit if P&L < -max_loss_pct from entry
+        max_loss_atr_mult: float = 1.0,       # Hard cut: exit if loss > N×ATR from entry (0 = off)
         # --- Book-derived filters ---
         use_hurst_filter: bool = True,          # Chan: skip entries when H < hurst_threshold
         hurst_threshold: float = 0.55,          # H > 0.55 = confirmed trending regime
@@ -299,7 +299,7 @@ class AlpacaPaperTrader:
         self.use_trailing_tp = use_trailing_tp
         self.trailing_tp_activation = trailing_tp_activation
         self.trailing_tp_trail = trailing_tp_trail
-        self.max_loss_pct = max_loss_pct
+        self.max_loss_atr_mult = max_loss_atr_mult
         self.use_hurst_filter = use_hurst_filter
         self.hurst_threshold  = hurst_threshold
         self.kelly_fraction    = kelly_fraction
@@ -625,8 +625,12 @@ class AlpacaPaperTrader:
                                       / self._peak_prices[symbol]
                                       if self._peak_prices[symbol] > 0 else 0)
 
-            # Hard max-loss cut: exit immediately if down more than max_loss_pct from entry
-            if self.max_loss_pct > 0 and pnl_pct <= -self.max_loss_pct:
+            # Hard max-loss cut: exit if loss exceeds N×ATR from entry price (ATR-adaptive floor)
+            entry_atr_for_floor = self._entry_atrs.get(symbol, bar_atr)
+            if (self.max_loss_atr_mult > 0 and entry_atr_for_floor > 0
+                    and entry_price > 0
+                    and pnl_pct <= -(self.max_loss_atr_mult * entry_atr_for_floor / entry_price)):
+                floor_pct = self.max_loss_atr_mult * entry_atr_for_floor / entry_price
                 if side == "LONG":
                     self.sell(symbol, qty, reason=f"max_loss ({pnl_pct:+.2%})",
                               limit_price=current_price)
@@ -635,7 +639,7 @@ class AlpacaPaperTrader:
                                       limit_price=current_price)
                 self._record_closed_trade(pnl_pct)
                 self._clear_symbol_state(symbol)
-                return (f"EXIT  (max loss {pnl_pct:+.2%} >= -{self.max_loss_pct:.0%} limit, "
+                return (f"EXIT  (max loss {pnl_pct:+.2%} >= -{floor_pct:.2%} floor [{self.max_loss_atr_mult}×ATR], "
                         f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
 
             # ATR-based or fixed stop distance
@@ -878,12 +882,12 @@ class AlpacaPaperTrader:
                  self.long_confidence_threshold, self.short_confidence_threshold, self.exit_confidence)
         kelly_desc = (f"Dynamic (base={self.kelly_fraction}, window={KELLY_WINDOW}, min={MIN_KELLY_TRADES})"
                       if self.use_dynamic_kelly else f"Static {self.kelly_fraction}")
-        log.info("Stops: %s + MaxLoss=%.0f%% | ADX filter: %s (>%.0f) | Vol sizing: %s (target=%.0f%%) | "
+        log.info("Stops: %s + MaxLoss=%.1f×ATR | ADX filter: %s (>%.0f) | Vol sizing: %s (target=%.0f%%) | "
                  "Conf sizing: %s | Trailing TP: %s | Kelly: %s | "
                  "Hurst filter: %s (>%.2f) | VIX halt: %s (>%.1fσ) | "
                  "Time filter: %s | Corr sizing: %s",
                  f"ATR×{self.atr_stop_mult}" if self.use_atr_stop else f"Fixed {self.trailing_stop_pct:.0%}",
-                 self.max_loss_pct * 100,
+                 self.max_loss_atr_mult,
                  "ON" if self.use_regime_filter else "OFF", self.adx_threshold,
                  "ON" if self.use_vol_sizing else "OFF", self.target_vol * 100,
                  "ON" if self.use_confidence_sizing else "OFF",
@@ -1000,8 +1004,8 @@ def main() -> None:
                         help="Min ML confidence to exit/flip (default: 0.005)")
     parser.add_argument("--trailing-stop", type=float, default=0.05,
                         help="Trailing stop from peak (default: 0.05 = 5%%)")
-    parser.add_argument("--max-loss", type=float, default=0.025,
-                        help="Hard max-loss cut from entry price (default: 0.025 = 2.5%%)")
+    parser.add_argument("--max-loss-atr", type=float, default=1.0,
+                        help="Hard max-loss cut: exit if loss > N×ATR from entry (default: 1.0; 0 = off)")
     parser.add_argument("--take-profit", type=float, default=0.08,
                         help="Take profit target (default: 0.08 = 8%%)")
     parser.add_argument("--mode", default="daily", choices=["daily", "intraday"],
@@ -1084,7 +1088,7 @@ def main() -> None:
         short_confidence_threshold=args.short_confidence,
         exit_confidence=args.exit_confidence,
         trailing_stop_pct=args.trailing_stop,
-        max_loss_pct=args.max_loss,
+        max_loss_atr_mult=args.max_loss_atr,
         take_profit_pct=args.take_profit,
         check_interval_min=check_interval,
         mode=args.mode,
