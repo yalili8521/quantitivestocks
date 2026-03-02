@@ -642,6 +642,27 @@ class AlpacaPaperTrader:
                 return (f"EXIT  (max loss {pnl_pct:+.2%} >= -{floor_pct:.2%} floor [{self.max_loss_atr_mult}×ATR], "
                         f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
 
+            # Regime breakdown exit: trend that justified entry has collapsed
+            # ADX < 15 = no trend at all; Hurst < 0.50 = mean-reverting/random
+            # Only check Hurst if ADX is already weak (avoid extra API call when trend is clear)
+            regime_exit_reason: str | None = None
+            if self.use_regime_filter and bar_adx < 15.0:
+                regime_exit_reason = f"ADX={bar_adx:.1f}<15 (no trend)"
+            if regime_exit_reason is None and self.use_hurst_filter:
+                hurst = self._get_hurst(symbol)
+                if hurst < 0.50:
+                    label = "mean-reverting" if hurst < 0.45 else "random-walk"
+                    regime_exit_reason = f"H={hurst:.2f}<0.50 ({label})"
+            if regime_exit_reason:
+                if side == "LONG":
+                    self.sell(symbol, qty, reason="regime_exit", limit_price=current_price)
+                else:
+                    self.buy_to_cover(symbol, qty, reason="regime_exit", limit_price=current_price)
+                self._record_closed_trade(pnl_pct)
+                self._clear_symbol_state(symbol)
+                return (f"EXIT  (regime breakdown: {regime_exit_reason}, P&L={pnl_pct:+.2%}, "
+                        f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
+
             # ATR-based or fixed stop distance
             entry_atr = self._entry_atrs.get(symbol, bar_atr)
             if self.use_atr_stop and entry_atr > 0 and entry_price > 0:
@@ -882,7 +903,8 @@ class AlpacaPaperTrader:
                  self.long_confidence_threshold, self.short_confidence_threshold, self.exit_confidence)
         kelly_desc = (f"Dynamic (base={self.kelly_fraction}, window={KELLY_WINDOW}, min={MIN_KELLY_TRADES})"
                       if self.use_dynamic_kelly else f"Static {self.kelly_fraction}")
-        log.info("Stops: %s + MaxLoss=%.1f×ATR | ADX filter: %s (>%.0f) | Vol sizing: %s (target=%.0f%%) | "
+        log.info("Stops: %s + MaxLoss=%.1f×ATR + RegimeExit(ADX<15,H<0.50) | "
+                 "ADX filter: %s (>%.0f) | Vol sizing: %s (target=%.0f%%) | "
                  "Conf sizing: %s | Trailing TP: %s | Kelly: %s | "
                  "Hurst filter: %s (>%.2f) | VIX halt: %s (>%.1fσ) | "
                  "Time filter: %s | Corr sizing: %s",
