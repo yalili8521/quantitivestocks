@@ -36,18 +36,21 @@ ACCOUNTS = [
 
 def _fetch(api_key: str, api_secret: str) -> dict:
     if not api_key or not api_secret:
-        return {"account": {}, "positions": []}
+        return {"account": {}, "positions": [], "_status": "no_key"}
 
     headers = {
-        "APCA-API-KEY-ID": api_key,
-        "APCA-API-SECRET-KEY": api_secret,
+        "APCA-API-KEY-ID": api_key.strip(),
+        "APCA-API-SECRET-KEY": api_secret.strip(),
     }
 
+    _acct_status = 0
     try:
         acct_resp = req.get(f"{ALPACA_BASE}/account", headers=headers, timeout=10)
+        _acct_status = acct_resp.status_code
         acct = acct_resp.json() if acct_resp.ok else {}
-    except Exception:
+    except Exception as e:
         acct = {}
+        _acct_status = -1
 
     try:
         pos_resp = req.get(f"{ALPACA_BASE}/positions", headers=headers, timeout=10)
@@ -68,6 +71,7 @@ def _fetch(api_key: str, api_secret: str) -> dict:
         return "0"
 
     return {
+        "_status": _acct_status,
         "account": {
             "equity":       _best_equity(acct),
             "cash":         acct.get("cash", "0"),
@@ -102,6 +106,7 @@ class handler(BaseHTTPRequestHandler):
                 "group":     cfg["group"],
                 "account":   data["account"],
                 "positions": data["positions"],
+                "_status":   data.get("_status", 0),
             })
 
         debug = {k: (os.environ.get(k,"")[:4] + "...") for k in
