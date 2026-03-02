@@ -272,6 +272,7 @@ class AlpacaPaperTrader:
         vix_halt_sigma: float = 2.0,            # Aldridge: # of σ for VIX halt
         use_time_filter: bool = True,           # Aldridge: block opening/closing auction windows (intraday only)
         use_corr_sizing: bool = True,           # Scale down size when multiple same-direction positions open
+        loss_cooldown_hours: float = 4.0,       # Hours to block re-entry after max_loss or regime_exit (0=off)
     ):
         self.trading_client = TradingClient(
             api_key=api_key,
@@ -313,11 +314,14 @@ class AlpacaPaperTrader:
         self.adapter = build_adapter(provider)
         self.fred_key = os.environ.get("FRED_API_KEY")
 
+        self.loss_cooldown_hours = loss_cooldown_hours
+
         # Per-symbol tracking
         self._peak_prices: Dict[str, float] = {}
         self._entry_atrs: Dict[str, float] = {}
         self._tp_activated: Dict[str, bool] = {}
         self._tp_trail_peaks: Dict[str, float] = {}
+        self._cooldown_until: Dict[str, datetime] = {}  # symbol → earliest re-entry time
 
         # Dynamic Kelly: rolling closed-trade P&L history (cross-symbol, shared)
         self._closed_trades: collections.deque = collections.deque(maxlen=KELLY_WINDOW)
@@ -639,6 +643,10 @@ class AlpacaPaperTrader:
                                       limit_price=current_price)
                 self._record_closed_trade(pnl_pct)
                 self._clear_symbol_state(symbol)
+                if self.loss_cooldown_hours > 0:
+                    cd = timedelta(hours=self.loss_cooldown_hours)
+                    self._cooldown_until[symbol] = datetime.now(timezone.utc) + cd
+                    log.info("Cooldown %s: no re-entry for %.1fh after max_loss exit", symbol, self.loss_cooldown_hours)
                 return (f"EXIT  (max loss {pnl_pct:+.2%} >= -{floor_pct:.2%} floor [{self.max_loss_atr_mult}×ATR], "
                         f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
 
@@ -660,6 +668,10 @@ class AlpacaPaperTrader:
                     self.buy_to_cover(symbol, qty, reason="regime_exit", limit_price=current_price)
                 self._record_closed_trade(pnl_pct)
                 self._clear_symbol_state(symbol)
+                if self.loss_cooldown_hours > 0:
+                    cd = timedelta(hours=self.loss_cooldown_hours)
+                    self._cooldown_until[symbol] = datetime.now(timezone.utc) + cd
+                    log.info("Cooldown %s: no re-entry for %.1fh after regime exit", symbol, self.loss_cooldown_hours)
                 return (f"EXIT  (regime breakdown: {regime_exit_reason}, P&L={pnl_pct:+.2%}, "
                         f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
 
@@ -776,6 +788,13 @@ class AlpacaPaperTrader:
             enter_dir = "SHORT"
 
         if enter_dir is not None:
+            # Cooldown check: don't re-enter after a max_loss or regime_exit
+            cd_until = self._cooldown_until.get(symbol)
+            if cd_until and datetime.now(timezone.utc) < cd_until:
+                remaining = (cd_until - datetime.now(timezone.utc)).seconds // 60
+                return (f"COOLDOWN  ({symbol} blocked for {remaining}m after loss exit, "
+                        f"enter_dir={enter_dir})  ML: {direction} {confidence:.2f}")
+
             current_price = self._get_current_price(symbol)
             if current_price is None:
                 action = "flip" if flip_direction else "entry"
@@ -1068,6 +1087,8 @@ def main() -> None:
                         help="Disable intraday time-of-day filter (Aldridge: blocks 9:30-10:00 and 15:30-16:00 ET)")
     parser.add_argument("--no-corr-sizing", action="store_true",
                         help="Disable correlated position sizing (1/sqrt(N) when multiple same-direction positions)")
+    parser.add_argument("--loss-cooldown-hours", type=float, default=4.0,
+                        help="Hours to block re-entry after max_loss or regime_exit (default: 4.0; 0=off)")
 
     args = parser.parse_args()
 
@@ -1131,6 +1152,7 @@ def main() -> None:
         vix_halt_sigma=args.vix_halt_sigma,
         use_time_filter=not args.no_time_filter,
         use_corr_sizing=not args.no_corr_sizing,
+        loss_cooldown_hours=args.loss_cooldown_hours if args.mode != "intraday" else min(args.loss_cooldown_hours, 0.5),
     )
 
     # Show account before starting

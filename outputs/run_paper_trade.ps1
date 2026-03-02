@@ -69,8 +69,7 @@ function Import-DotEnvFile {
 # Scheduled task context may not inherit user env vars.
 # Try local env files in priority order.
 $EnvCandidates = @(
-    (Join-Path $ProjectRoot 'secrets\alpaca.env'),
-    (Join-Path $ProjectRoot 'settings\alpaca.env')
+    (Join-Path $ProjectRoot 'secrets\alpaca.env')
 )
 
 if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
@@ -84,52 +83,80 @@ if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
     }
 }
 
-$PythonArgs = @(
-    '-u','main.py','trade',
-    '--provider','alpaca',
-    '--mode','intraday',
-    '--interval','5min',
-    '--confidence','0.2',
-    '--trailing-stop','0.05',
-    '--take-profit','0.08',
-    '--symbols','SPY,QQQ,IWM,IGV,XLE,SOXX,GLD,SLV,EWJ,EWT,EEM'
+# ---------------------------------------------------------------------------
+# 3-account group configuration
+# Groups split by trading MODE (not asset class):
+#   intraday  — SPY/QQQ/IWM/SOXX    → 5-min LSTM, time filter active
+#   swing     — EWT/GLD/EEM/SLV     → daily LSTM (TLT dropped: poor win rate)
+#   expansion — EWJ/EWS/XLE/INDA    → daily LSTM (IGV/FXI dropped: <50% win rate)
+# Group → env key prefix (e.g. ALPACA_INTRADAY_KEY / ALPACA_INTRADAY_SECRET)
+# Fall back to generic ALPACA_API_KEY / ALPACA_API_SECRET if group keys not set.
+# ---------------------------------------------------------------------------
+$Groups = @(
+    @{ Name = 'intraday';  EnvPrefix = 'ALPACA_INTRADAY_';  Mode = 'intraday'; Interval = '5min' },
+    @{ Name = 'swing';     EnvPrefix = 'ALPACA_SWING_';     Mode = 'daily';    Interval = '5min' },
+    @{ Name = 'expansion'; EnvPrefix = 'ALPACA_EXPANSION_'; Mode = 'daily';    Interval = '5min' }
 )
 
-# Ensure a fresh daily run/log: stop any existing trader loop first.
+$CommonArgs = @(
+    '-u', 'main.py', 'trade',
+    '--provider',         'alpaca',
+    '--confidence',       '0.05',
+    '--short-confidence', '0.05',
+    '--exit-confidence',  '0.02',
+    '--trailing-stop',    '0.05',
+    '--take-profit',      '0.08'
+)
+
+# Stop any existing trader processes first
 $existingTraders = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -match 'main.py trade' }
 foreach ($proc in $existingTraders) {
-    try {
-        Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop
-    } catch {
-        # Continue; lock in paper_trader.py still prevents duplicate loops.
-    }
+    try { Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop } catch {}
 }
-
-Write-Host "[$(Get-Date -Format s)] Starting paper trader..."
-Write-Host "Python: $PythonExe"
-Write-Host "Log: $LogFile"
-foreach ($candidate in $EnvCandidates) {
-    if (Test-Path -LiteralPath $candidate) { Write-Host "Env file present: $candidate" }
-}
-Write-Host "Args: $($PythonArgs -join ' ')"
 if ($existingTraders) {
-    Write-Host "Stopped existing trader process count: $($existingTraders.Count)"
+    Write-Host "Stopped $($existingTraders.Count) existing trader process(es)."
 }
 
+Write-Host "[$(Get-Date -Format s)] Starting 3 paper trader account groups (intraday/swing/expansion)..."
+Write-Host "Python: $PythonExe"
+foreach ($candidate in $EnvCandidates) {
+    if (Test-Path -LiteralPath $candidate) { Write-Host "Env file: $candidate" }
+}
+
+# Validate at least the generic fallback keys exist
 if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
-    Write-Error "ERROR: Missing ALPACA_API_KEY / ALPACA_API_SECRET. Set machine env vars or add one of: $($EnvCandidates -join ', ')"
+    Write-Error "ERROR: Missing ALPACA_API_KEY / ALPACA_API_SECRET. Set machine env vars or add secrets\alpaca.env"
     exit 1
 }
 
-$ArgLine = $PythonArgs -join ' '
-$ErrLog  = $LogFile -replace '\.log$', '_err.log'
-$proc = Start-Process `
-    -FilePath        $PythonExe `
-    -ArgumentList    $ArgLine `
-    -WorkingDirectory $ProjectRoot `
-    -RedirectStandardOutput $LogFile `
-    -RedirectStandardError  $ErrLog `
-    -WindowStyle     Hidden `
-    -PassThru
-Write-Host "Paper trader started (PID $($proc.Id)). Log: $LogFile"
+# Launch one process per group
+foreach ($grp in $Groups) {
+    $modeArgs  = @('--mode', $grp.Mode, '--interval', $grp.Interval)
+    $groupArgs = $CommonArgs + $modeArgs + @('--group', $grp.Name)
+    $ArgLine   = $groupArgs -join ' '
+    $groupLog   = Join-Path $LogDir ("paper_trader_$($grp.Name)_$Timestamp.log")
+    $groupErrLog = $groupLog -replace '\.log$', '_err.log'
+
+    # Set group-specific env vars for this process if available
+    $keyVar = $grp.EnvPrefix + 'KEY'
+    $secVar = $grp.EnvPrefix + 'SECRET'
+    if (-not (Get-Item -Path "Env:$keyVar" -ErrorAction SilentlyContinue)) {
+        # Group key not set — copy generic keys so the process inherits them
+        Set-Item -Path "Env:$keyVar" -Value $env:ALPACA_API_KEY   -ErrorAction SilentlyContinue
+        Set-Item -Path "Env:$secVar" -Value $env:ALPACA_API_SECRET -ErrorAction SilentlyContinue
+    }
+
+    $proc = Start-Process `
+        -FilePath         $PythonExe `
+        -ArgumentList     $ArgLine `
+        -WorkingDirectory $ProjectRoot `
+        -RedirectStandardOutput $groupLog `
+        -RedirectStandardError  $groupErrLog `
+        -WindowStyle      Hidden `
+        -PassThru
+    Write-Host "  [$($grp.Name)] PID $($proc.Id)  log: $groupLog"
+}
+
+Write-Host "[$(Get-Date -Format s)] All 3 trader groups started."
+Write-Host "Logs directory: $LogDir"
