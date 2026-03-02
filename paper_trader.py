@@ -77,12 +77,26 @@ def _acquire_single_instance_lock() -> bool:
 
     Uses a PID file + byte-range lock. Stale locks (PID no longer running)
     are automatically cleared so a force-killed process never blocks restarts.
+    Lock file is group-specific so intraday/swing/expansion can run in parallel.
     """
     global _INSTANCE_LOCK_FH
 
+    # Quick pre-parse to get --group before argparse runs, so each group gets
+    # its own lock file and can run concurrently with other groups.
+    import sys as _sys
+    _group_tag = "default"
+    _argv = _sys.argv[1:]
+    for _i, _arg in enumerate(_argv):
+        if _arg == "--group" and _i + 1 < len(_argv):
+            _group_tag = _argv[_i + 1]
+            break
+        if _arg.startswith("--group="):
+            _group_tag = _arg.split("=", 1)[1]
+            break
+
     lock_path = os.path.join(
         os.environ.get("TEMP", os.path.dirname(os.path.abspath(__file__))),
-        ".paper_trader.lock",
+        f".paper_trader_{_group_tag}.lock",
     )
 
     def _pid_alive(pid: int) -> bool:
@@ -248,6 +262,7 @@ class AlpacaPaperTrader:
         use_trailing_tp: bool = True,
         trailing_tp_activation: float = 0.04,
         trailing_tp_trail: float = 0.02,
+        max_loss_pct: float = 0.025,          # Hard cut: exit if P&L < -max_loss_pct from entry
         # --- Book-derived filters ---
         use_hurst_filter: bool = True,          # Chan: skip entries when H < hurst_threshold
         hurst_threshold: float = 0.55,          # H > 0.55 = confirmed trending regime
@@ -284,6 +299,7 @@ class AlpacaPaperTrader:
         self.use_trailing_tp = use_trailing_tp
         self.trailing_tp_activation = trailing_tp_activation
         self.trailing_tp_trail = trailing_tp_trail
+        self.max_loss_pct = max_loss_pct
         self.use_hurst_filter = use_hurst_filter
         self.hurst_threshold  = hurst_threshold
         self.kelly_fraction    = kelly_fraction
@@ -313,8 +329,8 @@ class AlpacaPaperTrader:
                     sym, model_dir=model_dir,
                     mode=mode, intraday_interval=intraday_interval)
                 log.info("Loaded ML model for %s (%s).", sym, mode)
-            except FileNotFoundError:
-                log.warning("No trained model for %s (%s) — will skip ML signals.", sym, mode)
+            except (FileNotFoundError, RuntimeError) as exc:
+                log.warning("No trained model for %s (%s): %s — will skip ML signals.", sym, mode, exc)
                 self.predictors[sym] = None
 
         self._running = True
@@ -439,11 +455,14 @@ class AlpacaPaperTrader:
 
         try:
             if self.mode == "intraday":
+                # 5 days ensures Friday bars are present so FRED VIX (1-day lag)
+                # can ffill into today's intraday bars on Mondays / after holidays.
                 bars = self.adapter.fetch_intraday(
-                    symbol, self.intraday_interval, lookback_days=2)
+                    symbol, self.intraday_interval, lookback_days=5)
             else:
-                bars = self.adapter.fetch_daily(symbol, DAILY_LOOKBACK)
-            vix_df = _fetch_vix_for_training(self.fred_key, lookback_days=DAILY_LOOKBACK)
+                # 400 days needed: GLD/SLV use frac_diff_close (~282-bar warmup)
+                bars = self.adapter.fetch_daily(symbol, 400)
+            vix_df = _fetch_vix_for_training(self.fred_key, lookback_days=400)
             return predictor.predict(bars, vix_df)
         except Exception as exc:
             log.error("Prediction failed for %s: %s", symbol, exc)
@@ -605,6 +624,19 @@ class AlpacaPaperTrader:
                 drawdown_from_peak = ((current_price - self._peak_prices[symbol])
                                       / self._peak_prices[symbol]
                                       if self._peak_prices[symbol] > 0 else 0)
+
+            # Hard max-loss cut: exit immediately if down more than max_loss_pct from entry
+            if self.max_loss_pct > 0 and pnl_pct <= -self.max_loss_pct:
+                if side == "LONG":
+                    self.sell(symbol, qty, reason=f"max_loss ({pnl_pct:+.2%})",
+                              limit_price=current_price)
+                else:
+                    self.buy_to_cover(symbol, qty, reason=f"max_loss ({pnl_pct:+.2%})",
+                                      limit_price=current_price)
+                self._record_closed_trade(pnl_pct)
+                self._clear_symbol_state(symbol)
+                return (f"EXIT  (max loss {pnl_pct:+.2%} >= -{self.max_loss_pct:.0%} limit, "
+                        f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
 
             # ATR-based or fixed stop distance
             entry_atr = self._entry_atrs.get(symbol, bar_atr)
@@ -846,11 +878,12 @@ class AlpacaPaperTrader:
                  self.long_confidence_threshold, self.short_confidence_threshold, self.exit_confidence)
         kelly_desc = (f"Dynamic (base={self.kelly_fraction}, window={KELLY_WINDOW}, min={MIN_KELLY_TRADES})"
                       if self.use_dynamic_kelly else f"Static {self.kelly_fraction}")
-        log.info("Stops: %s | ADX filter: %s (>%.0f) | Vol sizing: %s (target=%.0f%%) | "
+        log.info("Stops: %s + MaxLoss=%.0f%% | ADX filter: %s (>%.0f) | Vol sizing: %s (target=%.0f%%) | "
                  "Conf sizing: %s | Trailing TP: %s | Kelly: %s | "
                  "Hurst filter: %s (>%.2f) | VIX halt: %s (>%.1fσ) | "
                  "Time filter: %s | Corr sizing: %s",
                  f"ATR×{self.atr_stop_mult}" if self.use_atr_stop else f"Fixed {self.trailing_stop_pct:.0%}",
+                 self.max_loss_pct * 100,
                  "ON" if self.use_regime_filter else "OFF", self.adx_threshold,
                  "ON" if self.use_vol_sizing else "OFF", self.target_vol * 100,
                  "ON" if self.use_confidence_sizing else "OFF",
@@ -967,6 +1000,8 @@ def main() -> None:
                         help="Min ML confidence to exit/flip (default: 0.005)")
     parser.add_argument("--trailing-stop", type=float, default=0.05,
                         help="Trailing stop from peak (default: 0.05 = 5%%)")
+    parser.add_argument("--max-loss", type=float, default=0.025,
+                        help="Hard max-loss cut from entry price (default: 0.025 = 2.5%%)")
     parser.add_argument("--take-profit", type=float, default=0.08,
                         help="Take profit target (default: 0.08 = 8%%)")
     parser.add_argument("--mode", default="daily", choices=["daily", "intraday"],
@@ -1049,6 +1084,7 @@ def main() -> None:
         short_confidence_threshold=args.short_confidence,
         exit_confidence=args.exit_confidence,
         trailing_stop_pct=args.trailing_stop,
+        max_loss_pct=args.max_loss,
         take_profit_pct=args.take_profit,
         check_interval_min=check_interval,
         mode=args.mode,
