@@ -55,9 +55,21 @@ def _fetch(api_key: str, api_secret: str) -> dict:
     except Exception:
         positions = []
 
+    # Alpaca's `equity` field can be "0" on idle/new paper accounts.
+    # Fall back to `portfolio_value`, then to `cash`, in that order.
+    def _best_equity(a: dict) -> str:
+        for field in ("equity", "portfolio_value", "cash"):
+            val = a.get(field, "0")
+            try:
+                if float(val) > 0:
+                    return val
+            except (TypeError, ValueError):
+                pass
+        return "0"
+
     return {
         "account": {
-            "equity":       acct.get("equity", "0"),
+            "equity":       _best_equity(acct),
             "cash":         acct.get("cash", "0"),
             "buying_power": acct.get("buying_power", "0"),
         },
