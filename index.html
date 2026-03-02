@@ -2384,18 +2384,33 @@ document.addEventListener('DOMContentLoaded', function() {
   // ---- Render equity curve chart ----
   function renderEquityChart(portfolio) {
     var el = document.getElementById('live-equity-chart');
-    if (!el || !portfolio.timestamps || portfolio.timestamps.length === 0) return;
-    var dates = portfolio.timestamps.map(function(ts) { return new Date(ts * 1000); });
-    var eq = portfolio.equity;
-    var startVal = eq[0] || STARTING_EQUITY;
-    var lastVal = eq[eq.length - 1] || startVal;
+    if (!el || !portfolio || !portfolio.timestamps || portfolio.timestamps.length === 0) {
+      if (el) el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-dim);font-size:12px">No portfolio history available</div>';
+      return;
+    }
+    // Filter out null equity values (Alpaca returns null for low-activity periods)
+    var rawDates = portfolio.timestamps;
+    var rawEq    = portfolio.equity;
+    var dates = [], eq = [];
+    for (var i = 0; i < rawDates.length; i++) {
+      if (rawEq[i] != null) {
+        dates.push(new Date(rawDates[i] * 1000));
+        eq.push(rawEq[i]);
+      }
+    }
+    if (eq.length === 0) {
+      el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-dim);font-size:12px">No portfolio history available</div>';
+      return;
+    }
+    var startVal = eq[0];
+    var lastVal  = eq[eq.length - 1];
     var lineColor = lastVal >= startVal ? '#22c55e' : '#ef4444';
     var fillColor = lastVal >= startVal ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)';
-    var trace = {x:dates,y:eq,type:'scatter',mode:'lines',fill:'tozeroy',fillcolor:fillColor,line:{color:lineColor,width:2.5,shape:'linear'},hovertemplate:'%{x|%b %d %H:%M}<br>Equity: $%{y:,.2f}<extra></extra>'};
-    var baseline = {x:[dates[0],dates[dates.length-1]],y:[STARTING_EQUITY,STARTING_EQUITY],type:'scatter',mode:'lines',line:{color:'rgba(255,255,255,0.2)',width:1,dash:'dot'},hoverinfo:'skip'};
-    var yMin = Math.min.apply(null,eq);
-    var yMax = Math.max.apply(null,eq);
-    var yPad = (yMax - yMin) * 0.1 || 50;
+    var trace    = {x:dates,y:eq,type:'scatter',mode:'lines',fill:'tozeroy',fillcolor:fillColor,line:{color:lineColor,width:2.5,shape:'linear'},hovertemplate:'%{x|%b %d %H:%M}<br>Equity: $%{y:,.2f}<extra></extra>'};
+    var baseline = {x:[dates[0],dates[dates.length-1]],y:[startVal,startVal],type:'scatter',mode:'lines',line:{color:'rgba(255,255,255,0.2)',width:1,dash:'dot'},hoverinfo:'skip'};
+    var yMin = Math.min.apply(null, eq);
+    var yMax = Math.max.apply(null, eq);
+    var yPad = (yMax - yMin) * 0.1 || startVal * 0.001 || 50;
     var layout = Object.assign({},JSON.parse(JSON.stringify(darkPlotLayout)),{height:260,yaxis:{gridcolor:'rgba(255,255,255,0.04)',linecolor:'rgba(255,255,255,0.06)',tickprefix:'$',separatethousands:true,range:[yMin - yPad, yMax + yPad]}});
     Plotly.react(el,[trace,baseline],layout,plotConfig);
   }
@@ -2537,14 +2552,26 @@ document.addEventListener('DOMContentLoaded', function() {
     var posAcct  = _posAccounts.find(function(a) { return a.group === group; });
     var histAcct = _histAccounts.find(function(a) { return a.group === group; });
 
+    // Derive starting equity from portfolio history (first non-null equity), fallback to constant
+    var startingEquity = STARTING_EQUITY;
+    if (histAcct && histAcct.portfolio && histAcct.portfolio.equity && histAcct.portfolio.equity.length) {
+      var rawEq = histAcct.portfolio.equity;
+      for (var i = 0; i < rawEq.length; i++) {
+        if (rawEq[i] != null) {
+          startingEquity = rawEq[i];
+          break;
+        }
+      }
+    }
+
     if (posAcct) {
       var acct = posAcct.account || {};
       var equity = parseFloat(acct.equity) || 0;
       var cash   = parseFloat(acct.cash)   || 0;
       var positionsVal = 0;
       (posAcct.positions || []).forEach(function(p) { positionsVal += Math.abs(parseFloat(p.market_value) || 0); });
-      var pnl      = equity - STARTING_EQUITY;
-      var pnlPct   = STARTING_EQUITY > 0 ? (pnl / STARTING_EQUITY * 100) : 0;
+      var pnl      = equity - startingEquity;
+      var pnlPct   = startingEquity > 0 ? (pnl / startingEquity * 100) : 0;
       var cashPct  = equity > 0 ? (cash / equity * 100) : 0;
       var posPct   = equity > 0 ? (positionsVal / equity * 100) : 0;
       var pnlClass = pnl >= 0 ? 'pos' : 'neg';
