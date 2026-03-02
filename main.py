@@ -5,14 +5,16 @@ Quantitative Stocks — Unified CLI
 Single entry point for all modules: signals, train, predict, backtest, trade, trade-options.
 
 Usage:
-    python main.py signals       --provider yahoo --ml
-    python main.py train         --symbol SPY --epochs 50
-    python main.py predict       --symbol SPY
-    python main.py backtest      --symbol SPY --start 2024-01-01
-    python main.py trade         --interval 5 --confidence 0.2
-    python main.py trade-options --confidence 0.2 --put-confidence 0.15
-    python main.py report                          # generate outputs/report.html
-    python main.py report --open                   # generate + open in browser
+    python main.py signals          --provider yahoo --ml
+    python main.py train            --symbol SPY --epochs 50
+    python main.py predict          --symbol SPY
+    python main.py backtest         --symbol SPY --start 2024-01-01
+    python main.py trade            --interval 5 --confidence 0.2
+    python main.py train-vol        --symbol SPY --epochs 50
+    python main.py backtest-options --symbol SPY --start 2024-01-01
+    python main.py trade-options    --confidence 0.2 --strategy directional
+    python main.py report                             # generate outputs/report.html
+    python main.py report --open                      # generate + open in browser
 
 Environment variables:
     FRED_API_KEY      – FRED API key for VIX data
@@ -39,27 +41,39 @@ def main() -> None:
     python main.py <command> [options]
 
   Commands:
-    signals      Run the ETF sentiment signal engine
-    train        Train LSTM model for a symbol
-    predict      Run ML prediction for a symbol
-    backtest     Walk-forward backtest with ML predictions
-    trade        Start Alpaca paper trading loop (stocks)
-    trade-options Start Long ATM Straddle options trader (VIX spike entry)
-    report       Generate HTML dashboard (outputs/report.html)
+    signals          Run the ETF sentiment signal engine
+    train            Train LSTM model for a symbol
+    train-meta       Train Random Forest meta-model (requires trained primary LSTM)
+    train-vol        Train Vol Expansion LSTM for options timing
+    predict          Run ML prediction for a symbol
+    backtest         Walk-forward backtest with ML predictions
+    backtest-options Backtest options strategies (directional/straddle/both)
+    trade            Start Alpaca paper trading loop (stocks)
+    trade-options    Start options trader (directional ITM or straddle)
+    report           Generate HTML dashboard (outputs/report.html)
 
   Examples:
-    python main.py signals       --provider yahoo --ml
-    python main.py train         --symbol SPY --epochs 50
-    python main.py train         --symbol SPY --mode intraday --interval 5min
-    python main.py predict       --symbol SPY
-    python main.py backtest      --symbol SPY --start 2024-01-01
-    python main.py backtest      --symbol SPY --start 2025-01-01 --mode intraday
-    python main.py trade         --confidence 0.2 --trailing-stop 0.05
-    python main.py trade         --mode intraday --interval 5min
-    python main.py trade-options --confidence 0.2 --put-confidence 0.15
-    python main.py trade-options --symbols SPY,QQQ --vix-spike-threshold 15
+    python main.py signals              --provider yahoo --ml
+    python main.py train                --symbol SPY --epochs 50
+    python main.py train                --symbol SPY --mode intraday --interval 5min
+    python main.py train-meta           --symbol SPY
+    python main.py train-meta           --symbol ALL
+    python main.py train-vol            --symbol SPY --epochs 50
+    python main.py train-vol            --symbol SPY --with-meta
+    python main.py predict              --symbol SPY
+    python main.py backtest             --symbol SPY --start 2024-01-01
+    python main.py backtest             --symbol SPY --start 2025-01-01 --mode intraday
+    python main.py backtest-options     --symbol SPY --start 2024-01-01 --strategy directional
+    python main.py backtest-options     --symbol QQQ --start 2024-01-01
+    python main.py trade                --confidence 0.2 --trailing-stop 0.05
+    python main.py trade                --group equities
+    python main.py trade                --group commodities
+    python main.py trade                --mode intraday --interval 5min
+    python main.py trade-options        --strategy directional --symbols SPY,QQQ
+    python main.py trade-options        --strategy straddle --symbols SPY,QQQ
+    python main.py trade-options        --strategy both
     python main.py report
-    python main.py report        --open
+    python main.py report               --open
 
   Run `python main.py <command> --help` for command-specific options.
 """)
@@ -74,8 +88,12 @@ def main() -> None:
         signals_main()
 
     elif command == "train":
-        # Inject "train" subcommand back for ml_model's argparse
         sys.argv = [sys.argv[0], "train"] + sys.argv[1:]
+        from ml_model import main as ml_main
+        ml_main()
+
+    elif command == "train-meta":
+        sys.argv = [sys.argv[0], "train-meta"] + sys.argv[1:]
         from ml_model import main as ml_main
         ml_main()
 
@@ -93,6 +111,14 @@ def main() -> None:
         from paper_trader import main as trade_main
         trade_main()
 
+    elif command == "train-vol":
+        from options_ml import main as vol_main
+        vol_main()
+
+    elif command == "backtest-options":
+        from options_backtester import main as opts_bt_main
+        opts_bt_main()
+
     elif command == "trade-options":
         from options_trader import main as options_main
         options_main()
@@ -103,7 +129,7 @@ def main() -> None:
 
     else:
         print(f"\n  Unknown command: {command!r}")
-        print("  Available commands: signals, train, predict, backtest, trade, trade-options")
+        print("  Available commands: signals, train, train-meta, train-vol, predict, backtest, backtest-options, trade, trade-options")
         print("  Run `python main.py --help` for usage.\n")
         sys.exit(1)
 

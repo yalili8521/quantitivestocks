@@ -69,11 +69,11 @@ $EnvCandidates = @(
     (Join-Path $ProjectRoot 'settings\alpaca.env')
 )
 
-if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
+if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET -or -not $env:FRED_API_KEY) {
     foreach ($candidate in $EnvCandidates) {
         if (Test-Path -LiteralPath $candidate) {
             Import-DotEnvFile -Path $candidate
-            if ($env:ALPACA_API_KEY -and $env:ALPACA_API_SECRET) {
+            if ($env:ALPACA_API_KEY -and $env:ALPACA_API_SECRET -and $env:FRED_API_KEY) {
                 break
             }
         }
@@ -82,10 +82,12 @@ if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
 
 $PythonArgs = @(
     '-u','main.py','trade-options',
-    '--symbols','SPY,QQQ,IWM,SLV,GLD,XLE,IGV',
-    '--vix-spike-threshold','15',
-    '--max-risk','5000',
-    '--confidence','0.30',
+    '--symbols','SOXX,QQQ,GLD',
+    '--strategy','both',
+    '--max-risk-pct','0.06',
+    '--max-risk','3000',
+    '--dir-confidence','0.10',
+    '--confidence','0.10',
     '--check-interval','15'
 )
 
@@ -111,6 +113,10 @@ if ($existingTraders) {
 
 if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
     Write-Error "ERROR: Missing ALPACA_API_KEY / ALPACA_API_SECRET. Set machine env vars or add one of: $($EnvCandidates -join ', ')"
+    exit 1
+}
+if (-not $env:FRED_API_KEY) {
+    Write-Error "ERROR: Missing FRED_API_KEY. Add it to secrets\alpaca.env."
     exit 1
 }
 

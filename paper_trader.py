@@ -19,6 +19,7 @@ PAPER TRADING ONLY — paper=True is hardcoded for safety.
 from __future__ import annotations
 
 import argparse
+import collections
 import logging
 import os
 import signal
@@ -39,7 +40,7 @@ from signals_engine import (
     DAILY_LOOKBACK, build_adapter, FREDVixFetcher,
     compute_atr, compute_adx_full, compute_hurst_exponent,
 )
-from ml_model import Predictor, _fetch_vix_for_training, DEFAULT_MODEL_DIR
+from ml_model import Predictor, _fetch_vix_for_training, DEFAULT_MODEL_DIR, META_THRESHOLD
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,6 +48,25 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger("paper_trader")
+
+# ---------------------------------------------------------------------------
+# Account groups (3 separate Alpaca paper accounts by asset class)
+# ---------------------------------------------------------------------------
+SYMBOL_GROUPS: Dict[str, List[str]] = {
+    # Account 1 — Intraday (5min LSTM, time filter active)
+    "intraday":  ["SPY", "QQQ", "IWM", "SOXX"],
+    # Account 2 — Swing (daily LSTM, broader macro ETFs)
+    # TLT dropped: 42.9% win rate, Sharpe 0.300 across all feature sets (bonds need rate signals)
+    "swing":     ["EWT", "GLD", "EEM", "SLV"],
+    # Account 3 — Expansion (daily LSTM, international/sector)
+    # IGV dropped: <50% win rate on both 12-feat and 17-feat (sector ETF, earnings-driven)
+    # FXI dropped: <50% win rate on both (China policy-driven, not technical)
+    "expansion": ["EWJ", "EWS", "XLE", "INDA"],
+}
+
+# Dynamic Kelly constants
+KELLY_WINDOW       = 60   # rolling window: last N closed trades to estimate W and B
+MIN_KELLY_TRADES   = 20   # minimum closed trades before switching from static to dynamic sizing
 
 # Hold lock file handle for process lifetime
 _INSTANCE_LOCK_FH = None
@@ -231,9 +251,12 @@ class AlpacaPaperTrader:
         # --- Book-derived filters ---
         use_hurst_filter: bool = True,          # Chan: skip entries when H < hurst_threshold
         hurst_threshold: float = 0.55,          # H > 0.55 = confirmed trending regime
-        kelly_fraction: float = 0.5,            # Chan: half-Kelly multiplier (0 = off, 0.5 = half)
+        kelly_fraction: float = 0.5,            # Chan: base half-Kelly multiplier (0 = off, 0.5 = half)
+        use_dynamic_kelly: bool = True,         # Re-estimate Kelly fraction from recent 60 closed trades
         use_vix_halt: bool = True,              # Aldridge: halt new entries on VIX spike > 2σ
         vix_halt_sigma: float = 2.0,            # Aldridge: # of σ for VIX halt
+        use_time_filter: bool = True,           # Aldridge: block opening/closing auction windows (intraday only)
+        use_corr_sizing: bool = True,           # Scale down size when multiple same-direction positions open
     ):
         self.trading_client = TradingClient(
             api_key=api_key,
@@ -263,10 +286,13 @@ class AlpacaPaperTrader:
         self.trailing_tp_trail = trailing_tp_trail
         self.use_hurst_filter = use_hurst_filter
         self.hurst_threshold  = hurst_threshold
-        self.kelly_fraction   = kelly_fraction
-        self.use_vix_halt     = use_vix_halt
+        self.kelly_fraction    = kelly_fraction
+        self.use_dynamic_kelly = use_dynamic_kelly
+        self.use_vix_halt      = use_vix_halt
         self.vix_halt_sigma   = vix_halt_sigma
         self._vix_halted      = False   # set each cycle by run_loop
+        self.use_time_filter  = use_time_filter
+        self.use_corr_sizing  = use_corr_sizing
 
         self.adapter = build_adapter(provider)
         self.fred_key = os.environ.get("FRED_API_KEY")
@@ -276,6 +302,9 @@ class AlpacaPaperTrader:
         self._entry_atrs: Dict[str, float] = {}
         self._tp_activated: Dict[str, bool] = {}
         self._tp_trail_peaks: Dict[str, float] = {}
+
+        # Dynamic Kelly: rolling closed-trade P&L history (cross-symbol, shared)
+        self._closed_trades: collections.deque = collections.deque(maxlen=KELLY_WINDOW)
 
         self.predictors: Dict[str, Optional[Predictor]] = {}
         for sym in symbols:
@@ -474,6 +503,32 @@ class AlpacaPaperTrader:
             log.warning("VIX halt check failed: %s", exc)
             return False
 
+    def _intraday_time_window(self) -> str:
+        """Return the current intraday time-of-day window (ET).
+
+        Aldridge, High-Frequency Trading Ch. 5-7:
+          open_noise   9:30-10:00  — opening auction, wide spreads, fake momentum → block entries
+          momentum_1  10:00-11:30  — primary momentum window → full size
+          midday      11:30-14:00  — low volume, mean-reverting → half size
+          momentum_2  14:00-15:30  — secondary momentum window → full size
+          close_noise 15:30-16:00  — closing auction risk → block entries, exits only
+
+        Only meaningful in intraday mode.
+        """
+        from datetime import time as dt_time
+        try:
+            from zoneinfo import ZoneInfo
+        except ImportError:
+            from backports.zoneinfo import ZoneInfo
+
+        t = datetime.now(ZoneInfo("America/New_York")).time()
+        if   dt_time(9,  30) <= t < dt_time(10,  0): return "open_noise"
+        elif dt_time(10,  0) <= t < dt_time(11, 30): return "momentum_1"
+        elif dt_time(11, 30) <= t < dt_time(14,  0): return "midday"
+        elif dt_time(14,  0) <= t < dt_time(15, 30): return "momentum_2"
+        elif dt_time(15, 30) <= t <= dt_time(16, 0): return "close_noise"
+        return "n/a"
+
     def _get_market_context(self, symbol: str) -> Dict[str, float]:
         """Fetch ATR, ADX, +DI, -DI, and realized vol for position sizing, stops, and DI filter."""
         try:
@@ -515,6 +570,8 @@ class AlpacaPaperTrader:
         pred = self.get_prediction(symbol)
         direction = pred["direction"]
         confidence = pred["confidence"]
+        meta_confidence = pred.get("meta_confidence", 1.0)
+        meta_tradeable  = pred.get("tradeable", True)
 
         ctx = self._get_market_context(symbol)
         bar_atr      = ctx["atr"]
@@ -571,6 +628,7 @@ class AlpacaPaperTrader:
                     else:
                         self.buy_to_cover(symbol, qty, reason=f"trailing_tp ({pnl_pct:+.2%})",
                                           limit_price=current_price)
+                    self._record_closed_trade(pnl_pct)
                     self._clear_symbol_state(symbol)
                     return (f"EXIT  (trailing TP {pnl_pct:+.2%}, peak {self._tp_trail_peaks.get(symbol, 0):+.2%}, "
                             f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
@@ -583,6 +641,7 @@ class AlpacaPaperTrader:
                 else:
                     self.buy_to_cover(symbol, qty, reason=f"trailing_stop ({drawdown_from_peak:.2%})",
                                       limit_price=current_price)
+                self._record_closed_trade(pnl_pct)
                 self._clear_symbol_state(symbol)
                 return (f"EXIT  (trailing stop {drawdown_from_peak:.2%} from peak, "
                         f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
@@ -591,11 +650,13 @@ class AlpacaPaperTrader:
             if (side == "LONG" and direction == "DOWN"
                     and confidence >= self.exit_confidence):
                 self.sell(symbol, qty, reason="signal_flip", limit_price=current_price)
+                self._record_closed_trade(pnl_pct)
                 self._clear_symbol_state(symbol)
                 flip_direction = "SHORT"
             elif (side == "SHORT" and direction == "UP"
                   and confidence >= self.exit_confidence):
                 self.buy_to_cover(symbol, qty, reason="signal_flip", limit_price=current_price)
+                self._record_closed_trade(pnl_pct)
                 self._clear_symbol_state(symbol)
                 flip_direction = "LONG"
             else:
@@ -605,6 +666,19 @@ class AlpacaPaperTrader:
                         f"ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}")
 
         # --- Entry logic ---
+        # Aldridge: intraday time-of-day filter — block opening/closing auction windows
+        _midday_sizing_mult = 1.0
+        if self.use_time_filter and self.mode == "intraday" and not flip_direction:
+            _tw = self._intraday_time_window()
+            if _tw == "open_noise":
+                return (f"TIME BLOCK  (9:30-10:00 ET opening noise — wide spreads, false momentum)  "
+                        f"ML: {direction} {confidence:.2f}")
+            if _tw == "close_noise":
+                return (f"TIME BLOCK  (15:30-16:00 ET closing risk — exits only)  "
+                        f"ML: {direction} {confidence:.2f}")
+            if _tw == "midday":
+                _midday_sizing_mult = 0.5   # low volume doldrums: half size
+
         # Aldridge: VIX halt — block ALL new entries on extreme VIX spikes
         if self._vix_halted and not flip_direction:
             return (f"SKIP  (VIX halt active — no new entries this cycle)  "
@@ -624,6 +698,11 @@ class AlpacaPaperTrader:
                 regime = "mean-reverting" if hurst < 0.45 else "random-walk"
                 return (f"SKIP  (H={hurst:.2f}<{self.hurst_threshold} {regime}, "
                         f"momentum invalid)  ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}")
+
+        # De Prado: meta-labeling gate — only enter when meta RF trusts the primary signal
+        if not meta_tradeable and not flip_direction:
+            return (f"META BLOCK  (meta_conf={meta_confidence:.2f}<{META_THRESHOLD:.2f}, "
+                    f"primary signal not trusted)  ML: {direction} {confidence:.2f}")
 
         enter_dir = None
         if flip_direction is not None and confidence >= self.exit_confidence:
@@ -654,8 +733,19 @@ class AlpacaPaperTrader:
             if self.use_confidence_sizing:
                 conf_scalar = 0.5 + confidence
                 sizing_pct *= conf_scalar
-            if self.kelly_fraction > 0:
-                sizing_pct *= self.kelly_fraction   # half-Kelly: halves size, cuts drawdown ~75%
+            dyn_kelly = self._compute_dynamic_kelly()
+            if dyn_kelly > 0:
+                sizing_pct *= dyn_kelly   # dynamic half-Kelly (falls back to static if < MIN_KELLY_TRADES)
+            # Aldridge: midday doldrums — reduce size during 11:30-14:00 ET
+            if _midday_sizing_mult < 1.0:
+                sizing_pct *= _midday_sizing_mult
+            # Correlated position sizing: 1/sqrt(N) when opening additional same-direction positions
+            if self.use_corr_sizing:
+                n_same = sum(1 for p in positions.values() if p["side"] == enter_dir) + 1
+                if n_same > 1:
+                    corr_scalar = 1.0 / np.sqrt(n_same)
+                    sizing_pct *= corr_scalar
+                    log.debug("Corr sizing: %.2fx (%d same-direction open)", corr_scalar, n_same)
             sizing_pct = min(sizing_pct, 0.98)
 
             invest = allocation * sizing_pct
@@ -686,6 +776,59 @@ class AlpacaPaperTrader:
 
         return f"SKIP  (no signal)  ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}"
 
+    def _record_closed_trade(self, pnl_pct: float) -> None:
+        """Push realized P&L fraction into the rolling Kelly window."""
+        self._closed_trades.append(pnl_pct)
+
+    def _compute_dynamic_kelly(self) -> float:
+        """Return the dynamic half-Kelly fraction estimated from recent closed trades.
+
+        Formula (Chan, *Machine Trading*, ch. 6):
+            full-Kelly f* = (W*(B+1) - 1) / B
+            half-Kelly   = f* * 0.5
+        where W = win rate, B = avg_win / avg_loss over the last KELLY_WINDOW trades.
+
+        Falls back to the static ``self.kelly_fraction`` when:
+        - dynamic Kelly is disabled (use_dynamic_kelly=False)
+        - fewer than MIN_KELLY_TRADES are recorded
+        - computed f* is non-positive (no edge detected)
+
+        The result is clamped to [kelly_fraction*0.5, kelly_fraction*2.0] so it never
+        deviate more than 2x from the configured base fraction.
+        """
+        if self.kelly_fraction <= 0 or not self.use_dynamic_kelly:
+            return self.kelly_fraction
+
+        trades = list(self._closed_trades)
+        if len(trades) < MIN_KELLY_TRADES:
+            return self.kelly_fraction  # not enough history yet
+
+        wins   = [p for p in trades if p > 0]
+        losses = [abs(p) for p in trades if p <= 0]
+
+        if not losses:
+            # Never lost in the window — cap at 2x base
+            return self.kelly_fraction * 2.0
+        if not wins:
+            return 0.0  # no wins in window — skip new trades
+
+        W = len(wins) / len(trades)
+        B = np.mean(wins) / np.mean(losses)  # profit ratio
+
+        kelly_full = (W * (B + 1) - 1) / B
+        if kelly_full <= 0:
+            return 0.0  # negative edge — do not trade
+
+        half_kelly = kelly_full * 0.5
+        kelly_min  = self.kelly_fraction * 0.5
+        kelly_max  = self.kelly_fraction * 2.0
+        result = float(np.clip(half_kelly, kelly_min, kelly_max))
+        log.debug(
+            "Dynamic Kelly: W=%.2f B=%.2f f*=%.3f half=%.3f clamped=%.3f (n=%d trades)",
+            W, B, kelly_full, half_kelly, result, len(trades),
+        )
+        return result
+
     def _clear_symbol_state(self, symbol: str) -> None:
         """Reset tracking state for a symbol after exit."""
         self._peak_prices.pop(symbol, None)
@@ -701,17 +844,22 @@ class AlpacaPaperTrader:
         log.info("Check interval: %d min", self.check_interval // 60)
         log.info("Entry confidence: LONG %.2f, SHORT %.2f, Exit: %.2f",
                  self.long_confidence_threshold, self.short_confidence_threshold, self.exit_confidence)
+        kelly_desc = (f"Dynamic (base={self.kelly_fraction}, window={KELLY_WINDOW}, min={MIN_KELLY_TRADES})"
+                      if self.use_dynamic_kelly else f"Static {self.kelly_fraction}")
         log.info("Stops: %s | ADX filter: %s (>%.0f) | Vol sizing: %s (target=%.0f%%) | "
-                 "Conf sizing: %s | Trailing TP: %s | Kelly: %.1f | "
-                 "Hurst filter: %s (>%.2f) | VIX halt: %s (>%.1fσ)",
+                 "Conf sizing: %s | Trailing TP: %s | Kelly: %s | "
+                 "Hurst filter: %s (>%.2f) | VIX halt: %s (>%.1fσ) | "
+                 "Time filter: %s | Corr sizing: %s",
                  f"ATR×{self.atr_stop_mult}" if self.use_atr_stop else f"Fixed {self.trailing_stop_pct:.0%}",
                  "ON" if self.use_regime_filter else "OFF", self.adx_threshold,
                  "ON" if self.use_vol_sizing else "OFF", self.target_vol * 100,
                  "ON" if self.use_confidence_sizing else "OFF",
                  "ON" if self.use_trailing_tp else "OFF",
-                 self.kelly_fraction,
+                 kelly_desc,
                  "ON" if self.use_hurst_filter else "OFF", self.hurst_threshold,
-                 "ON" if self.use_vix_halt else "OFF", self.vix_halt_sigma)
+                 "ON" if self.use_vix_halt else "OFF", self.vix_halt_sigma,
+                 "ON (intraday)" if self.use_time_filter else "OFF",
+                 "ON (1/√N)" if self.use_corr_sizing else "OFF")
         print()
 
         # Graceful shutdown
@@ -800,19 +948,23 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Alpaca paper trader — continuous ML-driven trading loop.",
     )
+    parser.add_argument("--group", type=str, default=None,
+                        choices=list(SYMBOL_GROUPS.keys()) + ["all"],
+                        help="Trade a named account group: intraday / swing / expansion / all")
     parser.add_argument("--symbols", type=str, default=None,
-                        help="Comma-separated symbols (default: full 16-symbol universe)")
+                        help="Comma-separated symbols override (overrides --group)")
     parser.add_argument("--provider", default="yahoo",
                         choices=["yahoo", "alpaca", "hybrid"],
                         help="Data provider (default: yahoo)")
     parser.add_argument("--check-interval", type=int, default=None,
                         help="Check interval in minutes (default: 5 daily, 1 intraday)")
-    parser.add_argument("--confidence", type=float, default=0.2,
-                        help="Min ML confidence to enter LONG (default: 0.2)")
-    parser.add_argument("--short-confidence", type=float, default=0.15,
-                        help="Min ML confidence to enter SHORT (default: 0.15, more aggressive)")
-    parser.add_argument("--exit-confidence", type=float, default=0.1,
-                        help="Min ML confidence to exit/flip (default: 0.1)")
+    parser.add_argument("--confidence", type=float, default=0.01,
+                        help="Min ML confidence to enter LONG (default: 0.01; attention-LSTM "
+                             "outputs compressed probs, ~0.01-0.12 range — meta gate filters quality)")
+    parser.add_argument("--short-confidence", type=float, default=0.01,
+                        help="Min ML confidence to enter SHORT (default: 0.01)")
+    parser.add_argument("--exit-confidence", type=float, default=0.005,
+                        help="Min ML confidence to exit/flip (default: 0.005)")
     parser.add_argument("--trailing-stop", type=float, default=0.05,
                         help="Trailing stop from peak (default: 0.05 = 5%%)")
     parser.add_argument("--take-profit", type=float, default=0.08,
@@ -844,23 +996,45 @@ def main() -> None:
     parser.add_argument("--hurst-threshold", type=float, default=0.55,
                         help="Min Hurst exponent to allow momentum entries (default: 0.55)")
     parser.add_argument("--kelly-fraction", type=float, default=0.5,
-                        help="Kelly multiplier: 0.5=half-Kelly, 0=off (Chan, default: 0.5)")
+                        help="Base half-Kelly multiplier: 0.5=half-Kelly, 0=off (Chan, default: 0.5)")
+    parser.add_argument("--no-dynamic-kelly", action="store_true",
+                        help="Use static kelly-fraction instead of rolling Kelly estimate")
     parser.add_argument("--no-vix-halt", action="store_true",
                         help="Disable VIX spike halt rule (Aldridge)")
     parser.add_argument("--vix-halt-sigma", type=float, default=2.0,
                         help="VIX change σ threshold for halt (Aldridge, default: 2.0)")
+    parser.add_argument("--no-time-filter", action="store_true",
+                        help="Disable intraday time-of-day filter (Aldridge: blocks 9:30-10:00 and 15:30-16:00 ET)")
+    parser.add_argument("--no-corr-sizing", action="store_true",
+                        help="Disable correlated position sizing (1/sqrt(N) when multiple same-direction positions)")
 
     args = parser.parse_args()
 
-    api_key = os.environ.get("ALPACA_API_KEY", "")
-    api_secret = os.environ.get("ALPACA_API_SECRET", "")
+    # Resolve API keys: group-specific keys take priority over generic ALPACA_API_KEY
+    group = args.group  # e.g. "equities", "commodities", "intl", "all", or None
+    if group and group != "all":
+        env_prefix = f"ALPACA_{group.upper()}_"
+        api_key    = os.environ.get(f"{env_prefix}KEY",    os.environ.get("ALPACA_API_KEY", ""))
+        api_secret = os.environ.get(f"{env_prefix}SECRET", os.environ.get("ALPACA_API_SECRET", ""))
+    else:
+        api_key    = os.environ.get("ALPACA_API_KEY", "")
+        api_secret = os.environ.get("ALPACA_API_SECRET", "")
+
     if not api_key or not api_secret:
-        print("\n  ERROR: Set ALPACA_API_KEY and ALPACA_API_SECRET environment variables.")
+        hint = (f"ALPACA_{group.upper()}_KEY / ALPACA_{group.upper()}_SECRET  OR  "
+                if group and group != "all" else "")
+        print(f"\n  ERROR: Set {hint}ALPACA_API_KEY and ALPACA_API_SECRET environment variables.")
         print("  Get free keys at https://app.alpaca.markets/signup\n")
         sys.exit(1)
 
-    symbols = ([s.strip().upper() for s in args.symbols.split(",")]
-               if args.symbols else DEFAULT_UNIVERSE)
+    # Resolve symbols: --symbols > --group > full DEFAULT_UNIVERSE
+    if args.symbols:
+        symbols = [s.strip().upper() for s in args.symbols.split(",")]
+    elif group and group != "all":
+        symbols = SYMBOL_GROUPS[group]
+        log.info("Account group '%s': trading %s", group, symbols)
+    else:
+        symbols = DEFAULT_UNIVERSE
 
     check_interval = args.check_interval
     if check_interval is None:
@@ -890,8 +1064,11 @@ def main() -> None:
         use_hurst_filter=not args.no_hurst_filter,
         hurst_threshold=args.hurst_threshold,
         kelly_fraction=args.kelly_fraction,
+        use_dynamic_kelly=not args.no_dynamic_kelly,
         use_vix_halt=not args.no_vix_halt,
         vix_halt_sigma=args.vix_halt_sigma,
+        use_time_filter=not args.no_time_filter,
+        use_corr_sizing=not args.no_corr_sizing,
     )
 
     # Show account before starting

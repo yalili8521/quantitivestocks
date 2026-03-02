@@ -16,6 +16,7 @@ Requires: trained model (run: python main.py train --symbol SPY first).
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -24,6 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import List, Optional
 
+import joblib
 import numpy as np
 import pandas as pd
 import torch
@@ -33,8 +35,8 @@ from signals_engine import (
     compute_atr, compute_adx, compute_bollinger_bands,
 )
 from ml_model import (
-    FeatureEngine, DirectionLSTM, Predictor, FEATURE_COLS, SEQ_LEN,
-    DEFAULT_MODEL_DIR, _fetch_vix_for_training,
+    FeatureEngine, DirectionLSTM, Predictor, FEATURE_COLS, get_feature_cols, SEQ_LEN,
+    DEFAULT_MODEL_DIR, META_THRESHOLD, _fetch_vix_for_training,
 )
 
 logging.basicConfig(
@@ -140,6 +142,8 @@ class Backtester:
         use_trailing_tp: bool = True,
         trailing_tp_activation: float = 0.04,
         trailing_tp_trail: float = 0.02,
+        kelly_fraction: float = 0.5,            # Chan: base half-Kelly multiplier (0 = off)
+        use_dynamic_kelly: bool = True,         # Re-estimate Kelly from rolling 60 closed trades
     ):
         self.symbol = symbol
         self.adapter = adapter
@@ -165,6 +169,47 @@ class Backtester:
         self.use_trailing_tp = use_trailing_tp
         self.trailing_tp_activation = trailing_tp_activation
         self.trailing_tp_trail = trailing_tp_trail
+        self.kelly_fraction    = kelly_fraction
+        self.use_dynamic_kelly = use_dynamic_kelly
+
+    # ------------------------------------------------------------------
+    KELLY_WINDOW     = 60   # rolling window for dynamic Kelly estimation
+    MIN_KELLY_TRADES = 20   # min closed trades before switching to dynamic
+
+    def _compute_dynamic_kelly(self, closed_trades: list) -> float:
+        """Return dynamic half-Kelly fraction from last KELLY_WINDOW closed trades.
+
+        Falls back to static ``self.kelly_fraction`` when disabled or insufficient data.
+        """
+        if self.kelly_fraction <= 0 or not self.use_dynamic_kelly:
+            return self.kelly_fraction
+
+        window = closed_trades[-self.KELLY_WINDOW:]
+        if len(window) < self.MIN_KELLY_TRADES:
+            return self.kelly_fraction
+
+        pnl_pcts = []
+        for t in window:
+            cost = t.entry_price * t.size
+            pnl_pcts.append(t.pnl / cost if cost > 0 else 0.0)
+
+        wins   = [p for p in pnl_pcts if p > 0]
+        losses = [abs(p) for p in pnl_pcts if p <= 0]
+
+        if not losses:
+            return self.kelly_fraction * 2.0
+        if not wins:
+            return 0.0
+
+        W = len(wins) / len(pnl_pcts)
+        B = np.mean(wins) / np.mean(losses)
+
+        kelly_full = (W * (B + 1) - 1) / B
+        if kelly_full <= 0:
+            return 0.0
+
+        half_kelly = kelly_full * 0.5
+        return float(np.clip(half_kelly, self.kelly_fraction * 0.5, self.kelly_fraction * 2.0))
 
     def run(self, start_date: str, end_date: Optional[str] = None,
             seq_len: int = SEQ_LEN) -> BacktestResult:
@@ -202,16 +247,30 @@ class Backtester:
             sys.exit(1)
         engine.load_scaler(scaler_path)
 
-        features = engine.build_features(bars, vix_df, mode=self.mode)
+        features = engine.build_features(bars, vix_df, mode=self.mode, symbol=self.symbol)
         features_norm = engine.transform(features)
         log.info("Built %d feature rows.", len(features_norm))
 
-        # Load model
+        # Load primary LSTM model
         weights_path = os.path.join(self.model_dir, f"{self.symbol}_lstm{suffix}.pt")
-        model = DirectionLSTM(n_features=len(FEATURE_COLS))
+        model = DirectionLSTM(n_features=len(get_feature_cols(self.mode, self.symbol)))
         model.load_state_dict(
             torch.load(weights_path, map_location="cpu", weights_only=True))
         model.eval()
+
+        # Load meta RF (optional — silently skip if not trained yet)
+        meta_model = None
+        meta_threshold = META_THRESHOLD  # per-symbol override loaded below
+        meta_path    = os.path.join(self.model_dir, f"{self.symbol}_meta_rf{suffix}.joblib")
+        config_path  = os.path.join(self.model_dir, f"{self.symbol}_meta_rf{suffix}_config.json")
+        if os.path.exists(meta_path):
+            meta_model = joblib.load(meta_path)
+            if os.path.exists(config_path):
+                with open(config_path) as _f:
+                    _cfg = json.load(_f)
+                meta_threshold = float(_cfg.get("threshold", META_THRESHOLD))
+            log.info("Loaded meta RF for %s — entry gate active (threshold %.3f).",
+                     self.symbol, meta_threshold)
 
         # Pre-compute technical indicators for the strategy
         close_s = bars["close"].astype(float)
@@ -264,6 +323,15 @@ class Backtester:
             direction = "UP" if prob > 0.5 else "DOWN"
             confidence = abs(prob - 0.5) * 2
 
+            # Meta-labeling gate: compute meta_confidence if RF is loaded.
+            # Use idx_pos-1 (last bar of the LSTM input window), matching train_meta_model()
+            # where last_bar_features = feat_arr[SEQ_LEN-1+i] = last bar of window i.
+            meta_confidence = 1.0
+            if meta_model is not None:
+                last_bar = features_norm.iloc[idx_pos - 1].values.astype(np.float32)
+                meta_feat = np.append(last_bar, prob).reshape(1, -1)
+                meta_confidence = float(meta_model.predict_proba(meta_feat)[0][1])
+
             # --- Exit logic ---
             flip_direction = None
             if portfolio.position is not None:
@@ -310,6 +378,11 @@ class Backtester:
             if portfolio.position is None and not is_last_bar:
                 # Regime filter: skip entries when market is trendless (low ADX)
                 if self.use_regime_filter and bar_adx < self.adx_threshold:
+                    self._record_equity(portfolio, bar_date, bar_close)
+                    continue
+
+                # Meta-labeling gate: skip if meta RF says primary is unreliable
+                if meta_confidence < meta_threshold:
                     self._record_equity(portfolio, bar_date, bar_close)
                     continue
 
@@ -369,6 +442,13 @@ class Backtester:
         if self.use_confidence_sizing:
             conf_scalar = 0.5 + confidence  # range [0.5, 1.5]
             base_pct *= conf_scalar
+
+        # Chan: dynamic half-Kelly — scales size up/down based on recent win rate and profit ratio
+        dyn_kelly = self._compute_dynamic_kelly(portfolio.closed_trades)
+        if dyn_kelly > 0:
+            base_pct *= dyn_kelly
+        elif dyn_kelly == 0.0 and self.kelly_fraction > 0:
+            return  # negative edge: skip this trade entirely
 
         base_pct = min(base_pct, 0.98)  # never exceed 98% of equity
 
@@ -810,12 +890,13 @@ def main() -> None:
     parser.add_argument("--end", default=None, help="End date YYYY-MM-DD (default: today)")
     parser.add_argument("--capital", type=float, default=100_000,
                         help="Initial capital (default: 100000)")
-    parser.add_argument("--confidence", type=float, default=0.2,
-                        help="Min ML confidence to enter LONG (default: 0.2)")
-    parser.add_argument("--short-confidence", type=float, default=0.15,
-                        help="Min ML confidence to enter SHORT (default: 0.15, more aggressive)")
-    parser.add_argument("--exit-confidence", type=float, default=0.1,
-                        help="Min ML confidence to exit/flip (default: 0.1)")
+    parser.add_argument("--confidence", type=float, default=0.01,
+                        help="Min ML confidence to enter LONG (default: 0.01; attention-LSTM "
+                             "outputs compressed probs, ~0.01-0.12 range — meta gate filters quality)")
+    parser.add_argument("--short-confidence", type=float, default=0.01,
+                        help="Min ML confidence to enter SHORT (default: 0.01)")
+    parser.add_argument("--exit-confidence", type=float, default=0.005,
+                        help="Min ML confidence to exit/flip (default: 0.005)")
     parser.add_argument("--trailing-stop", type=float, default=0.05,
                         help="Trailing stop from peak (default: 0.05 = 5%%)")
     parser.add_argument("--take-profit", type=float, default=0.08,
@@ -841,6 +922,10 @@ def main() -> None:
                         help="Disable confidence-scaled position sizing")
     parser.add_argument("--no-trailing-tp", action="store_true",
                         help="Disable trailing take-profit")
+    parser.add_argument("--kelly-fraction", type=float, default=0.5,
+                        help="Base half-Kelly multiplier: 0.5=half-Kelly, 0=off (default: 0.5)")
+    parser.add_argument("--no-dynamic-kelly", action="store_true",
+                        help="Use static kelly-fraction instead of rolling Kelly estimate")
     parser.add_argument("--trailing-tp-activation", type=float, default=0.04,
                         help="Unrealized P&L %% to activate trailing TP (default: 0.04)")
     parser.add_argument("--trailing-tp-trail", type=float, default=0.02,
@@ -873,6 +958,8 @@ def main() -> None:
         use_trailing_tp=not args.no_trailing_tp,
         trailing_tp_activation=args.trailing_tp_activation,
         trailing_tp_trail=args.trailing_tp_trail,
+        kelly_fraction=args.kelly_fraction,
+        use_dynamic_kelly=not args.no_dynamic_kelly,
     )
 
     result = bt.run(start_date=args.start, end_date=args.end)

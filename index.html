@@ -98,6 +98,52 @@ section,.section-wrap{padding:100px 0}
 .pos-bg{background:var(--positive-bg);color:var(--positive);padding:2px 8px;border-radius:var(--radius-xs);font-size:13px}
 .neg-bg{background:var(--negative-bg);color:var(--negative);padding:2px 8px;border-radius:var(--radius-xs);font-size:13px}
 
+/* ---- Trained Models Grid ---- */
+.models-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;
+}
+.model-card{
+  padding:20px 24px;display:flex;flex-direction:column;gap:10px;
+  transition:border-color .2s,transform .2s;
+}
+.model-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.model-card-header{display:flex;align-items:center;justify-content:space-between}
+.model-symbol{font-family:var(--mono);font-size:1.1rem;font-weight:700;color:var(--text)}
+.model-mode{
+  font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  padding:2px 8px;border-radius:var(--radius-xs);
+}
+.model-mode.daily{background:rgba(59,130,246,0.12);color:var(--accent)}
+.model-mode.intraday{background:rgba(168,85,247,0.12);color:#a855f7}
+.model-meta{display:flex;flex-direction:column;gap:4px}
+.model-meta-row{display:flex;justify-content:space-between;font-size:12px}
+.model-meta-label{color:var(--text-dim)}
+.model-meta-val{font-family:var(--mono);color:var(--text-sec);font-weight:500}
+.models-summary{
+  display:flex;gap:32px;flex-wrap:wrap;margin-bottom:32px;
+}
+.models-stat{display:flex;flex-direction:column;gap:2px}
+.models-stat-val{font-family:var(--mono);font-size:1.3rem;font-weight:700;color:var(--text)}
+.models-stat-label{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em}
+.models-filter{
+  display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap;
+}
+.models-filter-btn{
+  font-size:11px;font-weight:600;padding:6px 14px;border-radius:20px;
+  border:1px solid var(--border);background:transparent;color:var(--text-sec);
+  cursor:pointer;transition:all .2s;font-family:'Inter',sans-serif;
+}
+.models-filter-btn:hover{border-color:var(--accent);color:var(--text)}
+.models-filter-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.model-status{
+  font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  padding:2px 7px;border-radius:var(--radius-xs);
+}
+.model-status.active{background:rgba(34,197,94,0.12);color:var(--positive)}
+.model-status.benched{background:rgba(245,158,11,0.12);color:var(--warning)}
+.model-status.excluded{background:rgba(239,68,68,0.10);color:var(--negative)}
+.model-note{font-size:11px;color:var(--text-dim);font-style:italic;margin-top:2px}
+
 /* ============ HERO ============ */
 #hero{
   position:relative;min-height:80vh;display:flex;flex-direction:column;align-items:center;
@@ -348,6 +394,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
     <a href="#metrics">Metrics</a>
     <a href="#equity">Equity</a>
     <a href="#strategies">Strategies</a>
+    <a href="#models">Models</a>
     <a href="#research">Research</a>
     <a href="#pipeline">Pipeline</a>
     <a href="#contact">Contact</a>
@@ -1656,6 +1703,57 @@ footer{border-top:1px solid var(--border);padding:40px 0}
 </section>
 
 
+<!-- TRAINED MODELS -->
+<section id="models" class="section-wrap reveal">
+  <div class="container">
+    <div class="sec-label">TRAINED MODELS</div>
+    <h2 class="sec-title">LSTM Model Registry</h2>
+
+    <div class="models-summary" id="models-summary">
+      <div class="models-stat">
+        <span class="models-stat-val" id="models-total">--</span>
+        <span class="models-stat-label">Total Models</span>
+      </div>
+      <div class="models-stat">
+        <span class="models-stat-val" id="models-symbols">--</span>
+        <span class="models-stat-label">Symbols</span>
+      </div>
+      <div class="models-stat">
+        <span class="models-stat-val pos" id="models-active">--</span>
+        <span class="models-stat-label">Active</span>
+      </div>
+      <div class="models-stat">
+        <span class="models-stat-val" style="color:var(--warning)" id="models-benched">--</span>
+        <span class="models-stat-label">Benched</span>
+      </div>
+      <div class="models-stat">
+        <span class="models-stat-val neg" id="models-excluded">--</span>
+        <span class="models-stat-label">Excluded</span>
+      </div>
+      <div class="models-stat">
+        <span class="models-stat-val" id="models-features">--</span>
+        <span class="models-stat-label">Features / Model</span>
+      </div>
+    </div>
+
+    <div class="models-filter">
+      <button class="models-filter-btn active" data-filter="all">All</button>
+      <button class="models-filter-btn" data-filter="active">Active</button>
+      <button class="models-filter-btn" data-filter="benched">Benched</button>
+      <button class="models-filter-btn" data-filter="excluded">Excluded</button>
+      <button class="models-filter-btn" data-filter="daily">Daily Only</button>
+      <button class="models-filter-btn" data-filter="intraday">Intraday Only</button>
+    </div>
+
+    <div class="models-grid" id="models-grid">
+      <div class="glass model-card" style="padding:40px;text-align:center;grid-column:1/-1">
+        <span style="color:var(--text-dim);font-size:13px">Loading models...</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+
 <!-- RESEARCH -->
 <section id="research" class="section-wrap reveal">
   <div class="container">
@@ -2517,6 +2615,123 @@ document.addEventListener('DOMContentLoaded', function() {
 
   loadLiveData();
   setInterval(loadLiveData, 60000);
+
+  // ---- Trained Models Section ----
+  (function() {
+    var allModels = [];
+
+    // Deduplicate by symbol so each symbol = one card (both modes merged)
+    function dedupeBySymbol(models) {
+      var map = {};
+      models.forEach(function(m) {
+        if (!map[m.symbol]) map[m.symbol] = { daily: false, intraday: false, ref: m };
+        if (m.mode === 'daily') map[m.symbol].daily = true;
+        if (m.mode === 'intraday') map[m.symbol].intraday = true;
+      });
+      return Object.values(map);
+    }
+
+    function fmtDate(iso) {
+      if (!iso) return '--';
+      var d = new Date(iso);
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    var STATUS_LABEL = { active: 'Active', benched: 'Benched', excluded: 'Excluded' };
+
+    function renderCards(filter) {
+      var grid = document.getElementById('models-grid');
+      if (!grid) return;
+
+      // Build one entry per symbol from allModels
+      var bySymbol = dedupeBySymbol(allModels);
+
+      var filtered;
+      if (filter === 'all') {
+        filtered = bySymbol;
+      } else if (filter === 'active' || filter === 'benched' || filter === 'excluded') {
+        filtered = bySymbol.filter(function(e) { return e.ref.status === filter; });
+      } else if (filter === 'daily') {
+        filtered = bySymbol.filter(function(e) { return e.daily; });
+      } else if (filter === 'intraday') {
+        filtered = bySymbol.filter(function(e) { return e.intraday; });
+      } else {
+        filtered = bySymbol;
+      }
+
+      if (filtered.length === 0) {
+        grid.innerHTML = '<div class="glass model-card" style="padding:40px;text-align:center;grid-column:1/-1"><span style="color:var(--text-dim);font-size:13px">No models match this filter.</span></div>';
+        return;
+      }
+
+      var html = '';
+      filtered.forEach(function(e) {
+        var m = e.ref;
+        var status = m.status || 'active';
+        var statusLabel = STATUS_LABEL[status] || status;
+        var modeHtml = '';
+        if (e.daily)    modeHtml += '<span class="model-mode daily">DAILY</span>';
+        if (e.intraday) modeHtml += '<span class="model-mode intraday" style="margin-left:4px">5-MIN</span>';
+
+        html += '<div class="glass model-card">';
+        html += '<div class="model-card-header">';
+        html += '<span class="model-symbol">' + m.symbol + '</span>';
+        html += '<span class="model-status ' + status + '">' + statusLabel + '</span>';
+        html += '</div>';
+        html += '<div style="display:flex;gap:4px;margin-bottom:8px">' + modeHtml + '</div>';
+        html += '<div class="model-meta">';
+        html += '<div class="model-meta-row"><span class="model-meta-label">Features</span><span class="model-meta-val">' + m.features + '</span></div>';
+        html += '<div class="model-meta-row"><span class="model-meta-label">Params</span><span class="model-meta-val">~130k</span></div>';
+        html += '<div class="model-meta-row"><span class="model-meta-label">Seq Len</span><span class="model-meta-val">20 bars</span></div>';
+        html += '<div class="model-meta-row"><span class="model-meta-label">Trained</span><span class="model-meta-val">' + fmtDate(m.trained_at) + '</span></div>';
+        html += '</div>';
+        if (m.note) html += '<div class="model-note">' + m.note + '</div>';
+        html += '</div>';
+      });
+      grid.innerHTML = html;
+    }
+
+    function updateSummary(models) {
+      // Count by symbol (not by model, to avoid double-counting daily+intraday)
+      var symbols = new Set(models.map(function(m) { return m.symbol; }));
+      var dailySymbols = new Set(models.filter(function(m){ return m.mode==='daily'; }).map(function(m){ return m.symbol; }));
+      var statusCounts = { active: 0, benched: 0, excluded: 0 };
+      dailySymbols.forEach(function(sym) {
+        var m = models.find(function(x){ return x.symbol===sym && x.mode==='daily'; });
+        var s = (m && m.status) || 'active';
+        statusCounts[s] = (statusCounts[s] || 0) + 1;
+      });
+      var features = models.length > 0 ? models[0].features : 0;
+      var el;
+      el = document.getElementById('models-total');   if (el) el.textContent = models.length;
+      el = document.getElementById('models-symbols'); if (el) el.textContent = symbols.size;
+      el = document.getElementById('models-active');   if (el) el.textContent = statusCounts.active;
+      el = document.getElementById('models-benched');  if (el) el.textContent = statusCounts.benched;
+      el = document.getElementById('models-excluded'); if (el) el.textContent = statusCounts.excluded;
+      el = document.getElementById('models-features'); if (el) el.textContent = features;
+    }
+
+    // Filter buttons
+    document.querySelectorAll('.models-filter-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        document.querySelectorAll('.models-filter-btn').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        renderCards(btn.getAttribute('data-filter'));
+      });
+    });
+
+    fetch('/models_info.json')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        allModels = data.models || [];
+        updateSummary(allModels);
+        renderCards('all');
+      })
+      .catch(function() {
+        var grid = document.getElementById('models-grid');
+        if (grid) grid.innerHTML = '<div class="glass model-card" style="padding:40px;text-align:center;grid-column:1/-1"><span style="color:var(--text-dim);font-size:13px">Could not load model data.</span></div>';
+      });
+  })();
 
 });
 </script>

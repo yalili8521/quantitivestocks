@@ -21,10 +21,12 @@ import sys
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 
+import joblib
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+from sklearn.ensemble import RandomForestClassifier
 from torch.utils.data import TensorDataset, DataLoader
 
 # Import from signals_engine (same package)
@@ -55,14 +57,61 @@ log = logging.getLogger("ml_model")
 # ---------------------------------------------------------------------------
 SEQ_LEN = 20  # 20-bar lookback window for LSTM input
 
+# Meta-labeling threshold: only enter when meta RF confidence >= this
+META_THRESHOLD = 0.55
+
+# Full feature list (22) — used for building all indicators; subset by mode/symbol below
 FEATURE_COLS = [
     "rsi14", "ret5", "ret10", "wk_ret", "mo_ret", "vol20",
     "log_dollar_vol", "vix", "vix_chg",
     "vol_imbalance", "vwap_ratio", "dv_accel", "spread_proxy",
-    # Enhanced features for strategy optimization
     "atr_pct", "macd_hist_norm", "bb_pct_b", "bb_bandwidth",
     "adx", "momentum_quality", "vol_regime", "trend_strength",
+    "frac_diff_close",   # FFD of log-price — stationarity-preserving momentum
 ]
+
+# Mode-specific feature subsets (from MDA permutation importance analysis)
+# Daily mode: mean-reversion + volatility structure dominate
+FEATURE_COLS_DAILY = [
+    "bb_bandwidth", "vol20", "ret5", "bb_pct_b", "wk_ret", "dv_accel",
+    "rsi14", "ret10", "adx", "macd_hist_norm", "vwap_ratio", "vol_regime",
+]
+# Intraday mode: trend + liquidity + macro context dominate
+FEATURE_COLS_INTRADAY = [
+    "trend_strength", "adx", "log_dollar_vol", "spread_proxy", "vol20",
+    "atr_pct", "vix_chg", "vix", "ret5", "bb_pct_b", "wk_ret", "mo_ret",
+    "momentum_quality",
+]
+
+
+# Symbol-specific feature overrides.
+# IGV (software/tech ETF) and FXI (China large-cap) underperformed with the
+# 12-feature daily set because they are more sensitive to macro regime (VIX) and
+# momentum signals that were pruned by the cross-symbol MDA average.
+# These symbols get 17 features: 12 base daily + 5 VIX/momentum columns.
+SYMBOL_FEATURE_OVERRIDES: dict = {
+    # IGV and FXI: extended with VIX + momentum (17 features)
+    "IGV": FEATURE_COLS_DAILY + ["vix", "vix_chg", "trend_strength", "momentum_quality", "mo_ret"],
+    "FXI": FEATURE_COLS_DAILY + ["vix", "vix_chg", "trend_strength", "momentum_quality", "mo_ret"],
+    # GLD, SLV, TLT: non-stationary assets — add FFD of log-price (13 features)
+    # frac_diff_close makes the LSTM see a stationary, memory-preserving price signal
+    # rather than learning spurious trends from the raw random-walk price.
+    "GLD": FEATURE_COLS_DAILY + ["frac_diff_close"],
+    "SLV": FEATURE_COLS_DAILY + ["frac_diff_close"],
+    "TLT": FEATURE_COLS_DAILY + ["frac_diff_close"],
+}
+
+
+def get_feature_cols(mode: str, symbol: str | None = None) -> list:
+    """Return the feature list for a given mode (and optionally symbol).
+
+    Order of precedence:
+      1. Symbol-level override (e.g. IGV/FXI extended daily set)
+      2. Mode-level default (FEATURE_COLS_DAILY or FEATURE_COLS_INTRADAY)
+    """
+    if symbol and symbol in SYMBOL_FEATURE_OVERRIDES:
+        return SYMBOL_FEATURE_OVERRIDES[symbol]
+    return FEATURE_COLS_INTRADAY if mode == "intraday" else FEATURE_COLS_DAILY
 
 DEFAULT_MODEL_DIR = os.path.join(PROJECT_ROOT, "models")
 
@@ -127,6 +176,49 @@ class DirectionLSTM(nn.Module):
 
 
 # ===================================================================
+# Fractional Differentiation (López de Prado, AFML Chapter 5)
+# ===================================================================
+def frac_diff_ffd(series: pd.Series, d: float = 0.4, thres: float = 1e-4) -> pd.Series:
+    """Fixed-width window fractional differentiation.
+
+    Produces a stationary version of a price series while preserving maximum
+    long-range memory.  Used for trend-following assets (GLD, SLV, TLT) where
+    raw prices are non-stationary but standard differencing over-destroys memory.
+
+    Parameters
+    ----------
+    series : log-price or price series (pd.Series, float values)
+    d      : fractional order ∈ (0, 1).  d≈0.4 achieves stationarity while
+             retaining ~60% of the original autocorrelation structure.
+    thres  : weight cutoff — controls effective window width (default 1e-4 ≈ 30–50 bars)
+
+    Returns
+    -------
+    pd.Series with same index; first W-1 values are NaN (warmup).
+    """
+    # Build convolution weights w_k = prod_{j=0}^{k-1} (d-j)/(j+1)  * (-1)^k
+    w = [1.0]
+    k = 1
+    while True:
+        w_k = -w[-1] * (d - k + 1) / k
+        if abs(w_k) < thres:
+            break
+        w.append(w_k)
+        k += 1
+    w = np.array(w[::-1], dtype=np.float64)   # oldest weight first
+    width = len(w)
+
+    arr = series.values.astype(np.float64)
+    out = np.full(len(arr), np.nan)
+    for i in range(width - 1, len(arr)):
+        window = arr[i - width + 1: i + 1]
+        if np.isnan(window).any():
+            continue
+        out[i] = float(np.dot(w, window))
+    return pd.Series(out, index=series.index)
+
+
+# ===================================================================
 # Feature Engineering
 # ===================================================================
 class FeatureEngine:
@@ -137,7 +229,8 @@ class FeatureEngine:
 
     def build_features(self, bars_df: pd.DataFrame,
                        vix_df: pd.DataFrame,
-                       mode: str = "daily") -> pd.DataFrame:
+                       mode: str = "daily",
+                       symbol: str | None = None) -> pd.DataFrame:
         """Build 13-feature matrix from bars + VIX.
 
         Parameters
@@ -183,7 +276,7 @@ class FeatureEngine:
                 vix_map[d] = row["vix"]
         df["vix"] = bar_dates.map(lambda d: vix_map.get(d, np.nan)).values
         df["vix"] = df["vix"].ffill()
-        df["vix_chg"] = df["vix"].pct_change()
+        df["vix_chg"] = df["vix"].pct_change(fill_method=None)
 
         # Order-flow features
         hl_spread = (high - low).replace(0, np.nan)
@@ -225,9 +318,19 @@ class FeatureEngine:
         ema_slow = close.ewm(span=30, adjust=False).mean()
         df["trend_strength"] = (ema_fast - ema_slow) / close.replace(0, np.nan)
 
-        # Drop warm-up rows
-        df = df.dropna(subset=FEATURE_COLS)
-        return df[FEATURE_COLS]
+        # Fractional differentiation of log-price (d=0.4, FFD algorithm)
+        # Makes price signal stationary while preserving ~60% of long-range memory.
+        # Used by GLD, SLV, TLT overrides; computed for all (cheap, ~30 bar warmup).
+        log_close = np.log(close.replace(0, np.nan))
+        df["frac_diff_close"] = frac_diff_ffd(log_close, d=0.4, thres=1e-4)
+
+        # Drop warm-up rows using only the columns actually needed for this symbol/mode,
+        # then return that same subset.  Using the global FEATURE_COLS would drop all rows
+        # for symbols that don't use frac_diff_close (window = 282 bars) even when
+        # prediction is called with a short history window.
+        relevant_cols = get_feature_cols(mode, symbol)
+        df = df.dropna(subset=relevant_cols)
+        return df[relevant_cols]
 
     def fit_scaler(self, features_df: pd.DataFrame) -> None:
         """Compute per-column mean and std from training data."""
@@ -415,7 +518,7 @@ def train_model(
 
     # 2. Build features
     engine = FeatureEngine()
-    features = engine.build_features(bars, vix_df, mode=mode)
+    features = engine.build_features(bars, vix_df, mode=mode, symbol=symbol)
     log.info("Built %d feature rows (after warm-up).", len(features))
 
     if len(features) < seq_len + 10:
@@ -457,7 +560,7 @@ def train_model(
              y_train.mean() * 100, y_val.mean() * 100 if len(y_val) > 0 else 0)
 
     # 4. Create model with improved architecture
-    n_features = len(FEATURE_COLS)
+    n_features = len(get_feature_cols(mode, symbol))
     model = DirectionLSTM(n_features=n_features)
 
     # Label smoothing: soft targets reduce overconfidence (0.95/0.05 instead of 1/0)
@@ -532,10 +635,183 @@ def train_model(
 
 
 # ===================================================================
+# Meta-labeling (López de Prado, AFML Chapter 3)
+# ===================================================================
+def train_meta_model(
+    symbol: str,
+    adapter: DataAdapter,
+    fred_key: Optional[str] = None,
+    lookback: int = 1000,
+    save_dir: str = DEFAULT_MODEL_DIR,
+    mode: str = "daily",
+    intraday_interval: str = "5min",
+) -> None:
+    """Train a Random Forest meta-model that predicts when the primary LSTM is correct.
+
+    The meta-model answers: "Given current market conditions + the primary model's
+    probability output, should we trust this signal?"
+
+    Pipeline:
+        1. Load trained primary LSTM for this symbol.
+        2. Fetch historical data and build features (same as primary training).
+        3. Run primary LSTM on every bar to get primary_prob.
+        4. Label each bar: was_correct = 1 if (primary said UP and price went UP)
+           or (primary said DOWN and price went DOWN), else 0.
+           Uses same triple-barrier labeling as primary.
+        5. Meta features = 21 normalized features of last bar + primary_prob (22-dim).
+        6. Train RandomForestClassifier on meta features → was_correct.
+        7. Save to {symbol}_meta_rf{suffix}.joblib.
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    suffix = "" if mode == "daily" else f"_{intraday_interval}"
+    meta_path = os.path.join(save_dir, f"{symbol}_meta_rf{suffix}.joblib")
+
+    # 1. Load primary model
+    weights_path = os.path.join(save_dir, f"{symbol}_lstm{suffix}.pt")
+    scaler_path  = os.path.join(save_dir, f"{symbol}_scaler{suffix}.json")
+    if not os.path.exists(weights_path):
+        raise FileNotFoundError(
+            f"Primary model not found: {weights_path}. "
+            f"Train it first: python main.py train --symbol {symbol}"
+        )
+    engine = FeatureEngine()
+    engine.load_scaler(scaler_path)
+    primary = DirectionLSTM(n_features=len(get_feature_cols(mode, symbol)))
+    primary.load_state_dict(torch.load(weights_path, map_location="cpu", weights_only=True))
+    primary.eval()
+    log.info("Loaded primary LSTM for %s (%s).", symbol, mode)
+
+    # 2. Fetch data (same lookback as primary training)
+    if mode == "daily":
+        bars = adapter.fetch_daily(symbol, lookback)
+    else:
+        bars = adapter.fetch_intraday(symbol, intraday_interval, lookback_days=lookback)
+    log.info("Got %d bars for meta-training.", len(bars))
+
+    vix_df = _fetch_vix_for_training(fred_key, lookback_days=max(lookback, 500))
+    features = engine.build_features(bars, vix_df, mode=mode, symbol=symbol)
+    features_norm = engine.transform(features)
+
+    if len(features_norm) < SEQ_LEN + 10:
+        raise ValueError(f"Not enough data for meta-training: {len(features_norm)} rows.")
+
+    # 3. Triple-barrier labels (same thresholds as primary)
+    if mode == "intraday":
+        pt_pct, sl_pct, horizon = 0.005, 0.003, 10
+    else:
+        pt_pct, sl_pct, horizon = 0.015, 0.010, 5
+
+    _, y_barrier = prepare_sequences_triple_barrier(
+        features_norm, bars, SEQ_LEN, pt_pct=pt_pct, sl_pct=sl_pct, horizon=horizon,
+    )
+
+    # 4. Run primary LSTM on every window to get primary_prob per sequence
+    feat_arr = features_norm.values.astype(np.float32)
+    n_seqs = len(feat_arr) - SEQ_LEN
+
+    primary_probs = np.zeros(n_seqs, dtype=np.float32)
+    with torch.no_grad():
+        for i in range(n_seqs):
+            window = feat_arr[i: i + SEQ_LEN]
+            x = torch.FloatTensor(window).unsqueeze(0)
+            primary_probs[i] = primary(x).item()
+
+    # 5. Meta labels: was primary correct?
+    primary_dirs = (primary_probs > 0.5).astype(np.float32)   # 1=UP, 0=DOWN
+    was_correct  = (primary_dirs == y_barrier).astype(np.int32)
+
+    # 6. Meta features: last bar of each window (21 dims) + primary_prob (1 dim)
+    last_bar_features = feat_arr[SEQ_LEN - 1: SEQ_LEN - 1 + n_seqs]   # shape (n, 21)
+    meta_X = np.hstack([last_bar_features, primary_probs.reshape(-1, 1)])  # shape (n, 22)
+    meta_y = was_correct
+
+    log.info(
+        "Meta dataset: %d samples. Correct rate: %.1f%% (class balance).",
+        len(meta_y), meta_y.mean() * 100,
+    )
+
+    # 7. Train RF with 80/20 temporal split (same as primary — no shuffle)
+    split = int(len(meta_X) * 0.8)
+    X_train, y_train = meta_X[:split], meta_y[:split]
+    X_val,   y_val   = meta_X[split:], meta_y[split:]
+
+    rf = RandomForestClassifier(
+        n_estimators=200,
+        max_depth=6,
+        min_samples_leaf=10,
+        class_weight="balanced",
+        n_jobs=-1,
+        random_state=42,
+    )
+    rf.fit(X_train, y_train)
+
+    val_acc = rf.score(X_val, y_val)
+    meta_val_probs = rf.predict_proba(X_val)[:, 1]
+
+    # --- Per-symbol threshold calibration ---
+    # Objective: maximise PRECISION LIFT above base rate, weighted by log(coverage).
+    #   score = max(0, precision(t) - base_rate) * log1p(coverage(t) * 5)
+    # This rewards thresholds that genuinely improve on the LSTM base rate while
+    # maintaining enough coverage (>= 10% of val bars).
+    # If no threshold beats the base rate, fall back to the global META_THRESHOLD.
+    base_rate = float(y_val.mean())       # fraction of bars where primary was correct
+    best_t, best_score = META_THRESHOLD, 0.0  # 0.0 so only positive-lift thresholds win
+    best_prec, best_cov = 0.0, 0.0
+    for t in np.arange(0.40, 0.92, 0.025):
+        mask = meta_val_probs >= t
+        cov = mask.mean()
+        if cov < 0.10:
+            break
+        prec = float(y_val[mask].mean()) if mask.sum() > 0 else 0.0
+        lift = max(0.0, prec - base_rate)
+        score = lift * np.log1p(cov * 5)
+        if score > best_score:
+            best_score, best_t, best_prec, best_cov = score, round(float(t), 3), prec, cov
+
+    n_tradeable_global = (meta_val_probs >= META_THRESHOLD).sum()
+    n_tradeable_opt    = (meta_val_probs >= best_t).sum()
+    log.info(
+        "Meta RF val accuracy: %.3f | Global thresh %.2f → %d/%d (%.1f%%) | "
+        "Optimal thresh %.3f → %d/%d (%.1f%%, prec %.1f%%)",
+        val_acc,
+        META_THRESHOLD, n_tradeable_global, len(y_val),
+        n_tradeable_global / max(len(y_val), 1) * 100,
+        best_t, n_tradeable_opt, len(y_val),
+        n_tradeable_opt / max(len(y_val), 1) * 100,
+        best_prec * 100,
+    )
+
+    # Feature importance summary
+    feat_names = get_feature_cols(mode, symbol) + ["primary_prob"]
+    top_idx = np.argsort(rf.feature_importances_)[::-1][:5]
+    log.info("Top 5 meta features: %s",
+             ", ".join(f"{feat_names[i]}={rf.feature_importances_[i]:.3f}"
+                       for i in top_idx))
+
+    joblib.dump(rf, meta_path)
+    log.info("Saved meta RF model → %s", meta_path)
+
+    # Save per-symbol threshold config alongside the model
+    config_path = meta_path.replace(".joblib", "_config.json")
+    config = {
+        "symbol": symbol,
+        "mode": mode,
+        "threshold": best_t,
+        "val_precision": round(best_prec, 4),
+        "val_coverage": round(float(best_cov), 4),
+        "val_accuracy": round(float(val_acc), 4),
+        "global_threshold": META_THRESHOLD,
+    }
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2)
+    log.info("Saved threshold config (%.3f) → %s", best_t, config_path)
+
+
+# ===================================================================
 # Predictor (inference)
 # ===================================================================
 class Predictor:
-    """Load a trained model and produce predictions."""
+    """Load a trained model (primary LSTM + optional meta RF) and produce predictions."""
 
     def __init__(self, symbol: str, model_dir: str = DEFAULT_MODEL_DIR,
                  mode: str = "daily", intraday_interval: str = "5min"):
@@ -545,34 +821,61 @@ class Predictor:
         self.intraday_interval = intraday_interval
         self.engine = FeatureEngine()
         self.model: Optional[DirectionLSTM] = None
+        self.meta_model = None   # RandomForest, loaded if available
         self._load()
 
     def _load(self) -> None:
         suffix = "" if self.mode == "daily" else f"_{self.intraday_interval}"
         weights_path = os.path.join(self.model_dir, f"{self.symbol}_lstm{suffix}.pt")
-        scaler_path = os.path.join(self.model_dir, f"{self.symbol}_scaler{suffix}.json")
+        scaler_path  = os.path.join(self.model_dir, f"{self.symbol}_scaler{suffix}.json")
         if not os.path.exists(weights_path):
             mode_hint = f" --mode {self.mode}" if self.mode != "daily" else ""
             raise FileNotFoundError(
                 f"No trained model for {self.symbol} ({self.mode}). "
                 f"Run: python main.py train --symbol {self.symbol}{mode_hint}")
         self.engine.load_scaler(scaler_path)
-        self.model = DirectionLSTM(n_features=len(FEATURE_COLS))
+        self.model = DirectionLSTM(n_features=len(get_feature_cols(self.mode, self.symbol)))
         self.model.load_state_dict(
             torch.load(weights_path, map_location="cpu", weights_only=True))
         self.model.eval()
+
+        # Load meta RF if it exists (optional — graceful fallback if not trained yet)
+        meta_path   = os.path.join(self.model_dir, f"{self.symbol}_meta_rf{suffix}.joblib")
+        config_path = os.path.join(self.model_dir, f"{self.symbol}_meta_rf{suffix}_config.json")
+        if os.path.exists(meta_path):
+            self.meta_model = joblib.load(meta_path)
+            # Per-symbol calibrated threshold; fall back to global META_THRESHOLD
+            if os.path.exists(config_path):
+                with open(config_path) as f:
+                    cfg = json.load(f)
+                self.meta_threshold = float(cfg.get("threshold", META_THRESHOLD))
+                log.debug("Loaded meta RF for %s (%s) — threshold %.3f.",
+                          self.symbol, self.mode, self.meta_threshold)
+            else:
+                self.meta_threshold = META_THRESHOLD
+        else:
+            self.meta_model = None
+            self.meta_threshold = META_THRESHOLD
 
     def predict(self, bars_df: pd.DataFrame, vix_df: pd.DataFrame,
                 seq_len: int = SEQ_LEN) -> dict:
         """Produce a prediction from the most recent seq_len bars.
 
-        Returns {"direction": "UP"/"DOWN", "probability": float, "confidence": float}
+        Returns:
+            direction:       "UP" / "DOWN"
+            probability:     primary LSTM sigmoid output [0, 1]
+            confidence:      |prob - 0.5| * 2  → [0, 1]
+            meta_confidence: RF P(primary is correct)  → [0, 1]  (1.0 if no meta model)
+            tradeable:       True if meta_confidence >= self.meta_threshold (per-symbol calibrated)
         """
-        features = self.engine.build_features(bars_df, vix_df, mode=self.mode)
+        features = self.engine.build_features(bars_df, vix_df, mode=self.mode, symbol=self.symbol)
         features_norm = self.engine.transform(features)
 
         if len(features_norm) < seq_len:
-            return {"direction": "UNKNOWN", "probability": 0.5, "confidence": 0.0}
+            return {
+                "direction": "UNKNOWN", "probability": 0.5, "confidence": 0.0,
+                "meta_confidence": 1.0, "tradeable": False,
+            }
 
         window = features_norm.iloc[-seq_len:].values
         x = torch.FloatTensor(window).unsqueeze(0)
@@ -583,10 +886,19 @@ class Predictor:
         direction = "UP" if prob > 0.5 else "DOWN"
         confidence = abs(prob - 0.5) * 2
 
+        # Meta-labeling gate
+        meta_confidence = 1.0
+        if self.meta_model is not None:
+            last_bar = features_norm.iloc[-1].values.astype(np.float32)
+            meta_feat = np.append(last_bar, prob).reshape(1, -1)
+            meta_confidence = float(self.meta_model.predict_proba(meta_feat)[0][1])
+
         return {
             "direction": direction,
             "probability": round(prob, 4),
             "confidence": round(confidence, 4),
+            "meta_confidence": round(meta_confidence, 4),
+            "tradeable": meta_confidence >= self.meta_threshold,
         }
 
 
@@ -614,6 +926,15 @@ def main() -> None:
     train_p.add_argument("--interval", default="5min", choices=["1min", "5min"],
                          help="Intraday bar interval (default: 5min)")
 
+    # -- train-meta --
+    meta_p = sub.add_parser("train-meta", help="Train meta RF model (requires trained primary LSTM)")
+    meta_p.add_argument("--symbol", required=True,
+                        help="Symbol to train meta-model for (e.g. SPY, or ALL for all active)")
+    meta_p.add_argument("--provider", default="yahoo", choices=["yahoo", "alpaca", "hybrid"])
+    meta_p.add_argument("--lookback", type=int, default=1000)
+    meta_p.add_argument("--mode", default="daily", choices=["daily", "intraday"])
+    meta_p.add_argument("--interval", default="5min", choices=["1min", "5min"])
+
     # -- predict --
     pred_p = sub.add_parser("predict", help="Run prediction for a symbol")
     pred_p.add_argument("--symbol", required=True, help="Symbol to predict")
@@ -630,7 +951,33 @@ def main() -> None:
         parser.print_help()
         sys.exit(1)
 
-    if args.command == "train":
+    if args.command == "train-meta":
+        from signals_engine import DEFAULT_UNIVERSE
+        ACTIVE_SYMBOLS = [
+            "SPY", "QQQ", "IWM", "IGV", "XLE", "SOXX",
+            "GLD", "SLV", "EWJ", "EWT", "EEM",
+        ]
+        adapter  = build_adapter(args.provider)
+        fred_key = os.environ.get("FRED_API_KEY")
+        symbols  = ACTIVE_SYMBOLS if args.symbol.upper() == "ALL" else [args.symbol.upper()]
+        lookback = args.lookback
+        if args.mode == "intraday" and lookback == 1000:
+            lookback = 60
+        for sym in symbols:
+            log.info("=== Meta-training %s (%s) ===", sym, args.mode)
+            try:
+                train_meta_model(
+                    symbol=sym,
+                    adapter=adapter,
+                    fred_key=fred_key,
+                    lookback=lookback,
+                    mode=args.mode,
+                    intraday_interval=args.interval,
+                )
+            except FileNotFoundError as e:
+                log.error("%s — skipping: %s", sym, e)
+
+    elif args.command == "train":
         adapter = build_adapter(args.provider)
         fred_key = os.environ.get("FRED_API_KEY")
         lookback = args.lookback

@@ -55,6 +55,7 @@ from signals_engine import (
     DEFAULT_UNIVERSE, DAILY_LOOKBACK, build_adapter, FREDVixFetcher,
 )
 from ml_model import Predictor, _fetch_vix_for_training, DEFAULT_MODEL_DIR
+from options_ml import VolPredictor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -122,12 +123,44 @@ class IVEstimator:
         prev = float(self._vix["vix"].iloc[-2])
         return ((cur - prev) / prev * 100) if prev != 0 else 0.0
 
+    def iv_rv_ratio(self, iv_scale: float = 1.0) -> float:
+        """IV / RV ratio: how expensive current implied vol is vs. recent realized vol.
+
+        Sinclair (*Volatility Trading*, Ch.2): the core edge metric for deciding
+        whether buying vol (straddles) has positive expected value.
+
+        - ratio < 1.0  → options cheap vs. recent realized moves → buying edge
+        - ratio > 1.25 → options over-priced → consider waiting or selling vol
+
+        Parameters
+        ----------
+        iv_scale : per-symbol IV scaling factor (same as backtester IV_SCALE dict).
+        """
+        if self._vix.empty or len(self._vix) < 22:
+            return 1.0
+        vix_now = self.current_vix()
+        iv = max(0.05, (vix_now / 100.0) * iv_scale)
+        close_col = self._vix["vix"]   # using VIX itself as proxy for vol series
+        rv = float(close_col.pct_change().rolling(20).std().iloc[-1] * np.sqrt(252))
+        rv = max(0.05, rv) if not math.isnan(rv) else 0.15
+        return iv / rv
+
 
 # ===================================================================
 # Black-Scholes Greeks (fallback pricing when live quote unavailable)
 # ===================================================================
 class GreeksEstimator:
-    """Simple Black-Scholes approximations — used as fallback only."""
+    """Black-Scholes option pricing and Greeks.
+
+    Covers the core Greeks discussed in Natenberg (*Option Volatility & Pricing*,
+    Ch.7) and Sinclair (*Volatility Trading*, Ch.3):
+
+    - call_price / put_price  : theoretical fair value
+    - delta                   : sensitivity to underlying move (directional exposure)
+    - gamma                   : rate of delta change (convexity / gamma scalp potential)
+    - theta                   : daily time decay (rent paid for the option)
+    - vega                    : sensitivity to 1% change in implied vol (vol exposure)
+    """
 
     @staticmethod
     def _d1(S: float, K: float, T: float, r: float, sigma: float) -> float:
@@ -154,6 +187,64 @@ class GreeksEstimator:
         d1 = GreeksEstimator._d1(S, K, T, r, sigma)
         d2 = GreeksEstimator._d2(S, K, T, r, sigma)
         return K * math.exp(-r * T) * _norm_cdf(-d2) - S * _norm_cdf(-d1)
+
+    @staticmethod
+    def delta(S: float, K: float, T: float, r: float = 0.05,
+              sigma: float = 0.20, is_call: bool = True) -> float:
+        """Option delta: ∂price/∂S.  Call ∈ (0,1), put ∈ (−1,0)."""
+        if T <= 0:
+            if is_call:
+                return 1.0 if S > K else 0.0
+            return -1.0 if S < K else 0.0
+        d1 = GreeksEstimator._d1(S, K, T, r, sigma)
+        return _norm_cdf(d1) if is_call else _norm_cdf(d1) - 1.0
+
+    @staticmethod
+    def gamma(S: float, K: float, T: float, r: float = 0.05,
+              sigma: float = 0.20) -> float:
+        """Option gamma: ∂²price/∂S² (same for calls and puts).
+
+        Natenberg Ch.7: gamma is the engine of the long straddle — high gamma
+        means the position profits from large moves in either direction.
+        """
+        if T <= 0 or sigma <= 0 or S <= 0:
+            return 0.0
+        d1 = GreeksEstimator._d1(S, K, T, r, sigma)
+        return _norm_pdf(d1) / (S * sigma * math.sqrt(T))
+
+    @staticmethod
+    def theta(S: float, K: float, T: float, r: float = 0.05,
+              sigma: float = 0.20, is_call: bool = True) -> float:
+        """Daily theta per share (negative for long options).
+
+        Natenberg Ch.7 / Sinclair Ch.3: theta is the primary cost of holding
+        a long option.  Enter when expected daily move > |daily theta|.
+
+        Returns per-calendar-day theta (annualized theta / 365).
+        """
+        if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
+            return 0.0
+        d1 = GreeksEstimator._d1(S, K, T, r, sigma)
+        d2 = GreeksEstimator._d2(S, K, T, r, sigma)
+        theta_ann = (
+            -(S * _norm_pdf(d1) * sigma) / (2.0 * math.sqrt(T))
+            - r * K * math.exp(-r * T) * (_norm_cdf(d2) if is_call else _norm_cdf(-d2))
+        )
+        return theta_ann / 365.0
+
+    @staticmethod
+    def vega(S: float, K: float, T: float, r: float = 0.05,
+             sigma: float = 0.20) -> float:
+        """Vega per share per 1-point (1%) increase in sigma (same for calls and puts).
+
+        Sinclair Ch.3 / Natenberg Ch.8: vega measures direct exposure to IV changes.
+        For long straddles, high vega is desirable — profits when IV expands.
+        Returned as price change per 0.01 (1%) move in annualized sigma.
+        """
+        if T <= 0 or sigma <= 0 or S <= 0:
+            return 0.0
+        d1 = GreeksEstimator._d1(S, K, T, r, sigma)
+        return S * _norm_pdf(d1) * math.sqrt(T) * 0.01
 
 
 # ===================================================================
@@ -305,6 +396,14 @@ class StraddleTrader:
             except FileNotFoundError:
                 log.warning("No ML model for %s — ML signal exit disabled.", sym)
                 self.predictors[sym] = None
+
+        # Vol expansion predictors (graceful fallback if model not trained)
+        self.vol_predictors: Dict[str, Optional[VolPredictor]] = {}
+        for sym in symbols:
+            try:
+                self.vol_predictors[sym] = VolPredictor(sym, model_dir=model_dir)
+            except Exception:
+                self.vol_predictors[sym] = None
 
         self._running = True
 
@@ -735,6 +834,16 @@ class StraddleTrader:
                 self.close_straddle(symbol, "stop_loss", pnl=pnl_dollars)
                 return f"CLOSED stop_loss (total={total_mult:.2f}x) P&L=${pnl_dollars:+.0f}"
 
+            # McMillan rule (*Options as a Strategic Investment*): when one leg is worth
+            # ≥ 3× the other, close the loser and let the winner run unhedged.
+            call_val = pnl.get("call_value", 0.0)
+            put_val  = pnl.get("put_value",  0.0)
+            if s["call_open"] and s["put_open"] and call_val > 0 and put_val > 0:
+                if call_val >= 3.0 * put_val:
+                    self.close_leg(symbol, "put", "mcmillan_3x_rule")
+                elif put_val >= 3.0 * call_val:
+                    self.close_leg(symbol, "call", "mcmillan_3x_rule")
+
             # Exit 3: ML signal — close losing leg, let winner ride
             ml_acted = False
             if confidence >= self.confidence_threshold:
@@ -771,12 +880,44 @@ class StraddleTrader:
                 t = (iv_rank - IV_RANK_LOW) / (IV_RANK_HIGH - IV_RANK_LOW)
                 effective_threshold = VIX_SPIKE_AGGRESSIVE + t * (VIX_SPIKE_CONSERVATIVE - VIX_SPIKE_AGGRESSIVE)
 
+        # Hard gate: IV rank must be < 55 — avoid straddles only at peak fear/complacency
+        # Raised from 30 to 55 to match backtester's directional limit and avoid blocking
+        # entries during VIX spikes that push IVR from ~25 to ~35 intraday.
+        if iv_rank >= 55.0:
+            return (
+                f"WAIT  IV too expensive (IVR={iv_rank:.0f} >= 55) | "
+                f"VIX={vix_now:.1f} chg={vix_change_pct:+.1f}% | "
+                f"ML:{direction}({confidence:.2f})"
+            )
+
+        # Sinclair (Ch.2) edge gate: IV/RV ratio must not exceed 1.80.
+        # We only buy straddles when implied vol is not more than 80% above recent realized vol.
+        iv_rv = self.iv_estimator.iv_rv_ratio() if self.iv_estimator else 1.0
+        if iv_rv > 1.80:
+            return (
+                f"WAIT  premium too rich (IV/RV={iv_rv:.2f} > 1.80) | "
+                f"VIX={vix_now:.1f} IVR={iv_rank:.0f} | "
+                f"ML:{direction}({confidence:.2f})"
+            )
+
         # Equity-based max risk: don't risk more than max_risk_pct of account
         account = self.get_account_summary()
         equity_risk = account["equity"] * self.max_risk_pct
         effective_max_risk = min(self.max_risk_per_straddle, equity_risk)
 
-        if vix_change_pct >= effective_threshold:
+        # Vol expansion check (graceful fallback when model not trained)
+        vol_expanding = True
+        vol_predictor = self.vol_predictors.get(symbol)
+        if vol_predictor is not None:
+            try:
+                _bars = self.adapter.fetch_daily(symbol, DAILY_LOOKBACK)
+                _vix  = _fetch_vix_for_training(self.fred_key, lookback_days=DAILY_LOOKBACK)
+                vol_pred      = vol_predictor.predict(_bars, _vix)
+                vol_expanding = vol_pred["vol_expanding"]
+            except Exception as exc:
+                log.warning("VolPredictor failed for %s: %s", symbol, exc)
+
+        if vix_change_pct >= effective_threshold and vol_expanding:
             old_max = self.max_risk_per_straddle
             self.max_risk_per_straddle = effective_max_risk
             opened = self.execute_straddle(symbol, current_price, vix_now, vix_change_pct)
@@ -791,8 +932,9 @@ class StraddleTrader:
                 )
             return f"SKIP  (no contracts found or cost > ${effective_max_risk:.0f})"
 
+        vol_note = " (vol NOT expanding)" if not vol_expanding else ""
         return (
-            f"WAIT  VIX spike needed | "
+            f"WAIT  VIX spike needed{vol_note} | "
             f"VIX={vix_now:.1f} chg={vix_change_pct:+.1f}% "
             f"(need >={effective_threshold:.0f}% @ IVR={iv_rank:.0f}) | "
             f"ML:{direction}({confidence:.2f})"
@@ -815,7 +957,10 @@ class StraddleTrader:
             print("\n\n  Shutting down straddle trader...\n")
             self._running = False
 
-        signal.signal(signal.SIGINT, handle_signal)
+        try:
+            signal.signal(signal.SIGINT, handle_signal)
+        except ValueError:
+            pass  # signal only works in main thread; harmless in threaded mode
 
         cycle = 0
         while self._running:
@@ -902,6 +1047,457 @@ def _expiry_from_symbol(option_symbol: str) -> str:
 
 
 # ===================================================================
+# BS helpers for directional strike selection (shared with options_backtester)
+# ===================================================================
+_IV_SCALE: Dict[str, float] = {
+    "SPY":  1.00, "QQQ":  1.10, "IWM":  1.15, "SOXX": 1.20,
+    "GLD":  0.75, "SLV":  1.20, "XLE":  1.25,
+    "EWT":  1.10, "EWS":  1.10, "EEM":  1.15, "EWJ":  1.00, "INDA": 1.20,
+}
+
+
+def _effective_iv(symbol: str, vix: float) -> float:
+    """Effective IV for a symbol: VIX * per-symbol scale factor (min 10%)."""
+    scale = _IV_SCALE.get(symbol, 1.0)
+    return max(0.10, (vix / 100.0) * scale)
+
+
+def _call_delta_approx(S: float, K: float, T: float, sigma: float) -> float:
+    """N(d1) — Black-Scholes call delta (≈ probability of finishing ITM)."""
+    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
+        return 0.5
+    d1 = (math.log(S / K) + (0.05 + 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
+    return _norm_cdf(d1)
+
+
+def _find_itm_strike(
+    is_call: bool, current_price: float, T: float, sigma: float,
+    target_delta: float = 0.68,
+) -> float:
+    """Find the ITM strike closest to target_delta.
+
+    Calls: search strikes below current_price (ITM = K < S).
+    Puts:  search strikes above current_price (ITM = K > S).
+    Returns the strike rounded to $5 for underlyings ≥ $100.
+    """
+    step = 5.0 if current_price >= 100 else 1.0
+    # For a call: target N(d1) = target_delta
+    # For a put:  target N(d1) = 1 - target_delta (so put delta = -(1-N(d1)) ≈ -target_delta)
+    call_side_target = target_delta if is_call else (1.0 - target_delta)
+
+    lo = current_price - 60 if is_call else current_price
+    hi = current_price      if is_call else current_price + 60
+
+    best_strike = round(current_price / step) * step
+    best_diff = float("inf")
+
+    k = lo
+    while k <= hi:
+        d = _call_delta_approx(current_price, k, T, sigma)
+        diff = abs(d - call_side_target)
+        if diff < best_diff:
+            best_diff = diff
+            best_strike = k
+        k += step
+
+    return best_strike
+
+
+# ===================================================================
+# Directional ITM Options Trader
+# ===================================================================
+class DirectionalOptionsTrader:
+    """Buy ITM calls/puts when LSTM has high-confidence directional signal at moderate IV.
+
+    Strategy:
+        Entry: tradeable=True + confidence >= threshold + IV rank <= iv_rank_max
+        Strike: delta ~0.68 ITM (found via Black-Scholes d1 approximation)
+        Expiry: ~28 DTE (real Alpaca contract search)
+        Exit 1: option value >= 1.5x entry cost  (+50% profit)
+        Exit 2: option value <= 0.75x entry cost (-25% stop)
+        Exit 3: 7 DTE remaining (forced close)
+        Exit 4: LSTM flips direction with confidence >= 0.50
+
+    Real Alpaca paper orders — same execution as StraddleTrader.
+    """
+
+    # Exit multipliers
+    PROFIT_TARGET_MULT = 1.50   # close at 1.5x (50% profit)
+    STOP_LOSS_MULT     = 0.75   # close at 0.75x (25% loss)
+    DTE_FORCE_CLOSE    = 7      # force close when DTE <= 7
+
+    def __init__(
+        self,
+        api_key: str,
+        api_secret: str,
+        symbols: List[str],
+        provider: str = "yahoo",
+        confidence_threshold: float = 0.10,   # LSTM outputs 0.03-0.12; meta-RF gates quality
+        iv_rank_max: float = 55.0,
+        target_delta: float = 0.68,
+        expiry_days: int = 28,
+        max_risk_pct: float = 0.03,
+        check_interval_min: int = 15,
+        model_dir: str = DEFAULT_MODEL_DIR,
+    ):
+        self.trading_client     = TradingClient(api_key=api_key, secret_key=api_secret, paper=True)
+        self.stock_data_client  = StockHistoricalDataClient(api_key, api_secret)
+        self.option_data_client = OptionHistoricalDataClient(api_key, api_secret)
+
+        self.symbols              = symbols
+        self.confidence_threshold = confidence_threshold
+        self.iv_rank_max          = iv_rank_max
+        self.target_delta         = target_delta
+        self.expiry_days          = expiry_days
+        self.max_risk_pct         = max_risk_pct
+        self.check_interval       = check_interval_min * 60
+        self.model_dir            = model_dir
+
+        self.adapter   = build_adapter(provider)
+        self.fred_key  = os.environ.get("FRED_API_KEY")
+
+        # One open position per symbol
+        self.active_positions: Dict[str, dict] = {}
+
+        # ML predictors (daily mode)
+        self.predictors: Dict[str, Optional[Predictor]] = {}
+        for sym in symbols:
+            try:
+                self.predictors[sym] = Predictor(sym, model_dir=model_dir, mode="daily")
+                log.info("[DIR] Loaded LSTM for %s.", sym)
+            except FileNotFoundError:
+                log.warning("[DIR] No LSTM for %s — skipping.", sym)
+                self.predictors[sym] = None
+
+        self.iv_estimator: Optional[IVEstimator] = None
+        self._running = True
+
+    def get_current_price(self, symbol: str) -> Optional[float]:
+        try:
+            req = StockLatestQuoteRequest(symbol_or_symbols=symbol)
+            quotes = self.stock_data_client.get_stock_latest_quote(req)
+            if symbol in quotes:
+                bid = float(quotes[symbol].bid_price)
+                ask = float(quotes[symbol].ask_price)
+                return (bid + ask) / 2
+            return None
+        except Exception as exc:
+            log.error("[DIR] Price fetch failed for %s: %s", symbol, exc)
+            return None
+
+    def _find_itm_contract(
+        self, symbol: str, is_call: bool, target_strike: float,
+    ) -> Optional[str]:
+        """Find the real Alpaca options contract closest to target_strike with ~expiry_days DTE."""
+        today     = date.today()
+        expiry_min = today + timedelta(days=max(14, self.expiry_days - 7))
+        expiry_max = today + timedelta(days=self.expiry_days + 14)
+        ctype = ContractType.CALL if is_call else ContractType.PUT
+
+        try:
+            result = self.trading_client.get_option_contracts(
+                GetOptionContractsRequest(
+                    underlying_symbols=[symbol],
+                    type=ctype,
+                    strike_price_gte=str(target_strike - 10),
+                    strike_price_lte=str(target_strike + 10),
+                    expiration_date_gte=expiry_min,
+                    expiration_date_lte=expiry_max,
+                    limit=20,
+                )
+            )
+            contracts = getattr(result, "option_contracts", None)
+            if contracts is None:
+                contracts = list(result) if result else []
+            if not contracts:
+                log.warning("[DIR] No %s contracts for %s near strike %.0f.",
+                            ctype.value, symbol, target_strike)
+                return None
+
+            best = min(
+                contracts,
+                key=lambda c: (
+                    abs(float(c.strike_price) - target_strike),
+                    c.expiration_date,
+                ),
+            )
+            log.info("[DIR] Found %s %s | strike=%.0f | expiry=%s",
+                     "CALL" if is_call else "PUT", best.symbol,
+                     float(best.strike_price), best.expiration_date)
+            return best.symbol
+
+        except Exception as exc:
+            log.error("[DIR] Contract search failed for %s %s: %s", symbol, ctype.value, exc)
+            return None
+
+    def _get_quote_mid(self, contract_symbol: str) -> Optional[float]:
+        try:
+            req = OptionLatestQuoteRequest(
+                symbol_or_symbols=contract_symbol, feed=OptionsFeed.INDICATIVE)
+            quotes = self.option_data_client.get_option_latest_quote(req)
+            if contract_symbol in quotes:
+                q   = quotes[contract_symbol]
+                bid = float(q.bid_price) if q.bid_price else 0.0
+                ask = float(q.ask_price) if q.ask_price else 0.0
+                if bid > 0 and ask > 0:
+                    return (bid + ask) / 2
+                if ask > 0:
+                    return ask
+            return None
+        except Exception:
+            return None
+
+    def _submit_buy(self, contract_symbol: str) -> Optional[str]:
+        try:
+            order = self.trading_client.submit_order(
+                MarketOrderRequest(
+                    symbol=contract_symbol, qty=1,
+                    side=OrderSide.BUY, type=OrderType.MARKET,
+                    time_in_force=TimeInForce.DAY,
+                )
+            )
+            log.info("[DIR] BUY order: %s (id=%s)", contract_symbol, order.id)
+            return str(order.id)
+        except Exception as exc:
+            log.error("[DIR] BUY failed for %s: %s", contract_symbol, exc)
+            return None
+
+    def _submit_sell(self, contract_symbol: str) -> bool:
+        try:
+            self.trading_client.submit_order(
+                MarketOrderRequest(
+                    symbol=contract_symbol, qty=1,
+                    side=OrderSide.SELL, type=OrderType.MARKET,
+                    time_in_force=TimeInForce.DAY,
+                )
+            )
+            log.info("[DIR] SELL order: %s", contract_symbol)
+            return True
+        except Exception as exc:
+            log.error("[DIR] SELL failed for %s: %s", contract_symbol, exc)
+            return False
+
+    def process_symbol(self, symbol: str, positions: Dict[str, object]) -> str:
+        current_price = self.get_current_price(symbol)
+        if current_price is None:
+            return "SKIP  (price unavailable)"
+
+        # ML prediction
+        direction, confidence, tradeable = "UNKNOWN", 0.0, False
+        predictor = self.predictors.get(symbol)
+        if predictor is not None:
+            try:
+                daily_bars = self.adapter.fetch_daily(symbol, DAILY_LOOKBACK)
+                vix_df     = _fetch_vix_for_training(self.fred_key, lookback_days=DAILY_LOOKBACK)
+                pred       = predictor.predict(daily_bars, vix_df)
+                direction  = pred["direction"]
+                confidence = pred["confidence"]
+                tradeable  = pred.get("tradeable", True)
+            except Exception as exc:
+                log.warning("[DIR] ML failed for %s: %s", symbol, exc)
+
+        vix_now = self.iv_estimator.current_vix()  if self.iv_estimator else 20.0
+        iv_rank = self.iv_estimator.iv_rank()       if self.iv_estimator else 50.0
+
+        # ── PATH A: manage open position ──
+        if symbol in self.active_positions:
+            pos = self.active_positions[symbol]
+            contract = pos["contract"]
+            is_call  = pos["is_call"]
+            entry_cost = pos["entry_cost"]
+            expiry_str = pos["expiry"]
+
+            # Get current value
+            mid = self._get_quote_mid(contract)
+            if mid is not None:
+                current_value = mid * 100
+            else:
+                # Fallback to BS
+                try:
+                    expiry_dt = datetime.strptime(expiry_str, "%Y-%m-%d")
+                    dte = max(0, (expiry_dt - datetime.now()).days)
+                    T = dte / 365.0
+                    sigma = _effective_iv(symbol, vix_now)
+                    if is_call:
+                        current_value = GreeksEstimator.call_price(
+                            current_price, pos["strike"], T, sigma=sigma) * 100
+                    else:
+                        current_value = GreeksEstimator.put_price(
+                            current_price, pos["strike"], T, sigma=sigma) * 100
+                except Exception:
+                    current_value = entry_cost  # fallback: no P&L estimate
+
+            pnl_mult = current_value / entry_cost if entry_cost > 0 else 1.0
+            dte_now  = max(0, (datetime.strptime(expiry_str, "%Y-%m-%d") - datetime.now()).days)
+            pnl_dollars = current_value - entry_cost
+
+            # Exit: 7 DTE forced
+            if dte_now <= self.DTE_FORCE_CLOSE:
+                self._submit_sell(contract)
+                del self.active_positions[symbol]
+                return f"CLOSE forced_dte | {dte_now} DTE | P&L=${pnl_dollars:+.0f}"
+
+            # Exit: profit target (+50%)
+            if pnl_mult >= self.PROFIT_TARGET_MULT:
+                self._submit_sell(contract)
+                del self.active_positions[symbol]
+                return f"CLOSE profit_target ({pnl_mult:.2f}x) | P&L=${pnl_dollars:+.0f}"
+
+            # Exit: stop loss (-25%)
+            if pnl_mult <= self.STOP_LOSS_MULT:
+                self._submit_sell(contract)
+                del self.active_positions[symbol]
+                return f"CLOSE stop_loss ({pnl_mult:.2f}x) | P&L=${pnl_dollars:+.0f}"
+
+            # Exit: direction flip
+            if tradeable and confidence >= 0.50:
+                if (is_call and direction == "DOWN") or (not is_call and direction == "UP"):
+                    self._submit_sell(contract)
+                    del self.active_positions[symbol]
+                    return f"CLOSE direction_flip | {direction}({confidence:.2f}) | P&L=${pnl_dollars:+.0f}"
+
+            dir_str = "CALL" if is_call else "PUT"
+            return (f"HOLD  [{dir_str}] {dte_now}d | {pnl_mult:.2f}x "
+                    f"P&L=${pnl_dollars:+.0f} | ML:{direction}({confidence:.2f})")
+
+        # ── PATH B: check for entry ──
+        if not (tradeable and confidence >= self.confidence_threshold):
+            return (f"WAIT  conf={confidence:.3f} (need>={self.confidence_threshold}) | "
+                    f"ML:{direction} | tradeable={tradeable}")
+
+        if iv_rank > self.iv_rank_max:
+            return (f"SKIP  IV rank {iv_rank:.0f} > {self.iv_rank_max:.0f} "
+                    f"(options too expensive)")
+
+        if direction not in ("UP", "DOWN"):
+            return "SKIP  (direction unknown)"
+
+        # Find ITM contract
+        is_call    = (direction == "UP")
+        T          = self.expiry_days / 365.0
+        sigma      = _effective_iv(symbol, vix_now)
+        tgt_strike = _find_itm_strike(is_call, current_price, T, sigma, self.target_delta)
+        contract   = self._find_itm_contract(symbol, is_call, tgt_strike)
+
+        if contract is None:
+            return f"SKIP  (no contract found near strike {tgt_strike:.0f})"
+
+        # Get estimated cost from live quote
+        mid = self._get_quote_mid(contract)
+        if mid is None:
+            mid = (GreeksEstimator.call_price(current_price, tgt_strike, T, sigma=sigma)
+                   if is_call else
+                   GreeksEstimator.put_price(current_price, tgt_strike, T, sigma=sigma))
+
+        entry_cost_est = mid * 100
+
+        # Check account equity for risk
+        try:
+            acct = self.trading_client.get_account()
+            equity = float(acct.equity)
+        except Exception:
+            equity = 100_000.0
+        max_cost = equity * self.max_risk_pct
+        if entry_cost_est > max_cost:
+            return (f"SKIP  cost ${entry_cost_est:.0f} > max ${max_cost:.0f} "
+                    f"({self.max_risk_pct:.0%} of equity)")
+
+        # Submit order
+        order_id = self._submit_buy(contract)
+        if order_id is None:
+            return "ERROR  buy order failed"
+
+        expiry_str = _expiry_from_symbol(contract)
+        self.active_positions[symbol] = {
+            "contract":   contract,
+            "is_call":    is_call,
+            "strike":     tgt_strike,
+            "expiry":     expiry_str,
+            "entry_cost": entry_cost_est,
+            "entry_date": datetime.now(),
+        }
+        dir_str = "CALL" if is_call else "PUT"
+        return (f"OPEN  {dir_str} strike={tgt_strike:.0f} | expiry={expiry_str} | "
+                f"cost≈${entry_cost_est:.0f} | IVR={iv_rank:.0f} | conf={confidence:.3f}")
+
+    def run_loop(self) -> None:
+        log.info("[DIR] Starting Directional Options Trader (REAL paper orders)...")
+        log.info("[DIR] Symbols: %s", ", ".join(self.symbols))
+        log.info("[DIR] Entry: confidence >= %.2f | IV rank <= %.0f%%",
+                 self.confidence_threshold, self.iv_rank_max)
+        log.info("[DIR] Exit: +%.0f%% profit | -%.0f%% stop | %d DTE forced",
+                 self.PROFIT_TARGET_MULT * 100 - 100,
+                 100 - self.STOP_LOSS_MULT * 100,
+                 self.DTE_FORCE_CLOSE)
+        print()
+
+        def handle_signal(sig, frame):
+            print("\n\n  Shutting down directional options trader...\n")
+            self._running = False
+
+        try:
+            signal.signal(signal.SIGINT, handle_signal)
+        except ValueError:
+            pass  # signal only works in main thread; harmless in threaded mode
+
+        cycle = 0
+        while self._running:
+            cycle += 1
+            if not _is_market_open():
+                print(f"\n  [{datetime.now().strftime('%H:%M:%S')}] "
+                      f"Market closed. Next open in {_time_until_next_open()}. "
+                      f"Sleeping {self.check_interval // 60} min...")
+                self._sleep(self.check_interval)
+                continue
+
+            try:
+                vix_df            = _fetch_vix_for_training(self.fred_key, lookback_days=365)
+                self.iv_estimator = IVEstimator(vix_df)
+
+                try:
+                    acct = self.trading_client.get_account()
+                    equity = float(acct.equity)
+                except Exception:
+                    equity = 0.0
+
+                positions = {}
+                try:
+                    positions = {p.symbol: p for p in self.trading_client.get_all_positions()}
+                except Exception:
+                    pass
+
+                print(f"\n  [{datetime.now().strftime('%H:%M:%S')}] "
+                      f"=== Directional Options Cycle #{cycle} ===")
+                print(f"  Equity: ${equity:,.2f} | "
+                      f"{len(self.active_positions)} position(s) | "
+                      f"VIX: {self.iv_estimator.current_vix():.1f} | "
+                      f"IV Rank: {self.iv_estimator.iv_rank():.0f}")
+
+                for sym in self.symbols:
+                    try:
+                        result = self.process_symbol(sym, positions)
+                        print(f"    {sym:>4}  {result}")
+                    except Exception as exc:
+                        print(f"    {sym:>4}  ERROR: {exc}")
+                        log.exception("[DIR] Symbol error for %s", sym)
+
+                print(f"  Next check in {self.check_interval // 60} min.")
+
+            except KeyboardInterrupt:
+                break
+            except Exception as exc:
+                print(f"  Cycle error: {exc}")
+                log.exception("[DIR] Trading cycle failed")
+
+            self._sleep(self.check_interval)
+
+    def _sleep(self, seconds: int) -> None:
+        start = time.time()
+        while time.time() - start < seconds and self._running:
+            time.sleep(min(1, seconds - (time.time() - start)))
+
+
+# ===================================================================
 # CLI
 # ===================================================================
 def main() -> None:
@@ -946,6 +1542,20 @@ def main() -> None:
         "--max-risk-pct", type=float, default=0.03,
         help="Max risk per straddle as %% of equity (default: 0.03 = 3%%)",
     )
+    parser.add_argument(
+        "--strategy", default="straddle",
+        choices=["directional", "straddle", "both"],
+        help="Options strategy: directional (ITM calls/puts via LSTM), "
+             "straddle (vol-expansion gated), or both (default: straddle)",
+    )
+    parser.add_argument(
+        "--dir-confidence", type=float, default=0.10,
+        help="Min LSTM confidence for directional entries (default: 0.10; LSTM range is 0.03-0.12)",
+    )
+    parser.add_argument(
+        "--expiry-days-dir", type=int, default=28,
+        help="Target DTE for directional trades (default: 28)",
+    )
 
     args = parser.parse_args()
 
@@ -960,41 +1570,116 @@ def main() -> None:
         if args.symbols else ["SPY", "QQQ", "IWM", "SLV", "GLD", "XLE", "IGV"]
     )
 
-    trader = StraddleTrader(
-        api_key=api_key,
-        api_secret=api_secret,
-        symbols=symbols,
-        provider=args.provider,
-        confidence_threshold=args.confidence,
-        expiry_days=args.expiry_days,
-        max_risk_per_straddle=args.max_risk,
-        check_interval_min=args.check_interval,
-        vix_spike_threshold=args.vix_spike_threshold,
-        use_dynamic_vix_threshold=not args.no_dynamic_vix,
-        max_risk_pct=args.max_risk_pct,
-    )
+    strategy = args.strategy
 
-    try:
-        account = trader.get_account_summary()
-        print(f"\n  Connected to Alpaca Paper Trading  (Long ATM Straddle — REAL ORDERS)")
-        print(f"  Account equity:    ${account['equity']:,.2f}")
-        print(f"  Strategy:          Buy real ATM call + put contracts")
-        dyn = "ON (8-20% based on IV rank)" if not args.no_dynamic_vix else "OFF"
-        print(f"  Entry trigger:     VIX daily change >= {args.vix_spike_threshold:.0f}% (dynamic: {dyn})")
-        print(f"  Profit target:     +{(PROFIT_TARGET_MULT - 1) * 100:.0f}% on either leg")
-        print(f"  Stop loss:         -{(1 - STOP_LOSS_MULT) * 100:.0f}% on total position")
-        print(f"  ML signal exit:    confidence >= {args.confidence:.2f}")
-        print(f"  Max risk/straddle: ${args.max_risk:,.0f} or {args.max_risk_pct:.0%} of equity")
-        print()
-        print("  NOTE: If you see 'forbidden' errors, complete your Alpaca account")
-        print("        application to enable options on your paper account.")
-        print()
-        print("  Press Ctrl+C to stop.\n")
-    except Exception as exc:
-        print(f"  Connection error: {exc}")
-        sys.exit(1)
+    # ----------------------------------------------------------------
+    # Launch trader(s) based on --strategy
+    # ----------------------------------------------------------------
+    if strategy == "directional":
+        trader: object = DirectionalOptionsTrader(
+            api_key=api_key,
+            api_secret=api_secret,
+            symbols=symbols,
+            provider=args.provider,
+            confidence_threshold=args.dir_confidence,
+            expiry_days=args.expiry_days_dir,
+            max_risk_pct=args.max_risk_pct,
+            check_interval_min=args.check_interval,
+        )
+        try:
+            account = trader.get_account_summary()
+            print(f"\n  Connected to Alpaca Paper Trading  (Directional ITM Options)")
+            print(f"  Account equity:     ${account['equity']:,.2f}")
+            print(f"  Strategy:           ITM calls/puts | delta ~0.68 | 28 DTE")
+            print(f"  Entry gate:         LSTM tradeable + conf >= {args.dir_confidence:.2f} + IVR <= 55")
+            print(f"  Profit target:      +50%  Stop loss: -25%  Force-close: 7 DTE")
+            print(f"  Max risk/trade:     {args.max_risk_pct:.0%} of equity")
+            print()
+            print("  Press Ctrl+C to stop.\n")
+        except Exception as exc:
+            print(f"  Connection error: {exc}")
+            sys.exit(1)
+        trader.run_loop()
 
-    trader.run_loop()
+    elif strategy == "straddle":
+        trader = StraddleTrader(
+            api_key=api_key,
+            api_secret=api_secret,
+            symbols=symbols,
+            provider=args.provider,
+            confidence_threshold=args.confidence,
+            expiry_days=args.expiry_days,
+            max_risk_per_straddle=args.max_risk,
+            check_interval_min=args.check_interval,
+            vix_spike_threshold=args.vix_spike_threshold,
+            use_dynamic_vix_threshold=not args.no_dynamic_vix,
+            max_risk_pct=args.max_risk_pct,
+        )
+        try:
+            account = trader.get_account_summary()
+            print(f"\n  Connected to Alpaca Paper Trading  (Vol-Expansion Straddle)")
+            print(f"  Account equity:    ${account['equity']:,.2f}")
+            print(f"  Strategy:          ATM straddle | IVR < 30 gate | vol-expansion signal")
+            dyn = "ON (8-20% based on IV rank)" if not args.no_dynamic_vix else "OFF"
+            print(f"  Entry trigger:     VIX spike >= {args.vix_spike_threshold:.0f}% (dynamic: {dyn}) + vol expanding")
+            print(f"  Profit target:     +{(PROFIT_TARGET_MULT - 1) * 100:.0f}% on either leg")
+            print(f"  Stop loss:         -{(1 - STOP_LOSS_MULT) * 100:.0f}% on total position")
+            print(f"  Max risk/straddle: ${args.max_risk:,.0f} or {args.max_risk_pct:.0%} of equity")
+            print()
+            print("  Press Ctrl+C to stop.\n")
+        except Exception as exc:
+            print(f"  Connection error: {exc}")
+            sys.exit(1)
+        trader.run_loop()
+
+    else:  # both
+        import threading
+        dir_trader = DirectionalOptionsTrader(
+            api_key=api_key,
+            api_secret=api_secret,
+            symbols=symbols,
+            provider=args.provider,
+            confidence_threshold=args.dir_confidence,
+            expiry_days=args.expiry_days_dir,
+            max_risk_pct=args.max_risk_pct / 2,  # split risk between strategies
+            check_interval_min=args.check_interval,
+        )
+        str_trader = StraddleTrader(
+            api_key=api_key,
+            api_secret=api_secret,
+            symbols=symbols,
+            provider=args.provider,
+            confidence_threshold=args.confidence,
+            expiry_days=args.expiry_days,
+            max_risk_per_straddle=args.max_risk,
+            check_interval_min=args.check_interval,
+            vix_spike_threshold=args.vix_spike_threshold,
+            use_dynamic_vix_threshold=not args.no_dynamic_vix,
+            max_risk_pct=args.max_risk_pct / 2,
+        )
+        try:
+            account = str_trader.get_account_summary()
+            print(f"\n  Connected to Alpaca Paper Trading  (Directional + Straddle — BOTH)")
+            print(f"  Account equity:    ${account['equity']:,.2f}")
+            print(f"  Directional:       ITM calls/puts | conf >= {args.dir_confidence:.2f} | IVR <= 55")
+            print(f"  Straddle:          ATM | IVR < 30 | vol-expanding | VIX spike")
+            print(f"  Risk split:        {args.max_risk_pct/2:.1%} per strategy")
+            print()
+            print("  Press Ctrl+C to stop.\n")
+        except Exception as exc:
+            print(f"  Connection error: {exc}")
+            sys.exit(1)
+
+        t_dir = threading.Thread(target=dir_trader.run_loop, daemon=True)
+        t_str = threading.Thread(target=str_trader.run_loop, daemon=True)
+        t_dir.start()
+        t_str.start()
+        try:
+            t_dir.join()
+            t_str.join()
+        except KeyboardInterrupt:
+            dir_trader._running = False
+            str_trader._running = False
 
 
 if __name__ == "__main__":
