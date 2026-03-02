@@ -2538,7 +2538,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (histAcct && histAcct.portfolio && histAcct.portfolio.equity && histAcct.portfolio.equity.length) {
       var rawEq = histAcct.portfolio.equity;
       for (var i = 0; i < rawEq.length; i++) {
-        if (rawEq[i] != null) {
+        if (rawEq[i] != null && rawEq[i] > 0) {
           startingEquity = rawEq[i];
           break;
         }
