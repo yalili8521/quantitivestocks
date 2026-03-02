@@ -2410,7 +2410,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var yMax = Math.max.apply(null, eq);
     var yPad = (yMax - yMin) * 0.1 || startVal * 0.001 || 50;
     var layout = Object.assign({},JSON.parse(JSON.stringify(darkPlotLayout)),{height:260,yaxis:{gridcolor:'rgba(255,255,255,0.04)',linecolor:'rgba(255,255,255,0.06)',tickprefix:'$',separatethousands:true,range:[yMin - yPad, yMax + yPad]}});
-    Plotly.react(el,[trace,baseline],layout,plotConfig);
+    Plotly.newPlot(el,[trace,baseline],layout,plotConfig);
   }
 
   // ---- Render per-symbol intraday chart with trade markers ----

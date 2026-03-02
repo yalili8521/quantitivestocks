@@ -38,8 +38,8 @@ def _fetch(api_key: str, api_secret: str) -> dict:
         return {"portfolio": {}, "orders": [], "traded_symbols": []}
 
     headers = {
-        "APCA-API-KEY-ID": api_key,
-        "APCA-API-SECRET-KEY": api_secret,
+        "APCA-API-KEY-ID": api_key.strip(),
+        "APCA-API-SECRET-KEY": api_secret.strip(),
     }
 
     portfolio = {}
