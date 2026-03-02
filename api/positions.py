@@ -104,7 +104,9 @@ class handler(BaseHTTPRequestHandler):
                 "positions": data["positions"],
             })
 
-        body = json.dumps({"accounts": accounts}).encode()
+        debug = {k: (os.environ.get(k,"")[:4] + "...") for k in
+                 ["ALPACA_API_KEY","ALPACA_SWING_KEY","ALPACA_EXPANSION_KEY"]}
+        body = json.dumps({"accounts": accounts, "_debug_keys": debug}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
