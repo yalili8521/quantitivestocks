@@ -232,6 +232,12 @@ section,.section-wrap{padding:100px 0}
 .sig-m-val{font-family:var(--mono);color:var(--text-sec)}
 
 /* ============ LIVE P&L ============ */
+.acct-tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.acct-tab{padding:6px 16px;border-radius:6px;border:1px solid var(--border-muted);background:transparent;color:var(--text-dim);cursor:pointer;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;transition:all .15s}
+.acct-tab:hover{border-color:var(--accent);color:var(--text)}
+.acct-tab.active{background:var(--accent);border-color:var(--accent);color:#000}
+.acct-combined{font-size:12px;color:var(--text-dim);margin-left:auto;align-self:center;font-family:var(--mono)}
+@media(max-width:600px){.acct-combined{width:100%;margin-left:0;margin-top:4px}}
 .live-pos{padding:16px;margin-bottom:12px}
 .live-pos:last-child{margin-bottom:0}
 .live-pos-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -628,7 +634,15 @@ footer{border-top:1px solid var(--border);padding:40px 0}
 <section id="live-pnl" class="section-wrap reveal">
   <div class="container">
     <div class="sec-label">PAPER TRADING</div>
-    <h2 class="sec-title" style="margin-bottom:24px">Live Performance</h2>
+    <h2 class="sec-title" style="margin-bottom:20px">Live Performance</h2>
+
+    <!-- Account tabs -->
+    <div class="acct-tabs">
+      <button class="acct-tab active" data-group="intraday">Options / Intraday</button>
+      <button class="acct-tab" data-group="swing">Swing</button>
+      <button class="acct-tab" data-group="expansion">Expansion</button>
+      <span class="acct-combined">All accounts: <span id="live-combined-equity">--</span></span>
+    </div>
 
     <!-- Equity Chart Card (primary visual) -->
     <div class="glass" style="padding:0;margin-bottom:24px;overflow:hidden">
@@ -670,7 +684,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
     </div>
 
     <div id="live-footer" style="font-size:10px;color:var(--text-dim);text-align:center">
-      Live &bull; Alpaca Paper Trading &bull; Auto-refreshes every 60s
+      Live &bull; Alpaca Paper Trading (3 accounts) &bull; Auto-refreshes every 60s
     </div>
   </div>
 </section>
@@ -2513,78 +2527,97 @@ document.addEventListener('DOMContentLoaded', function() {
     }, 50);
   }
 
+  // ---- Multi-account state ----
+  var currentGroup = 'intraday';
+  var _posAccounts = [];
+  var _histAccounts = [];
+  var _bars = {};
+
+  function renderAccount(group) {
+    var posAcct  = _posAccounts.find(function(a) { return a.group === group; });
+    var histAcct = _histAccounts.find(function(a) { return a.group === group; });
+
+    if (posAcct) {
+      var acct = posAcct.account || {};
+      var equity = parseFloat(acct.equity) || 0;
+      var cash   = parseFloat(acct.cash)   || 0;
+      var positionsVal = 0;
+      (posAcct.positions || []).forEach(function(p) { positionsVal += Math.abs(parseFloat(p.market_value) || 0); });
+      var pnl      = equity - STARTING_EQUITY;
+      var pnlPct   = STARTING_EQUITY > 0 ? (pnl / STARTING_EQUITY * 100) : 0;
+      var cashPct  = equity > 0 ? (cash / equity * 100) : 0;
+      var posPct   = equity > 0 ? (positionsVal / equity * 100) : 0;
+      var pnlClass = pnl >= 0 ? 'pos' : 'neg';
+
+      var el;
+      el = document.getElementById('live-equity');        if (el) el.textContent = fmtUSD(equity);
+      el = document.getElementById('live-cash');          if (el) el.textContent = fmtUSD(cash);
+      el = document.getElementById('live-cash-pct');      if (el) el.textContent = cashPct.toFixed(1) + '% of equity';
+      el = document.getElementById('live-positions-val'); if (el) el.textContent = fmtUSD(positionsVal);
+      el = document.getElementById('live-positions-pct'); if (el) el.textContent = posPct.toFixed(1) + '% of equity';
+      el = document.getElementById('live-pnl-val');
+      if (el) { el.textContent = (pnl >= 0 ? '+' : '-') + fmtUSD(Math.abs(pnl)); el.className = pnlClass; }
+      el = document.getElementById('live-pnl-pct');
+      if (el) { el.textContent = fmtPct(pnlPct); el.className = pnlClass; }
+
+      var container = document.getElementById('live-positions-container');
+      var countEl   = document.getElementById('live-pos-count');
+      if (container) {
+        var positions = posAcct.positions || [];
+        if (positions.length > 0) {
+          if (countEl) countEl.textContent = positions.length + ' open';
+          var html = '<table class="trade-table"><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Current</th><th>Mkt Value</th><th>P&amp;L</th><th>%</th></tr></thead><tbody>';
+          positions.forEach(function(p) {
+            var ppl    = parseFloat(p.unrealized_pl)   || 0;
+            var pplPct = (parseFloat(p.unrealized_plpc) || 0) * 100;
+            var cls    = ppl >= 0 ? 'pos' : 'neg';
+            var side   = parseFloat(p.qty) < 0 ? 'SHORT' : 'LONG';
+            var mv     = Math.abs(parseFloat(p.market_value) || 0);
+            html += '<tr><td style="font-weight:600;color:var(--text)">' + p.symbol + '</td>';
+            html += '<td>' + side + '</td>';
+            html += '<td>' + Math.abs(parseFloat(p.qty)) + '</td>';
+            html += '<td>$' + parseFloat(p.avg_entry_price).toFixed(2) + '</td>';
+            html += '<td>$' + parseFloat(p.current_price).toFixed(2) + '</td>';
+            html += '<td>' + fmtUSD(mv) + '</td>';
+            html += '<td class="' + cls + '">' + (ppl >= 0 ? '+$' : '-$') + Math.abs(ppl).toFixed(2) + '</td>';
+            html += '<td class="' + cls + '">' + (pplPct >= 0 ? '+' : '-') + Math.abs(pplPct).toFixed(2) + '%</td></tr>';
+          });
+          html += '</tbody></table>';
+          container.innerHTML = html;
+        } else {
+          if (countEl) countEl.textContent = '0 open';
+          container.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-dim);font-size:12px">No open positions</div>';
+        }
+      }
+    }
+
+    if (histAcct) {
+      renderEquityChart(histAcct.portfolio);
+      var pos = posAcct ? (posAcct.positions || []) : [];
+      renderSignalCards(pos, histAcct.orders || [], _bars);
+    }
+  }
+
   // ---- Main data loader ----
   async function loadLiveData() {
     try {
-      var posRes = fetch('/api/positions');
-      var sigRes = fetch('/api/signals');
-      var histRes = fetch('/api/history');
-      var results = await Promise.all([posRes, sigRes, histRes]);
+      var results = await Promise.all([fetch('/api/positions'), fetch('/api/signals'), fetch('/api/history')]);
 
-      var posData = null, sigData = null, histData = null;
-
-      // -- Positions & Account --
+      // -- Positions (all accounts) --
       if (results[0].ok) {
-        posData = await results[0].json();
-        var equity = parseFloat(posData.account.equity) || 0;
-        var cash = parseFloat(posData.account.cash) || 0;
-        var positionsVal = 0;
-        if (posData.positions) {
-          posData.positions.forEach(function(p) { positionsVal += Math.abs(parseFloat(p.market_value) || 0); });
-        }
-        var pnl = equity - STARTING_EQUITY;
-        var pnlPct = STARTING_EQUITY > 0 ? (pnl / STARTING_EQUITY * 100) : 0;
-        var cashPct = equity > 0 ? (cash / equity * 100) : 0;
-        var posPct = equity > 0 ? (positionsVal / equity * 100) : 0;
-        var pnlClass = pnl >= 0 ? 'pos' : 'neg';
+        var posData = await results[0].json();
+        _posAccounts = posData.accounts || [];
 
-        var el;
-        el = document.getElementById('live-equity'); if (el) el.textContent = fmtUSD(equity);
-        el = document.getElementById('live-cash'); if (el) el.textContent = fmtUSD(cash);
-        el = document.getElementById('live-cash-pct'); if (el) el.textContent = cashPct.toFixed(1) + '% of equity';
-        el = document.getElementById('live-positions-val'); if (el) el.textContent = fmtUSD(positionsVal);
-        el = document.getElementById('live-positions-pct'); if (el) el.textContent = posPct.toFixed(1) + '% of equity';
-
-        el = document.getElementById('live-pnl-val');
-        if (el) { el.textContent = (pnl >= 0 ? '+' : '-') + fmtUSD(Math.abs(pnl)); el.className = pnlClass; }
-        el = document.getElementById('live-pnl-pct');
-        if (el) { el.textContent = fmtPct(pnlPct); el.className = pnlClass; }
-
-        // Positions table
-        var container = document.getElementById('live-positions-container');
-        var countEl = document.getElementById('live-pos-count');
-        if (container && posData.positions) {
-          if (posData.positions.length > 0) {
-            if (countEl) countEl.textContent = posData.positions.length + ' open';
-            var html = '<table class="trade-table"><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Current</th><th>Mkt Value</th><th>P&L</th><th>%</th></tr></thead><tbody>';
-            posData.positions.forEach(function(p) {
-              var ppl = parseFloat(p.unrealized_pl) || 0;
-              var pplPct = (parseFloat(p.unrealized_plpc) || 0) * 100;
-              var cls = ppl >= 0 ? 'pos' : 'neg';
-              var side = parseFloat(p.qty) < 0 ? 'SHORT' : 'LONG';
-              var mv = Math.abs(parseFloat(p.market_value) || 0);
-              html += '<tr><td style="font-weight:600;color:var(--text)">' + p.symbol + '</td>';
-              html += '<td>' + side + '</td>';
-              html += '<td>' + Math.abs(parseFloat(p.qty)) + '</td>';
-              html += '<td>$' + parseFloat(p.avg_entry_price).toFixed(2) + '</td>';
-              html += '<td>$' + parseFloat(p.current_price).toFixed(2) + '</td>';
-              html += '<td>' + fmtUSD(mv) + '</td>';
-              html += '<td class="' + cls + '">' + (ppl >= 0 ? '+$' : '-$') + Math.abs(ppl).toFixed(2) + '</td>';
-              html += '<td class="' + cls + '">' + (pplPct >= 0 ? '+' : '-') + Math.abs(pplPct).toFixed(2) + '%</td></tr>';
-            });
-            html += '</tbody></table>';
-            container.innerHTML = html;
-          } else {
-            if (countEl) countEl.textContent = '0 open';
-            container.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-dim);font-size:12px">No open positions</div>';
-          }
-        }
+        var combined = 0;
+        _posAccounts.forEach(function(a) { combined += parseFloat((a.account || {}).equity) || 0; });
+        var combEl = document.getElementById('live-combined-equity');
+        if (combEl) combEl.textContent = fmtUSD(combined);
       }
 
       // -- VIX / Signals --
       if (results[1].ok) {
-        sigData = await results[1].json();
-        var vixEl = document.getElementById('vix-value');
+        var sigData = await results[1].json();
+        var vixEl    = document.getElementById('vix-value');
         var vixChgEl = document.getElementById('vix-change');
         var updateEl = document.getElementById('last-update');
         if (vixEl && sigData.vix !== null) vixEl.textContent = sigData.vix.toFixed(2);
@@ -2600,18 +2633,28 @@ document.addEventListener('DOMContentLoaded', function() {
         }
       }
 
-      // -- History / Charts --
+      // -- History / Charts (all accounts) --
       if (results[2].ok) {
-        histData = await results[2].json();
-        renderEquityChart(histData.portfolio);
-        if (posData && posData.positions) {
-          renderSignalCards(posData.positions, histData.orders || [], histData.bars || {});
-        }
+        var histData = await results[2].json();
+        _histAccounts = histData.accounts || [];
+        _bars = histData.bars || {};
       }
+
+      renderAccount(currentGroup);
     } catch (e) {
       console.error('Live data fetch failed:', e);
     }
   }
+
+  // Tab click handlers
+  document.querySelectorAll('.acct-tab').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.acct-tab').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      currentGroup = btn.dataset.group;
+      renderAccount(currentGroup);
+    });
+  });
 
   loadLiveData();
   setInterval(loadLiveData, 60000);
