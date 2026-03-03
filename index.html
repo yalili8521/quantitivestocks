@@ -2545,26 +2545,14 @@ document.addEventListener('DOMContentLoaded', function() {
     var posAcct  = _posAccounts.find(function(a) { return a.group === group; });
     var histAcct = _histAccounts.find(function(a) { return a.group === group; });
 
-    // Derive starting equity from portfolio history (first non-null equity), fallback to constant
-    var startingEquity = STARTING_EQUITY;
-    if (histAcct && histAcct.portfolio && histAcct.portfolio.equity && histAcct.portfolio.equity.length) {
-      var rawEq = histAcct.portfolio.equity;
-      for (var i = 0; i < rawEq.length; i++) {
-        if (rawEq[i] != null && rawEq[i] > 0) {
-          startingEquity = rawEq[i];
-          break;
-        }
-      }
-    }
-
     if (posAcct) {
       var acct = posAcct.account || {};
       var equity = parseFloat(acct.equity) || 0;
       var cash   = parseFloat(acct.cash)   || 0;
       var positionsVal = 0;
       (posAcct.positions || []).forEach(function(p) { positionsVal += Math.abs(parseFloat(p.market_value) || 0); });
-      var pnl      = equity - startingEquity;
-      var pnlPct   = startingEquity > 0 ? (pnl / startingEquity * 100) : 0;
+      var pnl      = equity - STARTING_EQUITY;
+      var pnlPct   = STARTING_EQUITY > 0 ? (pnl / STARTING_EQUITY * 100) : 0;
       var cashPct  = equity > 0 ? (cash / equity * 100) : 0;
       var posPct   = equity > 0 ? (positionsVal / equity * 100) : 0;
       var pnlClass = pnl >= 0 ? 'pos' : 'neg';
