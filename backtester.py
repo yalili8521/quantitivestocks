@@ -101,6 +101,8 @@ class BacktestResult:
     price_series: pd.DataFrame = field(default_factory=pd.DataFrame)
     drawdown_series: pd.DataFrame = field(default_factory=pd.DataFrame)
     trades: List[Trade] = field(default_factory=list)
+    mode: str = "daily"
+    intraday_interval: str = "5min"
 
 
 # ===================================================================
@@ -580,6 +582,8 @@ class Backtester:
             price_series=price_df,
             drawdown_series=eq_df[["date", "drawdown"]],
             trades=portfolio.closed_trades,
+            mode=self.mode,
+            intraday_interval=self.intraday_interval,
         )
 
 
@@ -845,11 +849,34 @@ def print_report(result: BacktestResult) -> None:
                   f"{'${:>+,.2f}'.format(pnl):>12}  {ret_pct:>+7.2f}%  {t.exit_reason}")
         print("-" * 110)
 
-    # Save equity curve
+    # Save equity curve and summary (for training tables)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     csv_path = os.path.join(OUTPUT_DIR, f"backtest_{result.symbol}.csv")
     result.equity_curve.to_csv(csv_path, index=False)
     print(f"\n  Equity curve saved to {csv_path}")
+
+    summary_path = os.path.join(OUTPUT_DIR, f"backtest_{result.symbol}_summary.json")
+    summary = {
+        "symbol": result.symbol,
+        "mode": getattr(result, "mode", "daily"),
+        "intraday_interval": getattr(result, "intraday_interval", "5min"),
+        "start_date": result.start_date,
+        "end_date": result.end_date,
+        "initial_capital": float(result.initial_capital),
+        "final_equity": float(result.final_equity),
+        "total_return_pct": float(result.total_return_pct),
+        "annualized_return_pct": float(result.annualized_return_pct),
+        "sharpe_ratio": float(result.sharpe_ratio),
+        "max_drawdown_pct": float(result.max_drawdown_pct),
+        "total_trades": int(result.total_trades),
+        "win_rate": float(result.win_rate),
+        "avg_win_pct": float(result.avg_win_pct),
+        "avg_loss_pct": float(result.avg_loss_pct),
+        "profit_factor": float(result.profit_factor) if result.profit_factor != float("inf") else None,
+        "avg_trade_duration_days": float(result.avg_trade_duration_days),
+    }
+    with open(summary_path, "w") as f:
+        json.dump(summary, f, indent=2)
 
     # Save trade history
     if result.trades:

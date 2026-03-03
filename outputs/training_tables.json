@@ -1,0 +1,613 @@
+{
+  "daily": {
+    "equity_training": [
+      {
+        "symbol": "EEM",
+        "mode": "daily",
+        "val_accuracy": 0.6131,
+        "val_precision": 0.7143,
+        "val_coverage": 0.6131,
+        "threshold": 0.525
+      },
+      {
+        "symbol": "EWJ",
+        "mode": "daily",
+        "val_accuracy": 0.5328,
+        "val_precision": 0.8261,
+        "val_coverage": 0.1679,
+        "threshold": 0.55
+      },
+      {
+        "symbol": "EWS",
+        "mode": "daily",
+        "val_accuracy": 0.5255,
+        "val_precision": 0.6222,
+        "val_coverage": 0.3285,
+        "threshold": 0.55
+      },
+      {
+        "symbol": "EWT",
+        "mode": "daily",
+        "val_accuracy": 0.5839,
+        "val_precision": 0.8214,
+        "val_coverage": 0.2044,
+        "threshold": 0.6
+      },
+      {
+        "symbol": "EWW",
+        "mode": "daily",
+        "val_accuracy": 0.4745,
+        "val_precision": 0.4322,
+        "val_coverage": 0.8613,
+        "threshold": 0.4
+      },
+      {
+        "symbol": "EWY",
+        "mode": "daily",
+        "val_accuracy": 0.5036,
+        "val_precision": 0.6667,
+        "val_coverage": 0.1314,
+        "threshold": 0.6
+      },
+      {
+        "symbol": "EWZ",
+        "mode": "daily",
+        "val_accuracy": 0.3869,
+        "val_precision": 0.3359,
+        "val_coverage": 0.9343,
+        "threshold": 0.425
+      },
+      {
+        "symbol": "FXI",
+        "mode": "daily",
+        "val_accuracy": 0.4526,
+        "val_precision": 0.5769,
+        "val_coverage": 0.1898,
+        "threshold": 0.575
+      },
+      {
+        "symbol": "GLD",
+        "mode": "daily",
+        "val_accuracy": 0.4526,
+        "val_precision": 0.9231,
+        "val_coverage": 0.1898,
+        "threshold": 0.55
+      },
+      {
+        "symbol": "IGV",
+        "mode": "daily",
+        "val_accuracy": 0.4745,
+        "val_precision": 0.6111,
+        "val_coverage": 0.3942,
+        "threshold": 0.6
+      },
+      {
+        "symbol": "INDA",
+        "mode": "daily",
+        "val_accuracy": 0.5109,
+        "val_precision": 0.4353,
+        "val_coverage": 0.6204,
+        "threshold": 0.55
+      },
+      {
+        "symbol": "IWM",
+        "mode": "daily",
+        "val_accuracy": 0.562,
+        "val_precision": 0.6232,
+        "val_coverage": 0.5036,
+        "threshold": 0.525
+      },
+      {
+        "symbol": "QQQ",
+        "mode": "daily",
+        "val_accuracy": 0.5401,
+        "val_precision": 0.7333,
+        "val_coverage": 0.1095,
+        "threshold": 0.7
+      },
+      {
+        "symbol": "SLV",
+        "mode": "daily",
+        "val_accuracy": 0.4745,
+        "val_precision": 0.6842,
+        "val_coverage": 0.4161,
+        "threshold": 0.5
+      },
+      {
+        "symbol": "SOXX",
+        "mode": "daily",
+        "val_accuracy": 0.5985,
+        "val_precision": 0.8056,
+        "val_coverage": 0.2628,
+        "threshold": 0.6
+      },
+      {
+        "symbol": "SPY",
+        "mode": "daily",
+        "val_accuracy": 0.438,
+        "val_precision": 0.5165,
+        "val_coverage": 0.6642,
+        "threshold": 0.55
+      },
+      {
+        "symbol": "TLT",
+        "mode": "daily",
+        "val_accuracy": 0.5401,
+        "val_precision": 0.5102,
+        "val_coverage": 0.3577,
+        "threshold": 0.5
+      },
+      {
+        "symbol": "XLE",
+        "mode": "daily",
+        "val_accuracy": 0.5182,
+        "val_precision": 0.7027,
+        "val_coverage": 0.2701,
+        "threshold": 0.55
+      }
+    ],
+    "backtest": [
+      {
+        "symbol": "EEM",
+        "mode": "daily",
+        "start_date": "2024-01-02",
+        "end_date": "2026-02-27",
+        "total_return_pct": 108.5,
+        "final_equity": 208499.635869,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "EWJ",
+        "mode": "daily",
+        "start_date": "2024-01-02",
+        "end_date": "2026-02-27",
+        "total_return_pct": 21.39,
+        "final_equity": 121386.885448,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "EWS",
+        "mode": "daily",
+        "start_date": "2024-01-02",
+        "end_date": "2026-02-27",
+        "total_return_pct": 30.42,
+        "final_equity": 130417.380232,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "EWT",
+        "mode": "daily",
+        "start_date": "2024-01-02",
+        "end_date": "2026-02-26",
+        "total_return_pct": 25.04,
+        "final_equity": 125039.231944,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "EWW",
+        "mode": "daily",
+        "start_date": "2024-01-02",
+        "end_date": "2026-02-27",
+        "total_return_pct": 16.72,
+        "final_equity": 116716.029067,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "EWY",
+        "mode": "daily",
+        "start_date": "2024-01-02",
+        "end_date": "2026-02-27",
+        "total_return_pct": 10.11,
+        "final_equity": 110108.997897,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "EWZ",
+        "mode": "daily",
+        "start_date": "2024-01-02",
+        "end_date": "2026-02-27",
+        "total_return_pct": -0.7,
+        "final_equity": 99297.572839,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "FXI",
+        "mode": "daily",
+        "start_date": "2024-01-02",
+        "end_date": "2026-02-27",
+        "total_return_pct": 5.06,
+        "final_equity": 105064.511752,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "GLD",
+        "mode": "daily",
+        "start_date": "2024-01-02",
+        "end_date": "2026-02-27",
+        "total_return_pct": 66.92,
+        "final_equity": 166918.992692,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "IGV",
+        "mode": "daily",
+        "start_date": "2024-01-02",
+        "end_date": "2026-02-27",
+        "total_return_pct": 1.86,
+        "final_equity": 101862.603369,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "INDA",
+        "mode": "daily",
+        "start_date": "2024-01-02",
+        "end_date": "2026-02-27",
+        "total_return_pct": 12.79,
+        "final_equity": 112786.648797,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "IWM",
+        "mode": "daily",
+        "start_date": "2025-12-05",
+        "end_date": "2026-02-27",
+        "total_return_pct": 8.09,
+        "final_equity": 108085.386472,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "QQQ",
+        "mode": "daily",
+        "start_date": "2025-12-05",
+        "end_date": "2026-02-27",
+        "total_return_pct": 10.93,
+        "final_equity": 110934.204373,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "SLV",
+        "mode": "daily",
+        "start_date": "2024-01-02",
+        "end_date": "2026-02-27",
+        "total_return_pct": 43.54,
+        "final_equity": 143537.159372,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "SOXX",
+        "mode": "daily",
+        "start_date": "2025-12-05",
+        "end_date": "2026-02-27",
+        "total_return_pct": 2.8,
+        "final_equity": 102798.920208,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "SPY",
+        "mode": "daily",
+        "start_date": "2025-12-05",
+        "end_date": "2026-02-27",
+        "total_return_pct": 6.29,
+        "final_equity": 106286.28116,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "TLT",
+        "mode": "daily",
+        "start_date": "2024-01-02",
+        "end_date": "2026-02-27",
+        "total_return_pct": 3.67,
+        "final_equity": 103674.609174,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "XLE",
+        "mode": "daily",
+        "start_date": "2024-01-02",
+        "end_date": "2026-02-27",
+        "total_return_pct": 50.48,
+        "final_equity": 150481.41421,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "XLF",
+        "mode": "daily",
+        "start_date": "2024-01-02",
+        "end_date": "2026-02-27",
+        "total_return_pct": 16.7,
+        "final_equity": 116695.093372,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      },
+      {
+        "symbol": "XLV",
+        "mode": "daily",
+        "start_date": "2024-01-02",
+        "end_date": "2026-02-27",
+        "total_return_pct": -3.8,
+        "final_equity": 96204.111148,
+        "sharpe_ratio": null,
+        "max_drawdown_pct": null,
+        "total_trades": null,
+        "win_rate": null
+      }
+    ]
+  },
+  "intraday": {
+    "equity_training": [
+      {
+        "symbol": "EEM",
+        "mode": "intraday",
+        "val_accuracy": 0.5131,
+        "val_precision": 0.5268,
+        "val_coverage": 0.5893,
+        "threshold": 0.55
+      },
+      {
+        "symbol": "EWJ",
+        "mode": "intraday",
+        "val_accuracy": 0.5201,
+        "val_precision": 0.5351,
+        "val_coverage": 0.6039,
+        "threshold": 0.575
+      },
+      {
+        "symbol": "EWT",
+        "mode": "intraday",
+        "val_accuracy": 0.4967,
+        "val_precision": 0.5395,
+        "val_coverage": 0.6481,
+        "threshold": 0.475
+      },
+      {
+        "symbol": "EWY",
+        "mode": "intraday",
+        "val_accuracy": 0.5114,
+        "val_precision": 0.6439,
+        "val_coverage": 0.2231,
+        "threshold": 0.65
+      },
+      {
+        "symbol": "EWZ",
+        "mode": "intraday",
+        "val_accuracy": 0.5261,
+        "val_precision": 0.5683,
+        "val_coverage": 0.4542,
+        "threshold": 0.6
+      },
+      {
+        "symbol": "GLD",
+        "mode": "intraday",
+        "val_accuracy": 0.5109,
+        "val_precision": 0.5773,
+        "val_coverage": 0.1057,
+        "threshold": 0.625
+      },
+      {
+        "symbol": "IGV",
+        "mode": "intraday",
+        "val_accuracy": 0.5338,
+        "val_precision": 0.5974,
+        "val_coverage": 0.8497,
+        "threshold": 0.475
+      },
+      {
+        "symbol": "IWM",
+        "mode": "intraday",
+        "val_accuracy": 0.5158,
+        "val_precision": 0.5612,
+        "val_coverage": 0.5604,
+        "threshold": 0.55
+      },
+      {
+        "symbol": "QQQ",
+        "mode": "intraday",
+        "val_accuracy": 0.4877,
+        "val_precision": 0.5819,
+        "val_coverage": 0.8901,
+        "threshold": 0.55
+      },
+      {
+        "symbol": "SLV",
+        "mode": "intraday",
+        "val_accuracy": 0.531,
+        "val_precision": 0.5594,
+        "val_coverage": 0.4668,
+        "threshold": 0.525
+      },
+      {
+        "symbol": "SOXX",
+        "mode": "intraday",
+        "val_accuracy": 0.5222,
+        "val_precision": 0.6389,
+        "val_coverage": 0.1596,
+        "threshold": 0.7
+      },
+      {
+        "symbol": "SPY",
+        "mode": "intraday",
+        "val_accuracy": 0.4918,
+        "val_precision": 0.7867,
+        "val_coverage": 0.1632,
+        "threshold": 0.575
+      },
+      {
+        "symbol": "XLE",
+        "mode": "intraday",
+        "val_accuracy": 0.5136,
+        "val_precision": 0.5777,
+        "val_coverage": 0.2242,
+        "threshold": 0.55
+      }
+    ],
+    "backtest": []
+  },
+  "vol": {
+    "vol_training": [
+      {
+        "symbol": "EEM",
+        "val_accuracy": 0.5839,
+        "val_precision": 0.8675,
+        "val_coverage": 0.6058,
+        "threshold": 0.4,
+        "mode": null,
+        "model_type": "vol_meta_rf"
+      },
+      {
+        "symbol": "EWJ",
+        "val_accuracy": 0.7664,
+        "val_precision": 0.9146,
+        "val_coverage": 0.5985,
+        "threshold": 0.525,
+        "mode": null,
+        "model_type": "vol_meta_rf"
+      },
+      {
+        "symbol": "EWS",
+        "val_accuracy": 0.5036,
+        "val_precision": 1.0,
+        "val_coverage": 0.146,
+        "threshold": 0.725,
+        "mode": null,
+        "model_type": "vol_meta_rf"
+      },
+      {
+        "symbol": "EWT",
+        "val_accuracy": 0.6861,
+        "val_precision": 0.8983,
+        "val_coverage": 0.4307,
+        "threshold": 0.55,
+        "mode": null,
+        "model_type": "vol_meta_rf"
+      },
+      {
+        "symbol": "GLD",
+        "val_accuracy": 0.7737,
+        "val_precision": 0.9565,
+        "val_coverage": 0.3358,
+        "threshold": 0.8,
+        "mode": null,
+        "model_type": "vol_meta_rf"
+      },
+      {
+        "symbol": "INDA",
+        "val_accuracy": 0.5328,
+        "val_precision": 0.8193,
+        "val_coverage": 0.6058,
+        "threshold": 0.45,
+        "mode": null,
+        "model_type": "vol_meta_rf"
+      },
+      {
+        "symbol": "IWM",
+        "val_accuracy": 0.7153,
+        "val_precision": 0.8545,
+        "val_coverage": 0.4015,
+        "threshold": 0.625,
+        "mode": null,
+        "model_type": "vol_meta_rf"
+      },
+      {
+        "symbol": "QQQ",
+        "val_accuracy": 0.5255,
+        "val_precision": 0.8295,
+        "val_coverage": 0.6423,
+        "threshold": 0.425,
+        "mode": null,
+        "model_type": "vol_meta_rf"
+      },
+      {
+        "symbol": "SLV",
+        "val_accuracy": 0.7007,
+        "val_precision": 0.8132,
+        "val_coverage": 0.6642,
+        "threshold": 0.475,
+        "mode": null,
+        "model_type": "vol_meta_rf"
+      },
+      {
+        "symbol": "SOXX",
+        "val_accuracy": 0.6277,
+        "val_precision": 0.9211,
+        "val_coverage": 0.2774,
+        "threshold": 0.825,
+        "mode": null,
+        "model_type": "vol_meta_rf"
+      },
+      {
+        "symbol": "SPY",
+        "val_accuracy": 0.6058,
+        "val_precision": 1.0,
+        "val_coverage": 0.2555,
+        "threshold": 0.675,
+        "mode": null,
+        "model_type": "vol_meta_rf"
+      },
+      {
+        "symbol": "XLE",
+        "val_accuracy": 0.4453,
+        "val_precision": 0.8222,
+        "val_coverage": 0.3285,
+        "threshold": 0.55,
+        "mode": null,
+        "model_type": "vol_meta_rf"
+      }
+    ]
+  }
+}

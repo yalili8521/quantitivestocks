@@ -447,33 +447,58 @@ def prepare_sequences_triple_barrier(
 # VIX history helper (longer lookback for training)
 # ===================================================================
 def _fetch_vix_for_training(fred_key: Optional[str], lookback_days: int) -> pd.DataFrame:
-    """Fetch VIX history. Try FRED first, fall back to yfinance ^VIX."""
+    """Fetch VIX history. Try FRED first, fall back to yfinance ^VIX.
+
+    After getting daily history, always try to append today's live intraday
+    VIX price so vix_change_pct() reflects the real intraday spike, not just
+    yesterday's close vs the day before.
+    """
     fetcher = FREDVixFetcher(api_key=fred_key)
     vix_df = fetcher.fetch(lookback_days=lookback_days)
-    if len(vix_df) >= 20:
-        return vix_df
+    if len(vix_df) < 20:
+        # FRED free tier only returns ~10 recent observations; fall back to yfinance
+        log.info("FRED VIX data sparse (%d rows); falling back to yfinance ^VIX.", len(vix_df))
+        try:
+            import yfinance as yf
+            ticker = yf.Ticker("^VIX")
+            cal_days = int(lookback_days * 1.5) + 10
+            hist = ticker.history(period=f"{cal_days}d", interval="1d")
+            if hist is not None and not hist.empty:
+                vdf = pd.DataFrame({
+                    "date": hist.index,
+                    "vix": hist["Close"].values,
+                })
+                if vdf["date"].dt.tz is not None:
+                    vdf["date"] = vdf["date"].dt.tz_localize(None)
+                vdf = vdf.sort_values("date").reset_index(drop=True)
+                log.info("Fetched %d VIX rows from yfinance.", len(vdf))
+                vix_df = vdf
+        except Exception as exc:
+            log.warning("yfinance ^VIX fallback failed: %s", exc)
 
-    # FRED free tier only returns ~10 recent observations; fall back to yfinance
-    log.info("FRED VIX data sparse (%d rows); falling back to yfinance ^VIX.", len(vix_df))
+    # Always append today's live VIX price so intraday spikes are captured.
+    # FRED only updates after market close, so during market hours the last
+    # row is yesterday's close — this override fixes that.
     try:
         import yfinance as yf
-        ticker = yf.Ticker("^VIX")
-        cal_days = int(lookback_days * 1.5) + 10
-        hist = ticker.history(period=f"{cal_days}d", interval="1d")
-        if hist is not None and not hist.empty:
-            vdf = pd.DataFrame({
-                "date": hist.index,
-                "vix": hist["Close"].values,
-            })
-            if vdf["date"].dt.tz is not None:
-                vdf["date"] = vdf["date"].dt.tz_localize(None)
-            vdf = vdf.sort_values("date").reset_index(drop=True)
-            log.info("Fetched %d VIX rows from yfinance.", len(vdf))
-            return vdf
+        _vix_ticker = yf.Ticker("^VIX")
+        live_vix = float(_vix_ticker.fast_info.last_price)
+        if live_vix > 0:
+            today = pd.Timestamp.now().normalize()
+            last_date = vix_df["date"].iloc[-1].normalize() if not vix_df.empty else pd.Timestamp("1900-01-01")
+            if last_date < today:
+                # Today not yet in history — append new row
+                today_row = pd.DataFrame({"date": [today], "vix": [live_vix]})
+                vix_df = pd.concat([vix_df, today_row], ignore_index=True)
+                log.info("Appended live intraday VIX=%.1f for today.", live_vix)
+            else:
+                # Today's row exists (FRED already updated) — overwrite with live value
+                vix_df.loc[vix_df.index[-1], "vix"] = live_vix
+                log.info("Updated today's VIX row to live value=%.1f.", live_vix)
     except Exception as exc:
-        log.warning("yfinance ^VIX fallback failed: %s", exc)
+        log.debug("Live VIX fetch failed (using daily close): %s", exc)
 
-    return vix_df  # return whatever FRED gave us
+    return vix_df
 
 
 # ===================================================================
@@ -580,11 +605,14 @@ def train_model(
 
     # 5. Training with early stopping, gradient clipping, label smoothing
     best_val_loss = float("inf")
+    best_val_acc = 0.0
+    epochs_run = 0
     patience_counter = 0
     PATIENCE = 10
     GRAD_CLIP = 1.0
 
     for epoch in range(epochs):
+        epochs_run = epoch + 1
         model.train()
         train_loss = 0.0
         for xb, yb in train_loader:
@@ -618,6 +646,7 @@ def train_model(
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            best_val_acc = val_acc
             patience_counter = 0
             torch.save(model.state_dict(),
                        os.path.join(save_dir, f"{symbol}_lstm{suffix}.pt"))
@@ -629,8 +658,16 @@ def train_model(
                 log.info("Early stopping at epoch %d.", epoch + 1)
                 break
 
-    log.info("Training complete for %s (%s). Best val_loss=%.4f",
-             symbol, mode, best_val_loss)
+    metrics_path = os.path.join(save_dir, f"{symbol}_lstm{suffix}_metrics.json")
+    with open(metrics_path, "w") as f:
+        json.dump({
+            "symbol": symbol, "mode": mode,
+            "best_val_loss": round(best_val_loss, 6),
+            "best_val_acc": round(best_val_acc, 4),
+            "epochs_run": epochs_run,
+        }, f, indent=2)
+    log.info("Training complete for %s (%s). Best val_loss=%.4f  val_acc=%.3f",
+             symbol, mode, best_val_loss, best_val_acc)
     return model, engine
 
 

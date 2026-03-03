@@ -273,10 +273,13 @@ def train_vol_model(
     scaler_path  = os.path.join(save_dir, f"{symbol}_vol_scaler.json")
 
     best_val_loss = float("inf")
+    best_val_acc = 0.0
+    epochs_run = 0
     patience_counter = 0
     PATIENCE = 10
 
     for epoch in range(epochs):
+        epochs_run = epoch + 1
         model.train()
         train_loss = 0.0
         for xb, yb in train_loader:
@@ -306,6 +309,7 @@ def train_vol_model(
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            best_val_acc = val_acc
             patience_counter = 0
             torch.save(model.state_dict(), weights_path)
             engine.save_scaler(scaler_path)
@@ -315,7 +319,15 @@ def train_vol_model(
                 log.info("Early stopping at epoch %d.", epoch + 1)
                 break
 
-    log.info("Vol LSTM complete: %s  best_val_loss=%.4f", symbol, best_val_loss)
+    metrics_path = os.path.join(save_dir, f"{symbol}_vol_lstm_metrics.json")
+    with open(metrics_path, "w") as f:
+        json.dump({
+            "symbol": symbol,
+            "best_val_loss": round(best_val_loss, 6),
+            "best_val_acc": round(best_val_acc, 4),
+            "epochs_run": epochs_run,
+        }, f, indent=2)
+    log.info("Vol LSTM complete: %s  best_val_loss=%.4f  val_acc=%.3f", symbol, best_val_loss, best_val_acc)
     log.info("Saved → %s", weights_path)
 
 

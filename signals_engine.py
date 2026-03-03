@@ -758,16 +758,18 @@ def run(symbols: List[str], provider: str, intraday_interval: str,
     if use_ml:
         try:
             from ml_model import Predictor, _fetch_vix_for_training
-            model_dir = os.path.join(PROJECT_ROOT, "data", "models")
-            ml_vix_df = _fetch_vix_for_training(fred_key, lookback_days=DAILY_LOOKBACK)
+            model_dir = os.path.join(PROJECT_ROOT, "models")
+            ML_LOOKBACK = 400  # needs 282-bar frac_diff warmup for GLD/SLV
+            ml_vix_df = _fetch_vix_for_training(fred_key, lookback_days=ML_LOOKBACK)
             for sym, rec in results.items():
                 try:
                     predictor = Predictor(sym, model_dir=model_dir)
-                    daily = adapter.fetch_daily(sym, DAILY_LOOKBACK)
+                    daily = adapter.fetch_daily(sym, ML_LOOKBACK)
                     pred = predictor.predict(daily, ml_vix_df)
                     rec["ml_direction"] = pred["direction"]
                     rec["ml_confidence"] = pred["confidence"]
-                except FileNotFoundError:
+                except (FileNotFoundError, RuntimeError) as exc:
+                    log.debug("ML prediction skipped for %s: %s", sym, exc)
                     rec["ml_direction"] = "N/A"
                     rec["ml_confidence"] = 0.0
         except ImportError:

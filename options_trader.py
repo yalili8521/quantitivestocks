@@ -1372,8 +1372,15 @@ class DirectionalOptionsTrader:
         if direction not in ("UP", "DOWN"):
             return "SKIP  (direction unknown)"
 
+        is_call = (direction == "UP")
+
+        # Block entry if an opposing equity position already exists (cross-system conflict)
+        conflict = self._has_conflicting_equity_position(symbol, is_call)
+        if conflict:
+            dir_str = "CALL" if is_call else "PUT"
+            return f"SKIP  {dir_str} blocked by opposing {conflict}"
+
         # Find ITM contract
-        is_call    = (direction == "UP")
         T          = self.expiry_days / 365.0
         sigma      = _effective_iv(symbol, vix_now)
         tgt_strike = _find_itm_strike(is_call, current_price, T, sigma, self.target_delta)
@@ -1420,6 +1427,106 @@ class DirectionalOptionsTrader:
         return (f"OPEN  {dir_str} strike={tgt_strike:.0f} | expiry={expiry_str} | "
                 f"cost≈${entry_cost_est:.0f} | IVR={iv_rank:.0f} | conf={confidence:.3f}")
 
+    def _has_conflicting_equity_position(self, symbol: str, is_call: bool,
+                                          pl_threshold: float = 0.005) -> Optional[str]:
+        """Return a description string if a strongly-opposing equity position exists, else None.
+
+        Only blocks when the opposing equity position's unrealized P&L exceeds pl_threshold
+        (default 0.5%), meaning the intraday system's direction is confirmed as working.
+        A weakly-profitable or losing opposing position does not block — the intraday
+        system may simply be wrong on a different time horizon.
+        """
+        try:
+            all_positions = self.trading_client.get_all_positions()
+        except Exception as exc:
+            log.debug("[DIR] Could not fetch positions for conflict check: %s", exc)
+            return None
+
+        for pos in all_positions:
+            sym = pos.symbol
+            if any(c.isdigit() for c in sym):
+                continue  # skip options
+            if sym.upper() != symbol.upper():
+                continue
+            side = str(pos.side).lower()
+            qty  = abs(float(pos.qty))
+            conflicts = (is_call and "short" in side) or (not is_call and "long" in side)
+            if not conflicts:
+                continue
+            try:
+                plpc = float(pos.unrealized_plpc)
+            except (AttributeError, TypeError, ValueError):
+                plpc = 0.0
+            if plpc <= pl_threshold:
+                log.debug("[DIR] Opposing equity %s exists (P&L=%.2f%%) but below %.1f%% "
+                          "threshold — intraday unconfirmed, allowing options entry",
+                          symbol, plpc * 100, pl_threshold * 100)
+                continue
+            side_str = "SHORT" if "short" in side else "LONG"
+            return f"equity {side_str} {symbol} ({qty:.0f} sh, P&L={plpc*100:.1f}%)"
+        return None
+
+    def _recover_positions(self) -> None:
+        """On startup, scan Alpaca for open option positions and rebuild active_positions.
+
+        This ensures that positions opened before a process restart continue to
+        be managed (stop-loss, profit target, direction flip) rather than being
+        orphaned indefinitely.
+        """
+        try:
+            all_positions = self.trading_client.get_all_positions()
+        except Exception as exc:
+            log.warning("[DIR] Could not fetch positions for recovery: %s", exc)
+            return
+
+        recovered = 0
+        for pos in all_positions:
+            sym = pos.symbol  # e.g. QQQ250328C00470000
+            # Options have digits embedded; skip equity positions (pure alpha symbols)
+            if not any(c.isdigit() for c in sym):
+                continue
+
+            # Parse OCC symbol: ROOT + YYMMDD + C/P + 8-digit strike
+            try:
+                i = 0
+                while i < len(sym) and not sym[i].isdigit():
+                    i += 1
+                underlying = sym[:i]
+                if underlying not in self.symbols:
+                    continue  # not ours
+                date_str  = sym[i:i + 6]
+                cp_char   = sym[i + 6]
+                strike_str = sym[i + 7:i + 15]
+                expiry_str = f"20{date_str[:2]}-{date_str[2:4]}-{date_str[4:6]}"
+                strike     = float(strike_str) / 1000.0
+                is_call    = (cp_char.upper() == "C")
+                qty        = float(pos.qty)
+                entry_cost = float(pos.avg_entry_price) * qty * 100
+            except Exception as exc:
+                log.warning("[DIR] Could not parse option symbol %s: %s", sym, exc)
+                continue
+
+            if underlying in self.active_positions:
+                continue  # already tracked (shouldn't happen on fresh start)
+
+            self.active_positions[underlying] = {
+                "contract":   sym,
+                "is_call":    is_call,
+                "strike":     strike,
+                "expiry":     expiry_str,
+                "entry_cost": entry_cost,
+                "entry_date": datetime.now(),  # unknown; use now as conservative estimate
+            }
+            dir_str = "CALL" if is_call else "PUT"
+            log.info("[DIR] Recovered position: %s %s strike=%.0f expiry=%s cost≈$%.0f",
+                     underlying, dir_str, strike, expiry_str, entry_cost)
+            print(f"  [RECOVERY] {underlying} {dir_str} strike={strike:.0f} "
+                  f"expiry={expiry_str} cost~${entry_cost:.0f}")
+            recovered += 1
+
+        if recovered:
+            print(f"  Recovered {recovered} open option position(s) from Alpaca.\n")
+
     def run_loop(self) -> None:
         log.info("[DIR] Starting Directional Options Trader (REAL paper orders)...")
         log.info("[DIR] Symbols: %s", ", ".join(self.symbols))
@@ -1430,6 +1537,9 @@ class DirectionalOptionsTrader:
                  100 - self.STOP_LOSS_MULT * 100,
                  self.DTE_FORCE_CLOSE)
         print()
+
+        # Recover any positions open from before this process started
+        self._recover_positions()
 
         def handle_signal(sig, frame):
             print("\n\n  Shutting down directional options trader...\n")

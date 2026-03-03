@@ -51,6 +51,10 @@ def main() -> None:
     trade            Start Alpaca paper trading loop (stocks)
     trade-options    Start options trader (directional ITM or straddle)
     report           Generate HTML dashboard (outputs/report.html)
+    training-tables Generate CSV/HTML tables of training & backtest metrics
+    check-positions Check paper account positions; recommend and run legacy handling for existing positions
+    stop-paper-trader Stop the running paper trader for a group (e.g. intraday) so you can restart with different flags
+    lock-status      Show whether intraday (or other group) paper trader lock is present; tells you if it's safe to start
 
   Examples:
     python main.py signals              --provider yahoo --ml
@@ -74,6 +78,7 @@ def main() -> None:
     python main.py trade-options        --strategy both
     python main.py report
     python main.py report               --open
+    python main.py training-tables      # outputs/training_results_*.csv and .html
 
   Run `python main.py <command> --help` for command-specific options.
 """)
@@ -111,6 +116,18 @@ def main() -> None:
         from paper_trader import main as trade_main
         trade_main()
 
+    elif command == "check-positions":
+        from paper_trader import check_positions_main
+        check_positions_main()
+
+    elif command == "stop-paper-trader":
+        from paper_trader import stop_paper_trader_main
+        stop_paper_trader_main()
+
+    elif command == "lock-status":
+        from paper_trader import lock_status_main
+        lock_status_main()
+
     elif command == "train-vol":
         from options_ml import main as vol_main
         vol_main()
@@ -127,9 +144,13 @@ def main() -> None:
         from reports import main as report_main
         report_main()
 
+    elif command == "training-tables":
+        import scripts.generate_training_tables as gen_tables
+        gen_tables.main()
+
     else:
         print(f"\n  Unknown command: {command!r}")
-        print("  Available commands: signals, train, train-meta, train-vol, predict, backtest, backtest-options, trade, trade-options")
+        print("  Available commands: signals, train, train-meta, train-vol, predict, backtest, backtest-options, trade, trade-options, report, training-tables, check-positions, stop-paper-trader, lock-status")
         print("  Run `python main.py --help` for usage.\n")
         sys.exit(1)
 

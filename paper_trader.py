@@ -14,19 +14,30 @@ Required env vars:
     ALPACA_API_KEY, ALPACA_API_SECRET, FRED_API_KEY
 
 PAPER TRADING ONLY — paper=True is hardcoded for safety.
+
+Option positions (OCC symbols) are not managed by this module. options_trader.py owns their
+full lifecycle (entry and exit). This module only trades equity and manages exit-only for
+wrongly placed equity symbols.
+
+Legacy / wrong-algorithm positions (e.g. IGV, QQQ opened by a previous buggy model):
+  Use stricter exits to lock profit or cut loss: --legacy-stricter-exit IGV,QQQ
+  Manage out only (no new entries until flat):   --legacy-no-new-entries IGV,QQQ
+  Or set env: PAPER_LEGACY_STRICTER_EXIT, PAPER_LEGACY_NO_NEW_ENTRIES
 """
 
 from __future__ import annotations
 
 import argparse
+import atexit
 import collections
 import logging
 import os
 import signal
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import numpy as np
 import pandas as pd
@@ -54,7 +65,8 @@ log = logging.getLogger("paper_trader")
 # ---------------------------------------------------------------------------
 SYMBOL_GROUPS: Dict[str, List[str]] = {
     # Account 1 — Intraday (5min LSTM, time filter active)
-    "intraday":  ["SPY", "QQQ", "IWM", "SOXX"],
+    # IGV re-added: intraday backtest ~3mo showed 57.7% win rate, Sharpe 1.02, -0.55% max DD
+    "intraday":  ["SPY", "QQQ", "IWM", "SOXX", "IGV"],
     # Account 2 — Swing (daily LSTM, broader macro ETFs)
     # TLT dropped: 42.9% win rate, Sharpe 0.300 across all feature sets (bonds need rate signals)
     "swing":     ["EWT", "GLD", "EEM", "SLV"],
@@ -68,8 +80,58 @@ SYMBOL_GROUPS: Dict[str, List[str]] = {
 KELLY_WINDOW       = 60   # rolling window: last N closed trades to estimate W and B
 MIN_KELLY_TRADES   = 20   # minimum closed trades before switching from static to dynamic sizing
 
+# Legacy / wrong-algorithm positions: opened by a previous buggy model. Manage them
+# with stricter exits (lock profit or cut loss sooner) and optionally no new entries.
+# Set via env: PAPER_LEGACY_STRICTER_EXIT=IGV,QQQ  PAPER_LEGACY_NO_NEW_ENTRIES=IGV,QQQ
+LEGACY_STRICTER_EXIT_DEFAULT: Set[str] = set()   # e.g. {"IGV", "QQQ"} to use 3% trail, 2% TP
+LEGACY_NO_NEW_ENTRIES_DEFAULT: Set[str] = set()  # e.g. {"IGV", "QQQ"} to manage out only
+# Tighter params when symbol is in legacy_stricter_exit (or exit_only)
+LEGACY_TRAILING_STOP_PCT = 0.03   # 3% from peak (vs default 5%)
+LEGACY_TP_ACTIVATION     = 0.02   # lock profit after +2% (vs default 4%)
+LEGACY_TP_TRAIL           = 0.01   # 1% trail after activation (vs default 2%)
+
+# Option positions (OCC symbols): data-driven from equity backtest (78.9% WR, 2:1 payoff)
+OPTION_MAX_LOSS_PCT      = 0.35   # stop loss -35%
+OPTION_TP_TARGET_PCT     = 0.70   # profit target +70%
+OPTION_TRAILING_STOP_PCT = 0.20   # trail 20% from peak
+OPTION_TP_ACTIVATION     = 0.35   # activate trailing TP after +35%
+OPTION_TP_TRAIL          = 0.20   # trail 20% from peak once TP activated
+
+
+def _is_option_symbol(symbol: str) -> bool:
+    """True if symbol looks like OCC option (e.g. QQQ260327C00592000). Normalize to upper so we always use option exit rules even if Alpaca returns lowercase."""
+    import re
+    return bool(re.match(r"^[A-Z]+\d{6}[CP]\d{8}$", (symbol or "").upper()))
+
+
+def _warn_duplicate_symbols() -> None:
+    """Warn if any symbol appears in more than one group (wrong placement / double-trading)."""
+    from collections import defaultdict
+    sym_to_groups: Dict[str, List[str]] = defaultdict(list)
+    for grp, syms in SYMBOL_GROUPS.items():
+        for s in syms:
+            sym_to_groups[s].append(grp)
+    dupes = {s: grps for s, grps in sym_to_groups.items() if len(grps) > 1}
+    if dupes:
+        log.warning(
+            "Symbol(s) in multiple groups (fix to avoid double-trading): %s",
+            ", ".join(f"{s}→{grps}" for s, grps in dupes.items()),
+        )
+
 # Hold lock file handle for process lifetime
 _INSTANCE_LOCK_FH = None
+_PID_FILE_PATH: Optional[str] = None
+
+
+def _remove_pid_file() -> None:
+    """Remove the .pid file on exit so stop-paper-trader doesn't see a stale PID."""
+    global _PID_FILE_PATH
+    if _PID_FILE_PATH:
+        try:
+            os.remove(_PID_FILE_PATH)
+        except OSError:
+            pass
+        _PID_FILE_PATH = None
 
 
 def _acquire_single_instance_lock() -> bool:
@@ -138,6 +200,18 @@ def _acquire_single_instance_lock() -> bool:
             lock_fh.write(str(os.getpid()))
             lock_fh.flush()
             _INSTANCE_LOCK_FH = lock_fh
+            # Also write PID to a separate file (readable by others) for stop-paper-trader command
+            global _PID_FILE_PATH
+            _PID_FILE_PATH = os.path.join(
+                os.environ.get("TEMP", os.path.dirname(os.path.abspath(__file__))),
+                f".paper_trader_{_group_tag}.pid",
+            )
+            try:
+                with open(_PID_FILE_PATH, "w") as f:
+                    f.write(str(os.getpid()))
+                atexit.register(_remove_pid_file)
+            except OSError:
+                pass
             return True
 
         except (OSError, BlockingIOError):
@@ -273,6 +347,8 @@ class AlpacaPaperTrader:
         use_time_filter: bool = True,           # Aldridge: block opening/closing auction windows (intraday only)
         use_corr_sizing: bool = True,           # Scale down size when multiple same-direction positions open
         loss_cooldown_hours: float = 4.0,       # Hours to block re-entry after max_loss or regime_exit (0=off)
+        legacy_stricter_exit: Optional[Set[str]] = None,   # Stricter stops (3% trail, 2% TP) for wrong-algorithm positions
+        legacy_no_new_entries: Optional[Set[str]] = None, # Exit-only for these until flat (no new size)
     ):
         self.trading_client = TradingClient(
             api_key=api_key,
@@ -315,6 +391,8 @@ class AlpacaPaperTrader:
         self.fred_key = os.environ.get("FRED_API_KEY")
 
         self.loss_cooldown_hours = loss_cooldown_hours
+        self._legacy_stricter_exit = legacy_stricter_exit or set()
+        self._legacy_no_new_entries = legacy_no_new_entries or set()
 
         # Per-symbol tracking
         self._peak_prices: Dict[str, float] = {}
@@ -582,11 +660,15 @@ class AlpacaPaperTrader:
 
     # -- Trading logic (one symbol) ------------------------------------
     def check_and_trade(self, symbol: str, positions: Dict[str, dict],
-                        allocation: float) -> str:
+                        allocation: float, exit_only: bool = False) -> str:
         """Check ML signal and manage position for one symbol.
 
         Optimized strategy with ATR-based stops, vol sizing, regime filter,
         and trailing take-profit.
+
+        When exit_only=True (symbol not in this group's list), only exit logic
+        runs: trailing stop, take-profit, signal flip. No new entries. Use this
+        to manage out positions that were opened under a previous/wrong model.
 
         Returns action string for display.
         """
@@ -609,6 +691,10 @@ class AlpacaPaperTrader:
         has_position = pos is not None and pos["qty"] > 0
         flip_direction = None
 
+        # Wrongly placed: symbol has no position here — nothing to manage
+        if exit_only and not has_position:
+            return "EXIT-ONLY  (no position — symbol not in this group)"
+
         # --- Exit logic ---
         if has_position:
             qty = int(pos["qty"])
@@ -617,8 +703,14 @@ class AlpacaPaperTrader:
             entry_price = pos["entry_price"]
             pnl_pct = pos["unrealized_pnl_pct"]
 
+            # Legacy / wrong-algorithm positions: use tighter stops to lock profit or cut loss sooner
+            use_legacy_stops = exit_only or (symbol in self._legacy_stricter_exit)
+            use_option_stops = _is_option_symbol(symbol)
+
+            # Initialize peak from entry_price when we first see a position so inherited/down positions
+            # trigger the trailing stop immediately (e.g. short entered at 80, now 84 -> peak=80, drawdown=5%).
             if symbol not in self._peak_prices:
-                self._peak_prices[symbol] = current_price
+                self._peak_prices[symbol] = entry_price
             if side == "LONG":
                 self._peak_prices[symbol] = max(self._peak_prices[symbol], current_price)
                 drawdown_from_peak = ((self._peak_prices[symbol] - current_price)
@@ -629,9 +721,23 @@ class AlpacaPaperTrader:
                                       / self._peak_prices[symbol]
                                       if self._peak_prices[symbol] > 0 else 0)
 
+            # Option positions: fixed -35% max loss (data-driven from backtest)
+            if use_option_stops and pnl_pct <= -OPTION_MAX_LOSS_PCT:
+                if side == "LONG":
+                    self.sell(symbol, qty, reason=f"max_loss ({pnl_pct:+.2%})",
+                              limit_price=current_price)
+                else:
+                    self.buy_to_cover(symbol, qty, reason=f"max_loss ({pnl_pct:+.2%})",
+                                      limit_price=current_price)
+                self._record_closed_trade(pnl_pct)
+                self._clear_symbol_state(symbol)
+                return (f"EXIT  (option max loss {pnl_pct:+.2%} <= -{OPTION_MAX_LOSS_PCT:.0%}, "
+                        f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
+
             # Hard max-loss cut: exit if loss exceeds N×ATR from entry price (ATR-adaptive floor)
             entry_atr_for_floor = self._entry_atrs.get(symbol, bar_atr)
-            if (self.max_loss_atr_mult > 0 and entry_atr_for_floor > 0
+            if (not use_option_stops
+                    and self.max_loss_atr_mult > 0 and entry_atr_for_floor > 0
                     and entry_price > 0
                     and pnl_pct <= -(self.max_loss_atr_mult * entry_atr_for_floor / entry_price)):
                 floor_pct = self.max_loss_atr_mult * entry_atr_for_floor / entry_price
@@ -650,13 +756,12 @@ class AlpacaPaperTrader:
                 return (f"EXIT  (max loss {pnl_pct:+.2%} >= -{floor_pct:.2%} floor [{self.max_loss_atr_mult}×ATR], "
                         f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
 
-            # Regime breakdown exit: trend that justified entry has collapsed
+            # Regime breakdown exit: trend that justified entry has collapsed (equity only; skip for options)
             # ADX < 15 = no trend at all; Hurst < 0.50 = mean-reverting/random
-            # Only check Hurst if ADX is already weak (avoid extra API call when trend is clear)
             regime_exit_reason: str | None = None
-            if self.use_regime_filter and bar_adx < 15.0:
+            if not use_option_stops and self.use_regime_filter and bar_adx < 15.0:
                 regime_exit_reason = f"ADX={bar_adx:.1f}<15 (no trend)"
-            if regime_exit_reason is None and self.use_hurst_filter:
+            if regime_exit_reason is None and not use_option_stops and self.use_hurst_filter:
                 hurst = self._get_hurst(symbol)
                 if hurst < 0.50:
                     label = "mean-reverting" if hurst < 0.45 else "random-walk"
@@ -675,22 +780,43 @@ class AlpacaPaperTrader:
                 return (f"EXIT  (regime breakdown: {regime_exit_reason}, P&L={pnl_pct:+.2%}, "
                         f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
 
-            # ATR-based or fixed stop distance
+            # ATR-based or fixed stop distance (option vs legacy vs normal)
             entry_atr = self._entry_atrs.get(symbol, bar_atr)
-            if self.use_atr_stop and entry_atr > 0 and entry_price > 0:
-                stop_distance = self.atr_stop_mult * entry_atr / entry_price
+            if use_option_stops:
+                stop_distance = OPTION_TRAILING_STOP_PCT
+                tp_activation, tp_trail = OPTION_TP_ACTIVATION, OPTION_TP_TRAIL
+            elif use_legacy_stops:
+                stop_distance = LEGACY_TRAILING_STOP_PCT
+                tp_activation, tp_trail = LEGACY_TP_ACTIVATION, LEGACY_TP_TRAIL
             else:
-                stop_distance = self.trailing_stop_pct
+                if self.use_atr_stop and entry_atr > 0 and entry_price > 0:
+                    stop_distance = self.atr_stop_mult * entry_atr / entry_price
+                else:
+                    stop_distance = self.trailing_stop_pct
+                tp_activation, tp_trail = self.trailing_tp_activation, self.trailing_tp_trail
+
+            # Option: fixed +70% profit target
+            if use_option_stops and pnl_pct >= OPTION_TP_TARGET_PCT:
+                if side == "LONG":
+                    self.sell(symbol, qty, reason=f"profit_target ({pnl_pct:+.2%})",
+                              limit_price=current_price)
+                else:
+                    self.buy_to_cover(symbol, qty, reason=f"profit_target ({pnl_pct:+.2%})",
+                                      limit_price=current_price)
+                self._record_closed_trade(pnl_pct)
+                self._clear_symbol_state(symbol)
+                return (f"EXIT  (option profit target {pnl_pct:+.2%} >= +{OPTION_TP_TARGET_PCT:.0%}, "
+                        f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
 
             # Trailing take-profit: lock in gains once threshold is reached
-            if self.use_trailing_tp and pnl_pct >= self.trailing_tp_activation:
+            if self.use_trailing_tp and pnl_pct >= tp_activation:
                 if not self._tp_activated.get(symbol, False):
                     self._tp_activated[symbol] = True
                     self._tp_trail_peaks[symbol] = pnl_pct
                     log.info("Trailing TP activated for %s at %+.2f%%", symbol, pnl_pct * 100)
                 self._tp_trail_peaks[symbol] = max(
                     self._tp_trail_peaks.get(symbol, pnl_pct), pnl_pct)
-                if pnl_pct < self._tp_trail_peaks[symbol] - self.trailing_tp_trail:
+                if pnl_pct < self._tp_trail_peaks[symbol] - tp_trail:
                     if side == "LONG":
                         self.sell(symbol, qty, reason=f"trailing_tp ({pnl_pct:+.2%})",
                                   limit_price=current_price)
@@ -729,12 +855,19 @@ class AlpacaPaperTrader:
                 self._clear_symbol_state(symbol)
                 flip_direction = "LONG"
             else:
-                stop_info = f"ATR×{self.atr_stop_mult}" if self.use_atr_stop else f"{self.trailing_stop_pct:.0%}"
+                if use_option_stops:
+                    stop_info = f"{OPTION_TRAILING_STOP_PCT:.0%} trail"
+                else:
+                    stop_info = f"ATR×{self.atr_stop_mult}" if self.use_atr_stop else f"{self.trailing_stop_pct:.0%}"
                 return (f"HOLD  ({side} {qty} sh @ ${entry_price:.2f}, "
                         f"P&L: {pnl_pct:+.2%}, stop={stop_info})  "
                         f"ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}")
 
         # --- Entry logic ---
+        # Exit-only: manage out wrongly placed positions; do not open new ones
+        if exit_only:
+            return (f"EXIT-ONLY  (managing out — {direction} {confidence:.2f}, "
+                    f"no new entries for this symbol in this account)")
         # Aldridge: intraday time-of-day filter — block opening/closing auction windows
         _midday_sizing_mult = 1.0
         if self.use_time_filter and self.mode == "intraday" and not flip_direction:
@@ -981,10 +1114,33 @@ class AlpacaPaperTrader:
                 if self.use_vix_halt:
                     self._vix_halted = self._check_vix_halt()
                     if self._vix_halted:
-                        print(f"  ⚠  VIX HALT ACTIVE — exits allowed, no new entries this cycle")
+                        print(f"  [!] VIX HALT ACTIVE -- exits allowed, no new entries this cycle")
 
-                # Check each symbol
+                # Positions in this account for symbols not in this group (wrongly placed).
+                # Option positions (OCC symbols) are NOT managed here — options_trader.py owns
+                # their full lifecycle (entry + exit). So we only manage non-option, non-group symbols.
+                exit_only_symbols = [
+                    s for s in positions
+                    if positions[s].get("qty", 0) > 0
+                    and s not in self.symbols
+                    and not _is_option_symbol(s)
+                ]
+                option_positions = [
+                    s for s in positions
+                    if positions[s].get("qty", 0) > 0 and _is_option_symbol(s)
+                ]
+                if exit_only_symbols:
+                    print(f"  [!] EXIT-ONLY (not in group): {', '.join(exit_only_symbols)} -- managing out, no new entries")
+                if option_positions:
+                    print(f"  [OPTIONS] {', '.join(option_positions)} -- managed by options_trader only (entry + exit), not by this process")
+
+                # Check each symbol in this group
                 for sym in self.symbols:
+                    # Legacy / wrong-algorithm: manage out only (stricter stops, no new entries)
+                    if sym in self._legacy_no_new_entries:
+                        action = self.check_and_trade(sym, positions, allocation_per_sym, exit_only=True)
+                        print(f"  {sym:>5}:  {action}  [LEGACY no new entries]")
+                        continue
                     # Extended-hours guard: Asian/EM ETFs have near-zero volume
                     # during US pre/after-market — underlying markets are closed.
                     # Skipping avoids 0.5-2% spread costs on worthless signals.
@@ -996,6 +1152,11 @@ class AlpacaPaperTrader:
                             continue
                     action = self.check_and_trade(sym, positions, allocation_per_sym)
                     print(f"  {sym:>5}:  {action}")
+
+                # Manage out wrongly placed positions (exit-only: stops and flips, no new entries)
+                for sym in exit_only_symbols:
+                    action = self.check_and_trade(sym, positions, allocation_per_sym, exit_only=True)
+                    print(f"  {sym:>5}:  {action}  [EXIT-ONLY]")
 
                 print(f"\n  Next check in {self.check_interval // 60} min...")
 
@@ -1014,9 +1175,309 @@ class AlpacaPaperTrader:
 
 
 # ===================================================================
+# Lock status (see if paper trader is running for a group)
+# ===================================================================
+def _is_pid_alive(pid: int) -> bool:
+    """Return True if a process with this PID is still running."""
+    try:
+        if os.name == "nt":
+            import ctypes
+            SYNCHRONIZE = 0x00100000
+            handle = ctypes.windll.kernel32.OpenProcess(SYNCHRONIZE, False, pid)
+            if not handle:
+                return False
+            result = ctypes.windll.kernel32.WaitForSingleObject(handle, 0)
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return result != 0
+        else:
+            os.kill(pid, 0)
+            return True
+    except (OSError, PermissionError):
+        return False
+
+
+def lock_status_main() -> None:
+    """Show whether the paper trader lock is present for a group (so you know if it's safe to start)."""
+    parser = argparse.ArgumentParser(description="Check if paper trader lock is present for a group.")
+    parser.add_argument("--group", default="intraday", choices=list(SYMBOL_GROUPS.keys()),
+                        help="Account group to check (default: intraday)")
+    parser.add_argument("--clear-stale", action="store_true",
+                        help="If lock is stale (no process running), delete the lock file so you can start")
+    args = parser.parse_args()
+    group = args.group
+    temp_dir = os.environ.get("TEMP", os.path.dirname(os.path.abspath(__file__)))
+    lock_path = os.path.join(temp_dir, f".paper_trader_{group}.lock")
+    pid_path = os.path.join(temp_dir, f".paper_trader_{group}.pid")
+
+    lock_exists = os.path.isfile(lock_path)
+    pid_exists = os.path.isfile(pid_path)
+
+    # Detect stale lock: lock file exists but the process that wrote it is no longer running
+    stale_lock = False
+    lock_pid = None
+    if lock_exists:
+        try:
+            with open(lock_path) as f:
+                lock_pid = int(f.read().strip())
+            if not _is_pid_alive(lock_pid):
+                stale_lock = True
+        except (ValueError, OSError, PermissionError):
+            # Could not read (e.g. still held by process) or invalid PID
+            pass
+
+    lines = [
+        "",
+        f"  Paper trader lock status (group={group})",
+        f"  Lock file: {lock_path}",
+        f"  PID file:  {pid_path}",
+        "",
+        "  Trust this output (or outputs/lock_status.txt). Running this command starts a short-lived",
+        "  python.exe, so Task Manager is not a reliable way to tell if the paper trader is running.",
+        "",
+    ]
+    if lock_exists and not stale_lock:
+        lines.extend([
+            "  Status:  LOCK PRESENT - paper trader for this group is running.",
+            "  You cannot start another instance until the lock is gone.",
+            "  To stop: python main.py stop-paper-trader --group " + group,
+            "  Or in Task Manager (Details tab): end the python.exe that stays running (not the brief one from this command).",
+        ])
+    elif stale_lock:
+        lines.extend([
+            "  Status:  STALE LOCK - lock file exists but no process is running (process exited or was ended).",
+            "  You can start the trader; it will remove the stale lock automatically.",
+            "  Or run: python main.py lock-status --group " + group + " --clear-stale",
+            "  Then: python main.py trade --group " + group + " --mode intraday --interval 5min",
+        ])
+        if args.clear_stale:
+            try:
+                os.remove(lock_path)
+                if pid_exists:
+                    os.remove(pid_path)
+                lines.append("")
+                lines.append("  Cleared stale lock file(s). You can start the trader now.")
+            except OSError as e:
+                lines.append("")
+                lines.append(f"  Could not remove lock file: {e}")
+    elif not lock_exists:
+        lines.extend([
+            "  Status:  LOCK GONE - no paper trader running for this group.",
+            "  You can start the trader: python main.py trade --group " + group + " --mode intraday --interval 5min",
+        ])
+    if pid_exists and not lock_exists:
+        lines.append("  Note: .pid file exists but lock is gone (process may have exited).")
+    elif pid_exists and lock_exists and not stale_lock and lock_pid is not None:
+        lines.append(f"  PID {lock_pid}; stop with: python main.py stop-paper-trader --group " + group)
+    lines.append("")
+
+    text = "\n".join(lines)
+    # Always write to file so you can read outputs/lock_status.txt if terminal shows nothing
+    out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "outputs")
+    os.makedirs(out_dir, exist_ok=True)
+    out_file = os.path.join(out_dir, "lock_status.txt")
+    try:
+        with open(out_file, "w", encoding="utf-8") as f:
+            f.write(text)
+    except OSError:
+        pass
+    # Also print to stdout with explicit flush (so IDE terminals show it)
+    try:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+    except (OSError, AttributeError):
+        pass
+    print(f"  (also written to {out_file})", flush=True)
+
+
+# ===================================================================
+# Stop paper trader (by group)
+# ===================================================================
+def stop_paper_trader_main() -> None:
+    """Stop the running paper trader for a given group by PID file (e.g. so you can restart with legacy flags)."""
+    parser = argparse.ArgumentParser(description="Stop the paper trader for a group (uses .pid file).")
+    parser.add_argument("--group", default="intraday", choices=list(SYMBOL_GROUPS.keys()),
+                        help="Account group to stop (default: intraday)")
+    args = parser.parse_args()
+    group = args.group
+    pid_path = os.path.join(
+        os.environ.get("TEMP", os.path.dirname(os.path.abspath(__file__))),
+        f".paper_trader_{group}.pid",
+    )
+    lock_path = os.path.join(
+        os.environ.get("TEMP", os.path.dirname(os.path.abspath(__file__))),
+        f".paper_trader_{group}.lock",
+    )
+    if not os.path.isfile(pid_path):
+        print(f"\n  No .pid file for group '{group}' (paper trader was started before PID file was added).")
+        print(f"  Path checked: {pid_path}")
+        if os.path.isfile(lock_path):
+            print("  The intraday paper trader is still running (lock file present).")
+            print("  To stop it:")
+            print("    1. Press Ctrl+Shift+Esc to open Task Manager.")
+            print("    2. Open the Details tab.")
+            print("    3. Find python.exe (there may be several).")
+            print("    4. Right-click each python.exe -> End task until the trader stops.")
+            print("    5. Run this command again; next time you start the trader, stop will work via .pid file.")
+        else:
+            print("  No lock file either — paper trader for this group is not running.")
+        print()
+        return
+    try:
+        with open(pid_path) as f:
+            pid = int(f.read().strip())
+    except (ValueError, OSError) as e:
+        print(f"\n  Could not read PID from {pid_path}: {e}\n")
+        return
+    print(f"\n  Stopping paper trader (group={group}, PID={pid})...")
+    try:
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"], check=True, timeout=10)
+        print("  Stopped.")
+    except subprocess.CalledProcessError:
+        print("  Process already exited or access denied (try running as Administrator).")
+    except FileNotFoundError:
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"], check=False, shell=True, timeout=10)
+    try:
+        os.remove(pid_path)
+    except OSError:
+        pass
+    print()
+
+
+# ===================================================================
+# Check positions and recommend handling (wrong-algorithm / legacy)
+# ===================================================================
+def check_positions_main() -> None:
+    """Check paper account positions and recommend handling for existing (possibly wrong-algorithm) positions.
+    Use --execute to run the paper trader with recommended legacy flags.
+    """
+    parser = argparse.ArgumentParser(
+        description="Check paper account positions and recommend handling for wrong-algorithm positions.",
+    )
+    parser.add_argument("--group", default="intraday", choices=list(SYMBOL_GROUPS.keys()),
+                        help="Account group to check (default: intraday)")
+    parser.add_argument("--execute", action="store_true",
+                        help="Run the paper trader with recommended legacy flags to manage existing positions")
+    args = parser.parse_args()
+    group = args.group
+
+    # Resolve credentials (same as trade command)
+    if group and group != "all":
+        env_prefix = f"ALPACA_{group.upper()}_"
+        api_key = os.environ.get(f"{env_prefix}KEY", os.environ.get("ALPACA_API_KEY", ""))
+        api_secret = os.environ.get(f"{env_prefix}SECRET", os.environ.get("ALPACA_API_SECRET", ""))
+    else:
+        api_key = os.environ.get("ALPACA_API_KEY", "")
+        api_secret = os.environ.get("ALPACA_API_SECRET", "")
+
+    if not api_key or not api_secret:
+        print(f"\n  ERROR: Set ALPACA_API_KEY and ALPACA_API_SECRET (or ALPACA_{group.upper()}_KEY/SECRET).\n")
+        sys.exit(1)
+
+    # Fetch positions
+    client = TradingClient(api_key=api_key, secret_key=api_secret, paper=True)
+    try:
+        positions = client.get_all_positions()
+    except Exception as e:
+        print(f"\n  ERROR: Failed to fetch positions: {e}\n")
+        sys.exit(1)
+
+    # Build summary
+    pos_list = []
+    for p in positions:
+        qty = float(p.qty)
+        if qty == 0:
+            continue
+        side = "SHORT" if qty < 0 else "LONG"
+        pos_list.append({
+            "symbol": p.symbol,
+            "side": side,
+            "qty": abs(int(qty)),
+            "entry": float(p.avg_entry_price),
+            "current": float(p.current_price),
+            "unrealized_plpc": float(p.unrealized_plpc),
+        })
+    symbols_with_positions = {p["symbol"] for p in pos_list}
+    group_symbols = set(SYMBOL_GROUPS.get(group, []))
+    # Recommend legacy only for symbols this group's equity trader actually trades (exclude options/other)
+    recommended_symbols = symbols_with_positions & group_symbols
+
+    # Algorithm check summary (no code bug found; "wrong" = previous model version)
+    print("\n  === Algorithm check ===")
+    print("  Current logic: LSTM direction + meta gate, ATR/ADX stops, trailing TP, DI filter.")
+    print("  Mode matches group (intraday -> 5min LSTM; daily -> daily LSTM).")
+    print("  No known code bugs. 'Wrong algorithm' = positions opened by an older/wrong model.")
+    print()
+
+    print(f"  === Positions ({group} account) ===")
+    if not pos_list:
+        print("  No open positions.")
+        print("\n  No legacy handling needed. Run: python main.py trade --group", group)
+        if group == "intraday":
+            print("  With mode: python main.py trade --group intraday --mode intraday --interval 5min")
+        print()
+        return
+
+    for p in pos_list:
+        plpct = p["unrealized_plpc"] * 100
+        print(f"  {p['symbol']:5}  {p['side']:5}  {p['qty']:6} sh  entry ${p['entry']:.2f}  now ${p['current']:.2f}  P&L {plpct:+.2f}%")
+    print()
+
+    # Recommend: treat existing positions as potentially wrong-algorithm -> stricter exits + no new entries
+    # Only for symbols this group trades (equity); options/other are managed via exit-only in the loop
+    recommended = ",".join(sorted(recommended_symbols)) if recommended_symbols else ""
+    print("  === Recommendation ===")
+    if not recommended:
+        print("  Open positions include options or symbols not in this group's list; they will be")
+        print("  managed exit-only (no new entries) when you run the paper trader. No legacy flags needed.")
+        print("\n  Run: python main.py trade --group", group, "--mode intraday --interval 5min" if group == "intraday" else "")
+        print()
+        return
+    print("  To manage existing equity positions with stricter exits (3% trail, 2% TP) and no new entries")
+    print("  until flat, run the paper trader with legacy flags. Then remove flags when flat to allow")
+    print("  new entries from the current model.")
+    print()
+    cmd_parts = [
+        sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "main.py"),
+        "trade", "--group", group,
+        "--legacy-stricter-exit", recommended,
+        "--legacy-no-new-entries", recommended,
+    ]
+    if group == "intraday":
+        cmd_parts.extend(["--mode", "intraday", "--interval", "5min"])
+    cmd_str = " ".join(cmd_parts)
+    print("  Command:")
+    print(f"    {cmd_str}")
+    print()
+
+    if args.execute:
+        print("  Executing (starting paper trader with legacy flags)...\n")
+        try:
+            subprocess.run(cmd_parts, check=False)
+        except KeyboardInterrupt:
+            print("\n  Interrupted.\n")
+        except Exception as e:
+            print(f"\n  ERROR: {e}\n")
+            sys.exit(1)
+    else:
+        print("  To run this now, add: --execute")
+        print()
+
+
+# ===================================================================
 # CLI
 # ===================================================================
 def main() -> None:
+    if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     if not _acquire_single_instance_lock():
         msg = "Another paper trader instance is already running. Exiting duplicate process."
         log.warning(msg)
@@ -1089,6 +1550,10 @@ def main() -> None:
                         help="Disable correlated position sizing (1/sqrt(N) when multiple same-direction positions)")
     parser.add_argument("--loss-cooldown-hours", type=float, default=4.0,
                         help="Hours to block re-entry after max_loss or regime_exit (default: 4.0; 0=off)")
+    parser.add_argument("--legacy-stricter-exit", type=str, default="",
+                        help="Comma-separated symbols to use stricter exits (3%% trail, 2%% TP) for wrong-algorithm positions (e.g. IGV,QQQ)")
+    parser.add_argument("--legacy-no-new-entries", type=str, default="",
+                        help="Comma-separated symbols to manage out only, no new entries until flat (e.g. IGV,QQQ)")
 
     args = parser.parse_args()
 
@@ -1109,6 +1574,9 @@ def main() -> None:
         print("  Get free keys at https://app.alpaca.markets/signup\n")
         sys.exit(1)
 
+    # Warn if any symbol is in more than one group (wrong model placement)
+    _warn_duplicate_symbols()
+
     # Resolve symbols: --symbols > --group > full DEFAULT_UNIVERSE
     if args.symbols:
         symbols = [s.strip().upper() for s in args.symbols.split(",")]
@@ -1121,6 +1589,19 @@ def main() -> None:
     check_interval = args.check_interval
     if check_interval is None:
         check_interval = 1 if args.mode == "intraday" else 5
+
+    # Legacy / wrong-algorithm positions (e.g. IGV, QQQ opened by previous buggy model)
+    def _parse_legacy_set(raw: str, env_key: str, default: Set[str]) -> Set[str]:
+        s = (raw or os.environ.get(env_key, "") or "").strip()
+        if not s:
+            return default
+        return {x.strip().upper() for x in s.split(",") if x.strip()}
+    legacy_stricter = _parse_legacy_set(
+        args.legacy_stricter_exit, "PAPER_LEGACY_STRICTER_EXIT", LEGACY_STRICTER_EXIT_DEFAULT)
+    legacy_no_new = _parse_legacy_set(
+        args.legacy_no_new_entries, "PAPER_LEGACY_NO_NEW_ENTRIES", LEGACY_NO_NEW_ENTRIES_DEFAULT)
+    if legacy_stricter or legacy_no_new:
+        log.info("Legacy handling: stricter exits=%s, no new entries=%s", legacy_stricter, legacy_no_new)
 
     trader = AlpacaPaperTrader(
         api_key=api_key,
@@ -1153,6 +1634,8 @@ def main() -> None:
         use_time_filter=not args.no_time_filter,
         use_corr_sizing=not args.no_corr_sizing,
         loss_cooldown_hours=args.loss_cooldown_hours if args.mode != "intraday" else min(args.loss_cooldown_hours, 0.5),
+        legacy_stricter_exit=legacy_stricter,
+        legacy_no_new_entries=legacy_no_new,
     )
 
     # Show account before starting
