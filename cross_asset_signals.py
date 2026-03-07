@@ -48,7 +48,7 @@ log = logging.getLogger("cross_asset")
 CROSS_ASSET_MAP: Dict[str, List[str]] = {
     "GLD":  ["real_yield_spread", "gold_silver_ratio", "treasury_slope"],
     "SLV":  ["real_yield_spread", "gold_silver_ratio", "treasury_slope"],
-    "USO":  ["usd_strength_ret5", "usd_strength_ret20", "treasury_slope"],
+    "USO":  ["treasury_slope"],
     "XLE":  ["crude_ret5", "crude_ret20", "treasury_slope"],
     "EWJ":  ["usdjpy_ret5", "usdjpy_ret20", "treasury_slope"],
     "EWT":  ["usd_strength_ret5", "usd_strength_ret20", "treasury_slope"],
