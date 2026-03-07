@@ -29,6 +29,7 @@ import numpy as np
 import torch
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(PROJECT_ROOT, "src"))
 sys.path.insert(0, PROJECT_ROOT)
 
 from ml_model import (

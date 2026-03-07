@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Retrain all models — LSTM (v2 regression), LightGBM intraday, TFT+XGBoost swing,
-XGBoost expansion.
+Retrain all models — LSTM (v2 regression), LightGBM intraday, TFT+XGBoost swing.
 
 Meta RF is DEPRECATED in v2 (regression output magnitude IS the confidence).
 Use --step meta to force-train it if needed for backward compatibility.
@@ -10,7 +9,7 @@ Usage:
     python scripts/retrain_all.py                     # everything except meta RF
     python scripts/retrain_all.py --step lstm          # LSTM only
     python scripts/retrain_all.py --step meta          # meta RF only (DEPRECATED)
-    python scripts/retrain_all.py --step new           # intraday + swing + expansion only
+    python scripts/retrain_all.py --step new           # intraday + swing only
     python scripts/retrain_all.py --step all           # everything including deprecated meta RF
     python scripts/retrain_all.py --mode daily         # daily symbols only (LSTM)
     python scripts/retrain_all.py --mode intraday      # intraday symbols only (LSTM)
@@ -25,6 +24,7 @@ import sys
 import time
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(PROJECT_ROOT, "src"))
 sys.path.insert(0, PROJECT_ROOT)
 
 from ml_model import train_model, train_meta_model, DEFAULT_MODEL_DIR
@@ -44,7 +44,6 @@ DAILY_SYMBOLS = [
 
 INTRADAY_SYMBOLS = ["SPY", "QQQ", "IWM", "SOXX"]
 SWING_SYMBOLS = ["EWT", "GLD", "EEM", "SLV"]
-EXPANSION_SYMBOLS = ["EWJ", "EWS", "XLE", "INDA"]
 EPOCHS = 60
 LOOKBACK = 1000
 
@@ -172,38 +171,13 @@ def train_all_swing() -> None:
     print(f"{'='*65}\n")
 
 
-# ---------------------------------------------------------------------------
-# XGBoost expansion (via main.py train-expansion)
-# ---------------------------------------------------------------------------
-def train_all_expansion() -> None:
-    print(f"\n{'='*65}")
-    print(f"  XGBoost Expansion Training ({len(EXPANSION_SYMBOLS)} symbols)")
-    print(f"{'='*65}\n")
-
-    t0 = time.time()
-    cmd = [
-        PYTHON, os.path.join(PROJECT_ROOT, "main.py"),
-        "train-expansion",
-        "--symbols", ",".join(EXPANSION_SYMBOLS),
-        "--provider", "yahoo",
-    ]
-    print(f"  Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=PROJECT_ROOT)
-    elapsed = time.time() - t0
-
-    status = "OK" if result.returncode == 0 else "FAIL"
-    print(f"\n  [{status}] XGBoost expansion — {elapsed:.0f}s")
-    print(f"{'='*65}\n")
-
-
-
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Retrain all models (LSTM v2 regression, intraday, swing, expansion).",
+        description="Retrain all models (LSTM v2 regression, intraday, swing).",
     )
     parser.add_argument(
         "--step",
@@ -211,7 +185,7 @@ def main() -> None:
         default="all",
         help=(
             "lstm=LSTM only, meta=meta RF only (DEPRECATED), both=lstm+meta, "
-            "new=intraday+swing+expansion, all=everything (default; skips meta RF)"
+            "new=intraday+swing, all=everything (default; skips meta RF)"
         ),
     )
     parser.add_argument("--mode", choices=["daily", "intraday", "both"], default="both",
@@ -243,13 +217,9 @@ def main() -> None:
     if args.step in ("new", "all"):
         train_all_intraday()
 
-    # Step 4: PatchTST swing
+    # Step 4: TFT+XGBoost swing
     if args.step in ("new", "all"):
         train_all_swing()
-
-    # Step 5: XGBoost expansion
-    if args.step in ("new", "all"):
-        train_all_expansion()
 
     total = time.time() - t_start
     print(f"\n{'='*65}")

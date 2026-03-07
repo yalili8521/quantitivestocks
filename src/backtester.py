@@ -383,27 +383,6 @@ class Backtester:
             log.info("Loaded XGBoost swing for %s (%d features).",
                      self.symbol, len(get_swing_feature_cols(self.symbol)))
 
-        elif self.model_type == "expansion":
-            from expansion_model import ExpansionFeatureEngine, get_expansion_feature_cols
-            engine = ExpansionFeatureEngine()
-            scaler_path = os.path.join(self.model_dir, f"{self.symbol}_xgb_expansion_scaler.json")
-            if not os.path.exists(scaler_path):
-                log.error("No expansion XGBoost scaler for %s. Train first: "
-                          "python main.py train-expansion --symbols %s", self.symbol, self.symbol)
-                sys.exit(1)
-            engine.load_scaler(scaler_path)
-            # Fetch SPY for relative momentum
-            spy_bars = self.adapter.fetch_daily("SPY", lookback) if self.mode == "daily" else None
-            features = engine.build_features(bars, vix_df, spy_bars=spy_bars, symbol=self.symbol)
-            features_norm = engine.transform(features)
-            log.info("Built %d expansion feature rows (XGBoost).", len(features_norm))
-
-            model_path = os.path.join(self.model_dir, f"{self.symbol}_xgb_expansion.joblib")
-            xgb_model = joblib.load(model_path)
-            effective_seq_len = 1  # XGBoost uses point-in-time, no sequence
-            exp_feature_cols = get_expansion_feature_cols(self.symbol)
-            log.info("Loaded XGBoost for %s (%d features).", self.symbol, len(exp_feature_cols))
-
         else:  # "lstm" (default)
             engine = FeatureEngine()
             suffix = "" if self.mode == "daily" else f"_{self.intraday_interval}"

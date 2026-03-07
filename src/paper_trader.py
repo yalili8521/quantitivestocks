@@ -404,13 +404,6 @@ class AlpacaPaperTrader:
                 return SwingPredictor(symbol, model_dir=model_dir)
             except (FileNotFoundError, ImportError) as exc:
                 log.info("No swing PatchTST for %s, falling back to LSTM: %s", symbol, exc)
-        elif group == "expansion":
-            try:
-                from expansion_model import ExpansionPredictor
-                return ExpansionPredictor(symbol, model_dir=model_dir)
-            except (FileNotFoundError, ImportError) as exc:
-                log.info("No expansion XGBoost for %s, falling back to LSTM: %s", symbol, exc)
-
         # Fallback: original LSTM predictor
         try:
             return Predictor(symbol, model_dir=model_dir,

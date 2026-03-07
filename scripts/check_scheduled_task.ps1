@@ -1,22 +1,19 @@
-# Check if the paper trader (and options trader) scheduled tasks are registered and when they run next.
-# Run this to verify automation will fire without you logging in.
+# Check if the paper trader scheduled task is registered and when it runs next.
+# Run this to verify automation will fire on weekdays.
 
-$PaperTask = "QuantitativeStocks-PaperTrader-Weekdays"
-$OptionsTask = "QuantitativeStocks-OptionsTrader-Weekdays"
+$TaskName = "QuantStocks-PaperTrader"
 
 Write-Host ""
 Write-Host "  Scheduled task status" -ForegroundColor Cyan
 Write-Host "  --------------------" -ForegroundColor Gray
 Write-Host ""
 
-foreach ($TaskName in @($PaperTask, $OptionsTask)) {
-    $t = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-    if (-not $t) {
-        Write-Host "  $TaskName : NOT REGISTERED" -ForegroundColor Red
-        Write-Host "    -> Program will NOT run automatically. Run scripts\setup_paper_task.ps1 (or setup_both_tasks.ps1) once to register." -ForegroundColor Yellow
-        Write-Host ""
-        continue
-    }
+$t = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+if (-not $t) {
+    Write-Host "  $TaskName : NOT REGISTERED" -ForegroundColor Red
+    Write-Host "    -> Run outputs\register_task.ps1 once (as admin) to register." -ForegroundColor Yellow
+    Write-Host ""
+} else {
     $info = Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction SilentlyContinue
     $state = $t.State
     $next  = $info.NextRunTime
@@ -34,10 +31,8 @@ foreach ($TaskName in @($PaperTask, $OptionsTask)) {
     Write-Host ""
 }
 
-Write-Host "  Requirements for auto-run without login:" -ForegroundColor Cyan
+Write-Host "  Requirements for auto-run:" -ForegroundColor Cyan
 Write-Host "    1. Task must be registered (see above) and State = Ready." -ForegroundColor Gray
-Write-Host "    2. PC must be ON at the scheduled time (9:25 AM paper / 6:25 AM options)." -ForegroundColor Gray
-Write-Host "    3. If task runs as your user + password: runs when you're logged OFF (PC on)." -ForegroundColor Gray
-Write-Host "    4. If task runs as SYSTEM: runs even with no user logged in." -ForegroundColor Gray
-Write-Host "    5. secrets\alpaca.env (or ALPACA_* env vars) must be available to the task." -ForegroundColor Gray
+Write-Host "    2. PC must be ON at 6:25 AM local time (Mon-Fri)." -ForegroundColor Gray
+Write-Host "    3. secrets\alpaca.env (or ALPACA_* env vars) must be present." -ForegroundColor Gray
 Write-Host ""

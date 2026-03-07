@@ -24,10 +24,12 @@ Environment variables:
 import os
 import sys
 
-# Ensure project root is on sys.path so `from src.xxx import ...` works
+# Ensure project root and src/ are on sys.path
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+SRC_DIR = os.path.join(PROJECT_ROOT, "src")
+for _p in (SRC_DIR, PROJECT_ROOT):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 
 def main() -> None:
@@ -51,7 +53,6 @@ def main() -> None:
     report           Generate HTML dashboard (outputs/report.html)
     train-intraday   Train LightGBM intraday momentum model (replaces LSTM for intraday group)
     train-swing      Train TFT+XGBoost swing model
-    train-expansion  Train XGBoost factor model (replaces LSTM for expansion group)
     training-tables Generate CSV/HTML tables of training & backtest metrics
     check-positions Check paper account positions; recommend and run legacy handling for existing positions
     stop-paper-trader Stop the running paper trader for a group (e.g. intraday) so you can restart with different flags
@@ -78,7 +79,6 @@ def main() -> None:
     python main.py training-tables      # outputs/training_results_*.csv and .html
     python main.py train-intraday       --symbols SPY,QQQ,IWM,SOXX --provider alpaca
     python main.py train-swing          --symbols EWT,GLD,EEM,SLV --provider yahoo
-    python main.py train-expansion      --symbols EWJ,EWS,XLE,INDA --provider yahoo
 
   Run `python main.py <command> --help` for command-specific options.
 """)
@@ -152,13 +152,9 @@ def main() -> None:
         from swing_model import main as swing_main
         swing_main()
 
-    elif command == "train-expansion":
-        from expansion_model import main as expansion_main
-        expansion_main()
-
     else:
         print(f"\n  Unknown command: {command!r}")
-        print("  Available commands: signals, train, train-meta, train-intraday, train-swing, train-expansion, predict, backtest, range-backtest, trade, range-trade, report, training-tables, check-positions, stop-paper-trader, lock-status")
+        print("  Available commands: signals, train, train-meta, train-intraday, train-swing, predict, backtest, range-backtest, trade, range-trade, report, training-tables, check-positions, stop-paper-trader, lock-status")
         print("  Run `python main.py --help` for usage.\n")
         sys.exit(1)
 
