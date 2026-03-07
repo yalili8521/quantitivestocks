@@ -80,7 +80,7 @@ SYMBOL_GROUPS: Dict[str, List[str]] = {
     "intraday":  ["SPY", "QQQ", "IWM", "SOXX"],
     # Account 2 — Swing (daily LSTM, broader macro ETFs)
     # TLT dropped: 42.9% win rate, Sharpe 0.300 across all feature sets (bonds need rate signals)
-    "swing":     ["EWT", "GLD", "EEM", "SLV"],
+    "swing":     ["EWT", "GLD", "EEM", "SLV", "USO"],
     # Account 3 — Expansion (daily LSTM, international/sector)
     # IGV dropped: <50% win rate on both 12-feat and 17-feat (sector ETF, earnings-driven)
     # FXI dropped: <50% win rate on both (China policy-driven, not technical)
