@@ -2,7 +2,7 @@
 """
 Quantitative Stocks — Unified CLI
 ====================================
-Single entry point for all modules: signals, train, predict, backtest, trade, trade-options.
+Single entry point for all modules: signals, train, predict, backtest, trade.
 
 Usage:
     python main.py signals          --provider yahoo --ml
@@ -10,9 +10,6 @@ Usage:
     python main.py predict          --symbol SPY
     python main.py backtest         --symbol SPY --start 2024-01-01
     python main.py trade            --interval 5 --confidence 0.2
-    python main.py train-vol        --symbol SPY --epochs 50
-    python main.py backtest-options --symbol SPY --start 2024-01-01
-    python main.py trade-options    --confidence 0.2 --strategy directional
     python main.py range-backtest   --symbols SPY,QQQ --start 2024-01-01
     python main.py range-trade      --symbols SPY,QQQ --provider alpaca --group range
     python main.py report                             # generate outputs/report.html
@@ -46,19 +43,15 @@ def main() -> None:
     signals          Run the ETF sentiment signal engine
     train            Train LSTM model for a symbol
     train-meta       Train Random Forest meta-model (requires trained primary LSTM)
-    train-vol        Train Vol Expansion LSTM for options timing
     predict          Run ML prediction for a symbol
     backtest         Walk-forward backtest with ML predictions
-    backtest-options Backtest options strategies (directional/straddle/both)
     range-backtest   Walk-forward backtest for intraday mean reversion range strategy
     trade            Start Alpaca paper trading loop (stocks)
-    trade-options    Start options trader (directional ITM or straddle)
     range-trade      Start intraday mean reversion range paper trader (dedicated account)
     report           Generate HTML dashboard (outputs/report.html)
     train-intraday   Train LightGBM intraday momentum model (replaces LSTM for intraday group)
-    train-swing      Train PatchTST swing model (replaces LSTM for swing group)
+    train-swing      Train TFT+XGBoost swing model
     train-expansion  Train XGBoost factor model (replaces LSTM for expansion group)
-    train-pairs      Train XGBoost cointegration pairs model (mean-reversion fallback)
     training-tables Generate CSV/HTML tables of training & backtest metrics
     check-positions Check paper account positions; recommend and run legacy handling for existing positions
     stop-paper-trader Stop the running paper trader for a group (e.g. intraday) so you can restart with different flags
@@ -70,13 +63,9 @@ def main() -> None:
     python main.py train                --symbol SPY --mode intraday --interval 5min
     python main.py train-meta           --symbol SPY
     python main.py train-meta           --symbol ALL
-    python main.py train-vol            --symbol SPY --epochs 50
-    python main.py train-vol            --symbol SPY --with-meta
     python main.py predict              --symbol SPY
     python main.py backtest             --symbol SPY --start 2024-01-01
     python main.py backtest             --symbol SPY --start 2025-01-01 --mode intraday
-    python main.py backtest-options     --symbol SPY --start 2024-01-01 --strategy directional
-    python main.py backtest-options     --symbol QQQ --start 2024-01-01
     python main.py range-backtest       --symbols SPY,QQQ,IWM,SOXX,EWT,GLD,EEM,SLV,EWJ,EWS,XLE,INDA --start 2024-01-01
     python main.py range-backtest       --symbols SPY --start 2025-01-01 --provider alpaca
     python main.py range-trade          --symbols SPY,QQQ,IWM,SOXX,EWT,GLD,EEM,SLV,EWJ,EWS,XLE,INDA --provider alpaca --group range
@@ -84,16 +73,12 @@ def main() -> None:
     python main.py trade                --group equities
     python main.py trade                --group commodities
     python main.py trade                --mode intraday --interval 5min
-    python main.py trade-options        --strategy directional --symbols SPY,QQQ
-    python main.py trade-options        --strategy straddle --symbols SPY,QQQ
-    python main.py trade-options        --strategy both
     python main.py report
     python main.py report               --open
     python main.py training-tables      # outputs/training_results_*.csv and .html
     python main.py train-intraday       --symbols SPY,QQQ,IWM,SOXX --provider alpaca
     python main.py train-swing          --symbols EWT,GLD,EEM,SLV --provider yahoo
     python main.py train-expansion      --symbols EWJ,EWS,XLE,INDA --provider yahoo
-    python main.py train-pairs          --symbols SPY,QQQ,GLD,SLV --provider yahoo
 
   Run `python main.py <command> --help` for command-specific options.
 """)
@@ -143,18 +128,6 @@ def main() -> None:
         from paper_trader import lock_status_main
         lock_status_main()
 
-    elif command == "train-vol":
-        from options_ml import main as vol_main
-        vol_main()
-
-    elif command == "backtest-options":
-        from options_backtester import main as opts_bt_main
-        opts_bt_main()
-
-    elif command == "trade-options":
-        from options_trader import main as options_main
-        options_main()
-
     elif command == "report":
         from reports import main as report_main
         report_main()
@@ -183,13 +156,9 @@ def main() -> None:
         from expansion_model import main as expansion_main
         expansion_main()
 
-    elif command == "train-pairs":
-        from pairs_model import main as pairs_main
-        pairs_main()
-
     else:
         print(f"\n  Unknown command: {command!r}")
-        print("  Available commands: signals, train, train-meta, train-vol, train-intraday, train-swing, train-expansion, train-pairs, predict, backtest, backtest-options, range-backtest, trade, trade-options, range-trade, report, training-tables, check-positions, stop-paper-trader, lock-status")
+        print("  Available commands: signals, train, train-meta, train-intraday, train-swing, train-expansion, predict, backtest, range-backtest, trade, range-trade, report, training-tables, check-positions, stop-paper-trader, lock-status")
         print("  Run `python main.py --help` for usage.\n")
         sys.exit(1)
 

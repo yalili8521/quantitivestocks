@@ -50,7 +50,7 @@ from signals_engine import (
 )
 from ml_model import _fetch_vix_for_training, DEFAULT_MODEL_DIR
 from cross_asset_signals import CrossAssetFeatureBuilder, get_cross_asset_features
-from options_flow import OptionsFlowEngine, OPTIONS_FLOW_FEATURES
+OPTIONS_FLOW_FEATURES = ["pc_volume_ratio", "pc_oi_ratio", "vix_term_ratio", "vix_term_inverted"]
 from alpha_signals import AlphaFeatureBuilder, get_alpha_features
 from factor_signals import FactorFeatureBuilder, get_factor_features
 from market_signals import MarketSignalBuilder, get_market_features
@@ -184,7 +184,7 @@ class SwingFeatureEngine:
     def __init__(self):
         self._scaler_params: Optional[dict] = None
         self._cross_builder: Optional[CrossAssetFeatureBuilder] = None
-        self._options_engine: Optional[OptionsFlowEngine] = None
+        self._options_engine = None
         self._alpha_builder: Optional[AlphaFeatureBuilder] = None
         self._factor_builder: Optional[FactorFeatureBuilder] = None
         self._market_builder: Optional[MarketSignalBuilder] = None
@@ -300,34 +300,10 @@ class SwingFeatureEngine:
                     if col not in df.columns:
                         df[col] = np.nan
 
-        # --- Options flow features ---
-        try:
-            if self._options_engine is None:
-                self._options_engine = OptionsFlowEngine()
-            vts_df = self._options_engine.get_historical_vix_term_structure(
-                lookback_days=len(bars_df))
-            if not vts_df.empty:
-                bar_dates_dt = pd.to_datetime(bars_df["ts"]).dt.date
-                vts_map_ratio = dict(zip(vts_df["date"].values, vts_df["vix_term_ratio"].values))
-                vts_map_inv   = dict(zip(vts_df["date"].values, vts_df["vix_term_inverted"].values))
-                df["vix_term_ratio"]   = bar_dates_dt.map(
-                    lambda d: vts_map_ratio.get(d, np.nan)).values
-                df["vix_term_ratio"]   = pd.Series(
-                    df["vix_term_ratio"].values, index=df.index).ffill()
-                df["vix_term_inverted"] = bar_dates_dt.map(
-                    lambda d: vts_map_inv.get(d, np.nan)).values
-                df["vix_term_inverted"] = pd.Series(
-                    df["vix_term_inverted"].values, index=df.index).ffill().fillna(0)
-            else:
-                df["vix_term_ratio"]   = np.nan
-                df["vix_term_inverted"] = 0.0
-            df["pc_volume_ratio"] = np.nan
-            df["pc_oi_ratio"]     = np.nan
-        except Exception as exc:
-            log.warning("Options flow features failed: %s", exc)
-            for col in OPTIONS_FLOW_FEATURES:
-                if col not in df.columns:
-                    df[col] = np.nan
+        # --- Options flow features (stubbed — options_flow module removed) ---
+        for col in OPTIONS_FLOW_FEATURES:
+            if col not in df.columns:
+                df[col] = np.nan
 
         # --- Alpha features ---
         if symbol:

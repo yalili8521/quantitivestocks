@@ -43,7 +43,7 @@ import pandas as pd
 
 from signals_engine import PROJECT_ROOT, build_adapter
 from ml_model import _fetch_vix_for_training, DEFAULT_MODEL_DIR
-from options_flow import OptionsFlowEngine, OPTIONS_FLOW_FEATURES
+OPTIONS_FLOW_FEATURES = ["pc_volume_ratio", "pc_oi_ratio", "vix_term_ratio", "vix_term_inverted"]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -131,7 +131,7 @@ class IntradayFeatureEngine:
     """Build per-day feature vectors from 5-min intraday bars."""
 
     def __init__(self):
-        self._options_engine: Optional[OptionsFlowEngine] = None
+        self._options_engine = None
         self._vts_cache: Optional[pd.DataFrame] = None
 
     def build_training_data(
@@ -157,15 +157,7 @@ class IntradayFeatureEngine:
         # Build VIX lookup
         vix_map = self._build_vix_map(vix_df)
 
-        # Fetch historical VIX term structure for options flow features
-        try:
-            if self._options_engine is None:
-                self._options_engine = OptionsFlowEngine()
-            self._vts_cache = self._options_engine.get_historical_vix_term_structure(
-                lookback_days=500)
-        except Exception as exc:
-            log.warning("VIX term structure fetch failed for training: %s", exc)
-            self._vts_cache = None
+        self._vts_cache = None  # options_flow module removed; features default to NaN
 
         # Group by trading day
         dates = sorted(bars["et_date"].unique())
@@ -262,16 +254,6 @@ class IntradayFeatureEngine:
             today_bars, first_30m, first_30m_ret, first_open,
             dates, i, bars, vix_map, today,
         )
-
-        # Override options flow features with live data
-        try:
-            if self._options_engine is None:
-                self._options_engine = OptionsFlowEngine()
-            live_flow = self._options_engine.get_model_features()
-            for k, v in live_flow.items():
-                features[k] = v if v == v else 0.0  # NaN → 0
-        except Exception as exc:
-            log.debug("Live options flow fetch failed: %s", exc)
 
         features["first_30m_ret_direction"] = first_30m_ret
         return features

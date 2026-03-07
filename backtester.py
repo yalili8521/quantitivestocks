@@ -404,38 +404,6 @@ class Backtester:
             exp_feature_cols = get_expansion_feature_cols(self.symbol)
             log.info("Loaded XGBoost for %s (%d features).", self.symbol, len(exp_feature_cols))
 
-        elif self.model_type == "pairs":
-            from pairs_model import PairsFeatureEngine, PAIRS_FEATURES, PAIRS_MAP
-            if self.symbol not in PAIRS_MAP:
-                log.error("No pairs mapping for %s. Available: %s",
-                          self.symbol, ", ".join(PAIRS_MAP.keys()))
-                sys.exit(1)
-            engine = PairsFeatureEngine()
-            pair_sym = PAIRS_MAP[self.symbol]
-            pair_bars = self.adapter.fetch_daily(pair_sym, lookback)
-            features = engine.build_features(bars, pair_bars, self.symbol, pair_sym)
-            log.info("Built %d pairs feature rows.", len(features))
-
-            scaler_path = os.path.join(self.model_dir, f"{self.symbol}_{pair_sym}_xgb_pairs_scaler.json")
-            if not os.path.exists(scaler_path):
-                # Try reverse pair order
-                scaler_path = os.path.join(self.model_dir, f"{pair_sym}_{self.symbol}_xgb_pairs_scaler.json")
-            if not os.path.exists(scaler_path):
-                log.error("No pairs scaler for %s. Train first: "
-                          "python main.py train-pairs --symbols %s,%s",
-                          self.symbol, self.symbol, pair_sym)
-                sys.exit(1)
-            engine.load_scaler(scaler_path)
-            features_norm = engine.transform(features)
-
-            model_path = os.path.join(self.model_dir, f"{self.symbol}_{pair_sym}_xgb_pairs.joblib")
-            if not os.path.exists(model_path):
-                model_path = os.path.join(self.model_dir, f"{pair_sym}_{self.symbol}_xgb_pairs.joblib")
-            xgb_model = joblib.load(model_path)
-            effective_seq_len = 1  # XGBoost point-in-time
-            log.info("Loaded pairs XGBoost for %s↔%s (%d features).",
-                     self.symbol, pair_sym, len(PAIRS_FEATURES))
-
         else:  # "lstm" (default)
             engine = FeatureEngine()
             suffix = "" if self.mode == "daily" else f"_{self.intraday_interval}"
@@ -1117,7 +1085,7 @@ def main() -> None:
     parser.add_argument("--interval", default="5min", choices=["1min", "5min"],
                         help="Intraday bar interval (default: 5min)")
     parser.add_argument("--model", default="lstm",
-                        choices=["lstm", "swing", "expansion", "pairs", "intraday"],
+                        choices=["lstm", "swing", "expansion", "intraday"],
                         help="Model type: lstm (default), swing (PatchTST), expansion (XGBoost), pairs (cointegration)")
     # v2 regression parameters
     parser.add_argument("--trend-sma", type=int, default=50,

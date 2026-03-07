@@ -61,8 +61,6 @@ from ml_model import (
     COST_THRESHOLD, TARGET_RETURN,
 )
 from alerts import AlertEngine
-from options_flow import OptionsFlowEngine
-from pairs_model import PairsPredictor, PAIRS_MAP
 
 logging.basicConfig(
     level=logging.INFO,
@@ -103,16 +101,9 @@ LEGACY_STRICTER_EXIT_DEFAULT: Set[str] = set()
 LEGACY_NO_NEW_ENTRIES_DEFAULT: Set[str] = set()
 LEGACY_TRAILING_STOP_PCT = 0.03   # 3% from peak for legacy positions
 
-# Option positions (OCC symbols): data-driven from equity backtest (78.9% WR, 2:1 payoff)
-OPTION_MAX_LOSS_PCT      = 0.35   # stop loss -35%
-OPTION_TP_TARGET_PCT     = 0.70   # profit target +70%
-OPTION_TRAILING_STOP_PCT = 0.20   # trail 20% from peak
-OPTION_TP_ACTIVATION     = 0.35   # activate trailing TP after +35%
-OPTION_TP_TRAIL          = 0.20   # trail 20% from peak once TP activated
-
-
 def _is_option_symbol(symbol: str) -> bool:
-    """True if symbol looks like OCC option (e.g. QQQ260327C00592000). Normalize to upper so we always use option exit rules even if Alpaca returns lowercase."""
+    """True if symbol looks like an OCC option (e.g. QQQ260327C00592000). Used to skip
+    option positions that may exist in the account but are not managed by this trader."""
     import re
     return bool(re.match(r"^[A-Z]+\d{6}[CP]\d{8}$", (symbol or "").upper()))
 
@@ -380,12 +371,7 @@ class AlpacaPaperTrader:
 
         # Alert engine for microstructure alerts
         self._alert_engine = AlertEngine()
-        self._options_flow_engine = OptionsFlowEngine()
-        self._options_flow_cache: Optional[Dict] = None
         self._consecutive_losses: int = 0
-
-        # Pairs fallback: lazy-loaded predictors for mean-reversion regime
-        self._pairs_predictors: Dict[str, Optional[PairsPredictor]] = {}
 
         self.predictors: Dict[str, Optional[Predictor]] = {}
         for sym in symbols:
@@ -701,7 +687,6 @@ class AlpacaPaperTrader:
             pnl_pct = pos["unrealized_pnl_pct"]
 
             use_legacy_stops = exit_only or (symbol in self._legacy_stricter_exit)
-            use_option_stops = _is_option_symbol(symbol)
 
             # Initialize peak from entry_price
             if symbol not in self._peak_prices:
@@ -737,47 +722,8 @@ class AlpacaPaperTrader:
                     return (f"EXIT  (EOD close {pnl_pct:+.2%}, {qty} sh {side})  "
                             f"ML: {direction} E[r]={expected_return:+.4f}")
 
-            # Option positions: fixed -35% max loss
-            if use_option_stops and pnl_pct <= -OPTION_MAX_LOSS_PCT:
-                if side == "LONG":
-                    self.sell(symbol, qty, reason=f"max_loss ({pnl_pct:+.2%})",
-                              limit_price=current_price)
-                else:
-                    self.buy_to_cover(symbol, qty, reason=f"max_loss ({pnl_pct:+.2%})",
-                                      limit_price=current_price)
-                self._record_closed_trade(pnl_pct)
-                self._clear_symbol_state(symbol)
-                return (f"EXIT  (option max loss {pnl_pct:+.2%} <= -{OPTION_MAX_LOSS_PCT:.0%}, "
-                        f"{qty} sh {side})  ML: {direction} E[r]={expected_return:+.4f}")
-
-            # Option: fixed +70% profit target
-            if use_option_stops and pnl_pct >= OPTION_TP_TARGET_PCT:
-                if side == "LONG":
-                    self.sell(symbol, qty, reason=f"profit_target ({pnl_pct:+.2%})",
-                              limit_price=current_price)
-                else:
-                    self.buy_to_cover(symbol, qty, reason=f"profit_target ({pnl_pct:+.2%})",
-                                      limit_price=current_price)
-                self._record_closed_trade(pnl_pct)
-                self._clear_symbol_state(symbol)
-                return (f"EXIT  (option profit target {pnl_pct:+.2%} >= +{OPTION_TP_TARGET_PCT:.0%}, "
-                        f"{qty} sh {side})  ML: {direction} E[r]={expected_return:+.4f}")
-
-            # Option: trailing stop (20% from peak)
-            if use_option_stops and drawdown_from_peak >= OPTION_TRAILING_STOP_PCT:
-                if side == "LONG":
-                    self.sell(symbol, qty, reason=f"option_trailing_stop ({drawdown_from_peak:.2%})",
-                              limit_price=current_price)
-                else:
-                    self.buy_to_cover(symbol, qty, reason=f"option_trailing_stop ({drawdown_from_peak:.2%})",
-                                      limit_price=current_price)
-                self._record_closed_trade(pnl_pct)
-                self._clear_symbol_state(symbol)
-                return (f"EXIT  (option trailing stop {drawdown_from_peak:.2%} from peak, "
-                        f"{qty} sh {side})  ML: {direction} E[r]={expected_return:+.4f}")
-
             # Legacy positions: trailing stop (3% from peak)
-            if use_legacy_stops and not use_option_stops:
+            if use_legacy_stops:
                 if drawdown_from_peak >= LEGACY_TRAILING_STOP_PCT:
                     if side == "LONG":
                         self.sell(symbol, qty, reason=f"legacy_trailing_stop ({drawdown_from_peak:.2%})",
@@ -791,7 +737,7 @@ class AlpacaPaperTrader:
                             f"{qty} sh {side})  ML: {direction} E[r]={expected_return:+.4f}")
 
             # --- v2: Disaster stop (safety net at N×ATR) ---
-            if not use_option_stops and not use_legacy_stops:
+            if not use_legacy_stops:
                 entry_atr = self._entry_atrs.get(symbol, bar_atr)
                 if entry_atr > 0 and entry_price > 0:
                     disaster_stop_pct = self.disaster_stop_atr_mult * entry_atr / entry_price
@@ -815,7 +761,7 @@ class AlpacaPaperTrader:
                             f"{qty} sh {side})  ML: {direction} E[r]={expected_return:+.4f}")
 
             # --- v2: Signal-decay exit (primary exit mechanism) ---
-            if not use_option_stops and not use_legacy_stops:
+            if not use_legacy_stops:
                 if side == "LONG" and expected_return <= 0:
                     self.sell(symbol, qty, reason="signal_decay", limit_price=current_price)
                     self._record_closed_trade(pnl_pct)
@@ -913,37 +859,6 @@ class AlpacaPaperTrader:
         self._peak_prices.pop(symbol, None)
         self._entry_atrs.pop(symbol, None)
 
-    # -- Pairs fallback ------------------------------------------------
-    def _get_pairs_prediction(self, symbol: str) -> Optional[dict]:
-        """Lazy-load PairsPredictor and get a pairs-model prediction.
-
-        Called when Hurst < 0.45 (mean-reverting regime) as a fallback
-        instead of skipping the symbol entirely.
-
-        Returns prediction dict or None if no pairs model available.
-        """
-        if symbol not in PAIRS_MAP:
-            return None
-
-        if symbol not in self._pairs_predictors:
-            try:
-                self._pairs_predictors[symbol] = PairsPredictor(symbol)
-            except (FileNotFoundError, ImportError) as exc:
-                log.info("No pairs model for %s: %s", symbol, exc)
-                self._pairs_predictors[symbol] = None
-
-        predictor = self._pairs_predictors[symbol]
-        if predictor is None:
-            return None
-
-        try:
-            bars = self.adapter.fetch_daily(symbol, 200)
-            vix_df = self._vix_cache if self._vix_cache is not None else self._get_vix_df()
-            return predictor.predict(bars, vix_df)
-        except Exception as exc:
-            log.warning("Pairs prediction failed for %s: %s", symbol, exc)
-            return None
-
     # -- Main loop -----------------------------------------------------
     def run_loop(self) -> None:
         """Main continuous trading loop."""
@@ -999,13 +914,6 @@ class AlpacaPaperTrader:
                 self._vix_cache = None   # force fresh fetch this cycle
                 self._get_vix_df()       # populates _vix_cache (or retains old on failure)
 
-                # Refresh options flow cache once per cycle (market-wide sentiment)
-                try:
-                    self._options_flow_cache = self._options_flow_engine.get_model_features()
-                except Exception as exc:
-                    log.debug("Options flow refresh failed: %s", exc)
-                    self._options_flow_cache = None
-
                 # Positions in this account for symbols not in this group (wrongly placed).
                 # Option positions (OCC symbols) are NOT managed here — options_trader.py owns
                 # their full lifecycle (entry + exit). So we only manage non-option, non-group symbols.
@@ -1054,8 +962,6 @@ class AlpacaPaperTrader:
                         ctx = self._get_market_context(sym)
                         ctx["symbol"] = sym
                         self._alert_engine.check(market_context=ctx)
-                    if self._options_flow_cache:
-                        self._alert_engine.check(options_flow=self._options_flow_cache)
                     initial_capital = 100_000.0
                     drawdown_pct = ((account["equity"] - initial_capital) / initial_capital) * 100
                     self._alert_engine.check(portfolio_state={
