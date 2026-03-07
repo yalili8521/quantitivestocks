@@ -85,10 +85,10 @@ SYMBOL_GROUPS: Dict[str, List[str]] = {
     "intraday":  ["SMH", "IWM", "IGV", "QQQ", "EWT", "SOXX"],
     # Account 2 — Swing XGBoost (daily regression, selective signal-decay exits)
     # Selection rule: swing backtest 2024-2026 total return > 60%
-    # GDX +188%, SLV +118%, IGV +100%, QQQ +91%, GLD +88%, SMH +88%,
-    # XLK +73%, MCHI +68%, IBIT +64%
+    # GDX +188%, SLV +118%, IGV +100%, QQQ +91%, GLD +88%, SMH +88%, XLK +73%, IBIT +64%
+    # Dropped: MCHI (OOS 2022-2023: -7.2%, TFT discarded at 41.5% dir_acc)
     # Note: GDX/SLV/IGV/QQQ/SMH/XLK shared with intraday (separate account, separate model)
-    "swing":     ["GDX", "SLV", "IGV", "QQQ", "GLD", "SMH", "XLK", "MCHI", "IBIT"],
+    "swing":     ["GDX", "SLV", "IGV", "QQQ", "GLD", "SMH", "XLK", "IBIT"],
     # Account 3 — Expansion: retired. Expansion XGBoost factor model (EWJ/EWS/XLE/INDA)
     # produced <60% returns on its own feature set. Those symbols now use intraday LightGBM
     # (EWT +137%, XLE +136%, EEM +63%) or are dropped (EWJ 44%, EWS 41%, INDA 24%).
