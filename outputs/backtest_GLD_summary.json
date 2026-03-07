@@ -1,0 +1,19 @@
+{
+  "symbol": "GLD",
+  "mode": "daily",
+  "intraday_interval": "5min",
+  "start_date": "2024-01-02",
+  "end_date": "2026-03-06",
+  "initial_capital": 100000.0,
+  "final_equity": 166452.98,
+  "total_return_pct": 66.45,
+  "annualized_return_pct": 26.51,
+  "sharpe_ratio": 1.962,
+  "max_drawdown_pct": -6.83,
+  "total_trades": 22,
+  "win_rate": 0.591,
+  "avg_win_pct": 8.83,
+  "avg_loss_pct": -2.47,
+  "profit_factor": 17.174,
+  "avg_trade_duration_days": 27.7
+}

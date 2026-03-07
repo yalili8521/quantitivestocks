@@ -917,7 +917,17 @@ class StraddleTrader:
             except Exception as exc:
                 log.warning("VolPredictor failed for %s: %s", symbol, exc)
 
-        if vix_change_pct >= effective_threshold and vol_expanding:
+        # VIX spike bypass: if VIX jumps ≥20% intraday AND options are not expensive (IVR<50),
+        # allow straddle entry even if the vol LSTM hasn't triggered — the spike IS the vol signal.
+        strong_vix_spike = vix_change_pct >= 20.0 and iv_rank < 50.0
+        if strong_vix_spike and not vol_expanding:
+            log.info(
+                "Straddle vol_prob bypass for %s: VIX spike %.1f%% >= 20%% AND IVR=%d < 50 "
+                "— entering straddle without vol model confirmation.",
+                symbol, vix_change_pct, iv_rank,
+            )
+
+        if vix_change_pct >= effective_threshold and (vol_expanding or strong_vix_spike):
             old_max = self.max_risk_per_straddle
             self.max_risk_per_straddle = effective_max_risk
             opened = self.execute_straddle(symbol, current_price, vix_now, vix_change_pct)
@@ -933,8 +943,9 @@ class StraddleTrader:
             return f"SKIP  (no contracts found or cost > ${effective_max_risk:.0f})"
 
         vol_note = " (vol NOT expanding)" if not vol_expanding else ""
+        bypass_note = f" [bypass avail if VIX>=20% & IVR<50]" if not vol_expanding and iv_rank < 50 else ""
         return (
-            f"WAIT  VIX spike needed{vol_note} | "
+            f"WAIT  VIX spike needed{vol_note}{bypass_note} | "
             f"VIX={vix_now:.1f} chg={vix_change_pct:+.1f}% "
             f"(need >={effective_threshold:.0f}% @ IVR={iv_rank:.0f}) | "
             f"ML:{direction}({confidence:.2f})"

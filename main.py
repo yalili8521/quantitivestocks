@@ -13,6 +13,8 @@ Usage:
     python main.py train-vol        --symbol SPY --epochs 50
     python main.py backtest-options --symbol SPY --start 2024-01-01
     python main.py trade-options    --confidence 0.2 --strategy directional
+    python main.py range-backtest   --symbols SPY,QQQ --start 2024-01-01
+    python main.py range-trade      --symbols SPY,QQQ --provider alpaca --group range
     python main.py report                             # generate outputs/report.html
     python main.py report --open                      # generate + open in browser
 
@@ -48,9 +50,15 @@ def main() -> None:
     predict          Run ML prediction for a symbol
     backtest         Walk-forward backtest with ML predictions
     backtest-options Backtest options strategies (directional/straddle/both)
+    range-backtest   Walk-forward backtest for intraday mean reversion range strategy
     trade            Start Alpaca paper trading loop (stocks)
     trade-options    Start options trader (directional ITM or straddle)
+    range-trade      Start intraday mean reversion range paper trader (dedicated account)
     report           Generate HTML dashboard (outputs/report.html)
+    train-intraday   Train LightGBM intraday momentum model (replaces LSTM for intraday group)
+    train-swing      Train PatchTST swing model (replaces LSTM for swing group)
+    train-expansion  Train XGBoost factor model (replaces LSTM for expansion group)
+    train-pairs      Train XGBoost cointegration pairs model (mean-reversion fallback)
     training-tables Generate CSV/HTML tables of training & backtest metrics
     check-positions Check paper account positions; recommend and run legacy handling for existing positions
     stop-paper-trader Stop the running paper trader for a group (e.g. intraday) so you can restart with different flags
@@ -69,6 +77,9 @@ def main() -> None:
     python main.py backtest             --symbol SPY --start 2025-01-01 --mode intraday
     python main.py backtest-options     --symbol SPY --start 2024-01-01 --strategy directional
     python main.py backtest-options     --symbol QQQ --start 2024-01-01
+    python main.py range-backtest       --symbols SPY,QQQ,IWM,SOXX,EWT,GLD,EEM,SLV,EWJ,EWS,XLE,INDA --start 2024-01-01
+    python main.py range-backtest       --symbols SPY --start 2025-01-01 --provider alpaca
+    python main.py range-trade          --symbols SPY,QQQ,IWM,SOXX,EWT,GLD,EEM,SLV,EWJ,EWS,XLE,INDA --provider alpaca --group range
     python main.py trade                --confidence 0.2 --trailing-stop 0.05
     python main.py trade                --group equities
     python main.py trade                --group commodities
@@ -79,6 +90,10 @@ def main() -> None:
     python main.py report
     python main.py report               --open
     python main.py training-tables      # outputs/training_results_*.csv and .html
+    python main.py train-intraday       --symbols SPY,QQQ,IWM,SOXX --provider alpaca
+    python main.py train-swing          --symbols EWT,GLD,EEM,SLV --provider yahoo
+    python main.py train-expansion      --symbols EWJ,EWS,XLE,INDA --provider yahoo
+    python main.py train-pairs          --symbols SPY,QQQ,GLD,SLV --provider yahoo
 
   Run `python main.py <command> --help` for command-specific options.
 """)
@@ -144,13 +159,37 @@ def main() -> None:
         from reports import main as report_main
         report_main()
 
+    elif command == "range-backtest":
+        from range_backtester import main as rb_main
+        rb_main()
+
+    elif command == "range-trade":
+        from range_trader import main as rt_main
+        rt_main()
+
     elif command == "training-tables":
         import scripts.generate_training_tables as gen_tables
         gen_tables.main()
 
+    elif command == "train-intraday":
+        from intraday_model import main as intraday_main
+        intraday_main()
+
+    elif command == "train-swing":
+        from swing_model import main as swing_main
+        swing_main()
+
+    elif command == "train-expansion":
+        from expansion_model import main as expansion_main
+        expansion_main()
+
+    elif command == "train-pairs":
+        from pairs_model import main as pairs_main
+        pairs_main()
+
     else:
         print(f"\n  Unknown command: {command!r}")
-        print("  Available commands: signals, train, train-meta, train-vol, predict, backtest, backtest-options, trade, trade-options, report, training-tables, check-positions, stop-paper-trader, lock-status")
+        print("  Available commands: signals, train, train-meta, train-vol, train-intraday, train-swing, train-expansion, train-pairs, predict, backtest, backtest-options, range-backtest, trade, trade-options, range-trade, report, training-tables, check-positions, stop-paper-trader, lock-status")
         print("  Run `python main.py --help` for usage.\n")
         sys.exit(1)
 

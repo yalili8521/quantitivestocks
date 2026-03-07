@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-LSTM ML Model for ETF Direction Prediction
-============================================
-Predicts next-bar direction (UP/DOWN) with confidence using an LSTM neural network.
+LSTM ML Model for ETF Forward Return Prediction (v2 Regression)
+================================================================
+Predicts forward 10-day expected return using an LSTM neural network.
+Replaces v1 binary classification with continuous regression target.
 
 Usage (via main.py):
     python main.py train   --symbol SPY --provider yahoo --epochs 50
@@ -44,6 +45,9 @@ from signals_engine import (
     DAILY_LOOKBACK,
     PROJECT_ROOT,
 )
+from alpha_signals import CBOEHistoricalFetcher, CBOE_FEATURES
+from factor_signals import FactorFeatureBuilder, get_factor_features
+from market_signals import MarketSignalBuilder, get_market_features
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,7 +61,12 @@ log = logging.getLogger("ml_model")
 # ---------------------------------------------------------------------------
 SEQ_LEN = 20  # 20-bar lookback window for LSTM input
 
-# Meta-labeling threshold: only enter when meta RF confidence >= this
+# Regression constants (v2)
+FORWARD_DAYS = 10           # predict 10-day forward return
+COST_THRESHOLD = 0.001      # 0.1% minimum expected return to trade
+TARGET_RETURN = 0.02        # 2% return = full position size
+
+# Meta-labeling threshold (deprecated in v2 — kept for backward compat)
 META_THRESHOLD = 0.55
 
 # Full feature list (22) — used for building all indicators; subset by mode/symbol below
@@ -108,10 +117,19 @@ def get_feature_cols(mode: str, symbol: str | None = None) -> list:
     Order of precedence:
       1. Symbol-level override (e.g. IGV/FXI extended daily set)
       2. Mode-level default (FEATURE_COLS_DAILY or FEATURE_COLS_INTRADAY)
+
+    Daily mode always appends CBOE alpha features (VIX term structure + SKEW).
     """
     if symbol and symbol in SYMBOL_FEATURE_OVERRIDES:
-        return SYMBOL_FEATURE_OVERRIDES[symbol]
-    return FEATURE_COLS_INTRADAY if mode == "intraday" else FEATURE_COLS_DAILY
+        cols = list(SYMBOL_FEATURE_OVERRIDES[symbol])
+    else:
+        cols = list(FEATURE_COLS_INTRADAY if mode == "intraday" else FEATURE_COLS_DAILY)
+    # Add CBOE features for daily mode (VIX term structure + SKEW)
+    if mode != "intraday":
+        cols.extend(CBOE_FEATURES)
+        cols.extend(get_factor_features(symbol or "SPY"))
+        cols.extend(get_market_features(symbol or "SPY"))
+    return cols
 
 DEFAULT_MODEL_DIR = os.path.join(PROJECT_ROOT, "models")
 
@@ -137,15 +155,17 @@ class TemporalAttention(nn.Module):
         return context
 
 
-class DirectionLSTM(nn.Module):
-    """LSTM with temporal attention for next-bar direction prediction.
+class ReturnLSTM(nn.Module):
+    """LSTM with temporal attention for forward return regression (v2).
 
     Architecture:
         Input:      (batch, seq_len, n_features)
         LayerNorm:  normalize input features
         LSTM:       2-layer, hidden_size=96, dropout=0.25
         Attention:  soft attention over all time steps
-        FC:         96 -> 48 -> ReLU -> Dropout -> 1 -> Sigmoid
+        FC:         96 -> 48 -> ReLU -> Dropout -> 1 (linear, no sigmoid)
+
+    Output is raw expected return (e.g., +0.012 = +1.2% over FORWARD_DAYS).
     """
 
     def __init__(self, n_features: int, hidden_size: int = 96,
@@ -160,19 +180,23 @@ class DirectionLSTM(nn.Module):
             dropout=dropout if num_layers > 1 else 0.0,
         )
         self.attention = TemporalAttention(hidden_size)
-        self.classifier = nn.Sequential(
+        self.regressor = nn.Sequential(
             nn.Linear(hidden_size, 48),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(48, 1),
-            nn.Sigmoid(),
+            # No activation — raw return output
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.input_norm(x)
         lstm_out, _ = self.lstm(x)
         context = self.attention(lstm_out)
-        return self.classifier(context).squeeze(-1)
+        return self.regressor(context).squeeze(-1)
+
+
+# Backward compatibility alias
+DirectionLSTM = ReturnLSTM
 
 
 # ===================================================================
@@ -324,6 +348,50 @@ class FeatureEngine:
         log_close = np.log(close.replace(0, np.nan))
         df["frac_diff_close"] = frac_diff_ffd(log_close, d=0.4, thres=1e-4)
 
+        # --- CBOE alpha features (daily mode only) ---
+        if mode != "intraday":
+            try:
+                if not hasattr(self, "_cboe_fetcher") or self._cboe_fetcher is None:
+                    self._cboe_fetcher = CBOEHistoricalFetcher(
+                        os.path.join(PROJECT_ROOT, "data"))
+                bar_dates_alpha = pd.to_datetime(bars_df["ts"]).dt.date
+                cboe_df = self._cboe_fetcher.build_features(bar_dates_alpha)
+                for col in cboe_df.columns:
+                    df[col] = cboe_df[col]
+            except Exception as exc:
+                log.warning("CBOE alpha features failed: %s", exc)
+                for col in CBOE_FEATURES:
+                    if col not in df.columns:
+                        df[col] = np.nan
+
+        # --- Factor signal features (daily mode only) ---
+        if mode != "intraday" and symbol:
+            try:
+                if not hasattr(self, "_factor_builder") or self._factor_builder is None:
+                    self._factor_builder = FactorFeatureBuilder()
+                factor_df = self._factor_builder.build_features(bars_df, symbol)
+                for col in factor_df.columns:
+                    df[col] = factor_df[col]
+            except Exception as exc:
+                log.warning("Factor features failed for %s: %s", symbol, exc)
+                for col in get_factor_features(symbol):
+                    if col not in df.columns:
+                        df[col] = np.nan
+
+        # --- Market signal features (daily mode only) ---
+        if mode != "intraday" and symbol:
+            try:
+                if not hasattr(self, "_market_builder") or self._market_builder is None:
+                    self._market_builder = MarketSignalBuilder()
+                market_df = self._market_builder.build_features(bars_df, symbol)
+                for col in market_df.columns:
+                    df[col] = market_df[col]
+            except Exception as exc:
+                log.warning("Market features failed for %s: %s", symbol, exc)
+                for col in get_market_features(symbol):
+                    if col not in df.columns:
+                        df[col] = np.nan
+
         # Drop warm-up rows using only the columns actually needed for this symbol/mode,
         # then return that same subset.  Using the global FEATURE_COLS would drop all rows
         # for symbols that don't use frac_diff_close (window = 282 bars) even when
@@ -443,6 +511,51 @@ def prepare_sequences_triple_barrier(
     return np.array(X_list, dtype=np.float32), np.array(y_list, dtype=np.float32)
 
 
+def prepare_sequences_regression(
+    features_df: pd.DataFrame,
+    bars_df: pd.DataFrame,
+    seq_len: int = SEQ_LEN,
+    forward_days: int = FORWARD_DAYS,
+) -> tuple:
+    """Forward N-day return regression labels (v2).
+
+    For each sample ending at bar t:
+        y = (close[t + forward_days] - close[t]) / close[t]
+
+    This is the raw forward return — a continuous value, not binary.
+    Winsorized at +/- 10% to reduce outlier influence during training.
+    """
+    feature_values = features_df.values
+    full_close = bars_df["close"].astype(float).values
+    bar_positions = bars_df.index.get_indexer(features_df.index)
+    n = len(feature_values)
+
+    X_list: list = []
+    y_list: list = []
+
+    for i in range(n - seq_len):
+        entry_feat_pos = i + seq_len - 1
+        entry_bar_pos = bar_positions[entry_feat_pos]
+
+        if entry_bar_pos < 0 or entry_bar_pos + forward_days >= len(full_close):
+            continue
+
+        entry_price = full_close[entry_bar_pos]
+        future_price = full_close[entry_bar_pos + forward_days]
+
+        if entry_price <= 0:
+            continue
+
+        forward_return = (future_price - entry_price) / entry_price
+        # Winsorize at +/- 10%
+        forward_return = max(-0.10, min(0.10, forward_return))
+
+        X_list.append(feature_values[i: i + seq_len])
+        y_list.append(forward_return)
+
+    return np.array(X_list, dtype=np.float32), np.array(y_list, dtype=np.float32)
+
+
 # ===================================================================
 # VIX history helper (longer lookback for training)
 # ===================================================================
@@ -556,19 +669,17 @@ def train_model(
     engine.fit_scaler(features.iloc[:split_idx])
     full_norm = engine.transform(features)   # transform all with training-only scaler
 
-    # 4. Triple-barrier labels (López de Prado, AFML Chapter 3)
-    # Thresholds are tighter for intraday bars (smaller moves expected per bar).
+    # 4. Forward return regression labels (v2)
     if mode == "intraday":
-        pt_pct, sl_pct, horizon = 0.005, 0.003, 10   # 0.5% target / 0.3% stop / 10 bars
+        fwd_days = 2   # 2 days for intraday (shorter horizon)
     else:
-        pt_pct, sl_pct, horizon = 0.015, 0.010, 5    # 1.5% target / 1.0% stop / 5 bars
+        fwd_days = FORWARD_DAYS  # 10 days for daily
     log.info(
-        "Triple-barrier labels: PT=%.1f%% SL=%.1f%% horizon=%d bars",
-        pt_pct * 100, sl_pct * 100, horizon,
+        "Regression labels: forward %d-day return (winsorized ±10%%)", fwd_days,
     )
 
-    X_all, y_all = prepare_sequences_triple_barrier(
-        full_norm, bars, seq_len, pt_pct=pt_pct, sl_pct=sl_pct, horizon=horizon,
+    X_all, y_all = prepare_sequences_regression(
+        full_norm, bars, seq_len, forward_days=fwd_days,
     )
 
     # 5. Purge + embargo split (López de Prado, AFML Chapter 7)
@@ -581,16 +692,14 @@ def train_model(
 
     log.info("Training samples: %d, Validation samples: %d (embargo=%d seq)",
              len(X_train), len(X_val), embargo)
-    log.info("Class balance — train UP: %.1f%%, val UP: %.1f%%",
+    log.info("Return stats — train mean: %+.4f%%, val mean: %+.4f%%",
              y_train.mean() * 100, y_val.mean() * 100 if len(y_val) > 0 else 0)
 
-    # 4. Create model with improved architecture
+    # 4. Create model with regression architecture (v2)
     n_features = len(get_feature_cols(mode, symbol))
-    model = DirectionLSTM(n_features=n_features)
+    model = ReturnLSTM(n_features=n_features)
 
-    # Label smoothing: soft targets reduce overconfidence (0.95/0.05 instead of 1/0)
-    LABEL_SMOOTH = 0.05
-    criterion = nn.BCELoss()
+    criterion = nn.MSELoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
 
     train_ds = TensorDataset(torch.FloatTensor(X_train), torch.FloatTensor(y_train))
@@ -603,7 +712,7 @@ def train_model(
         optimizer, T_0=10, T_mult=2, eta_min=lr * 0.01,
     )
 
-    # 5. Training with early stopping, gradient clipping, label smoothing
+    # 5. Training with early stopping, gradient clipping (v2 regression)
     best_val_loss = float("inf")
     best_val_acc = 0.0
     epochs_run = 0
@@ -618,8 +727,7 @@ def train_model(
         for xb, yb in train_loader:
             optimizer.zero_grad()
             preds = model(xb)
-            yb_smooth = yb * (1.0 - LABEL_SMOOTH) + 0.5 * LABEL_SMOOTH
-            loss = criterion(preds, yb_smooth)
+            loss = criterion(preds, yb)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
             optimizer.step()
@@ -627,7 +735,7 @@ def train_model(
         train_loss /= len(train_ds)
         scheduler.step()
 
-        # Validation (use hard labels for unbiased eval)
+        # Validation: MSE loss + direction accuracy (did sign match?)
         model.eval()
         val_loss = 0.0
         correct = 0
@@ -635,10 +743,9 @@ def train_model(
             for xb, yb in val_loader:
                 preds = model(xb)
                 val_loss += criterion(preds, yb).item() * len(xb)
-                predicted = (preds > 0.5).float()
-                correct += (predicted == yb).sum().item()
+                correct += ((preds > 0).float() == (yb > 0).float()).sum().item()
         val_loss /= max(len(val_ds), 1)
-        val_acc = correct / max(len(val_ds), 1)
+        val_acc = correct / max(len(val_ds), 1)  # direction accuracy
 
         current_lr = optimizer.param_groups[0]["lr"]
         log.info("Epoch %2d/%d  train=%.4f  val=%.4f  acc=%.3f  lr=%.2e",
@@ -662,11 +769,13 @@ def train_model(
     with open(metrics_path, "w") as f:
         json.dump({
             "symbol": symbol, "mode": mode,
-            "best_val_loss": round(best_val_loss, 6),
-            "best_val_acc": round(best_val_acc, 4),
+            "model_version": "v2_regression",
+            "target": f"forward_{fwd_days}d_return",
+            "best_val_loss_mse": round(best_val_loss, 8),
+            "best_direction_accuracy": round(best_val_acc, 4),
             "epochs_run": epochs_run,
         }, f, indent=2)
-    log.info("Training complete for %s (%s). Best val_loss=%.4f  val_acc=%.3f",
+    log.info("Training complete for %s (%s). Best val_MSE=%.6f  dir_acc=%.3f",
              symbol, mode, best_val_loss, best_val_acc)
     return model, engine
 
@@ -848,7 +957,7 @@ def train_meta_model(
 # Predictor (inference)
 # ===================================================================
 class Predictor:
-    """Load a trained model (primary LSTM + optional meta RF) and produce predictions."""
+    """Load a trained model and produce regression predictions (v2)."""
 
     def __init__(self, symbol: str, model_dir: str = DEFAULT_MODEL_DIR,
                  mode: str = "daily", intraday_interval: str = "5min"):
@@ -857,8 +966,8 @@ class Predictor:
         self.mode = mode
         self.intraday_interval = intraday_interval
         self.engine = FeatureEngine()
-        self.model: Optional[DirectionLSTM] = None
-        self.meta_model = None   # RandomForest, loaded if available
+        self.model: Optional[ReturnLSTM] = None
+        self.meta_model = None   # Deprecated in v2 — kept for file compat
         self._load()
 
     def _load(self) -> None:
@@ -871,23 +980,26 @@ class Predictor:
                 f"No trained model for {self.symbol} ({self.mode}). "
                 f"Run: python main.py train --symbol {self.symbol}{mode_hint}")
         self.engine.load_scaler(scaler_path)
-        self.model = DirectionLSTM(n_features=len(get_feature_cols(self.mode, self.symbol)))
-        self.model.load_state_dict(
-            torch.load(weights_path, map_location="cpu", weights_only=True))
+        state = torch.load(weights_path, map_location="cpu", weights_only=True)
+        # Backward compat: v1 models used key prefix "classifier", v2 uses "regressor"
+        state = {k.replace("classifier.", "regressor."): v for k, v in state.items()}
+        # Detect n_features from saved LSTM input weight shape (4*hidden, n_features)
+        n_features_saved = state["lstm.weight_ih_l0"].shape[1]
+        self.model = ReturnLSTM(n_features=n_features_saved)
+        self.model.load_state_dict(state)
         self.model.eval()
+        # Store saved n_features so predict() can truncate the feature array if needed
+        self._n_features_saved = n_features_saved
 
-        # Load meta RF if it exists (optional — graceful fallback if not trained yet)
+        # Meta RF (deprecated in v2 — load for backward compat but not used for gating)
         meta_path   = os.path.join(self.model_dir, f"{self.symbol}_meta_rf{suffix}.joblib")
         config_path = os.path.join(self.model_dir, f"{self.symbol}_meta_rf{suffix}_config.json")
         if os.path.exists(meta_path):
             self.meta_model = joblib.load(meta_path)
-            # Per-symbol calibrated threshold; fall back to global META_THRESHOLD
             if os.path.exists(config_path):
                 with open(config_path) as f:
                     cfg = json.load(f)
                 self.meta_threshold = float(cfg.get("threshold", META_THRESHOLD))
-                log.debug("Loaded meta RF for %s (%s) — threshold %.3f.",
-                          self.symbol, self.mode, self.meta_threshold)
             else:
                 self.meta_threshold = META_THRESHOLD
         else:
@@ -896,46 +1008,54 @@ class Predictor:
 
     def predict(self, bars_df: pd.DataFrame, vix_df: pd.DataFrame,
                 seq_len: int = SEQ_LEN) -> dict:
-        """Produce a prediction from the most recent seq_len bars.
+        """Produce a regression prediction (v2).
 
         Returns:
-            direction:       "UP" / "DOWN"
-            probability:     primary LSTM sigmoid output [0, 1]
-            confidence:      |prob - 0.5| * 2  → [0, 1]
-            meta_confidence: RF P(primary is correct)  → [0, 1]  (1.0 if no meta model)
-            tradeable:       True if meta_confidence >= self.meta_threshold (per-symbol calibrated)
+            expected_return: continuous predicted forward return (e.g., +0.015 = +1.5%)
+            direction:       "UP" if E[r] > cost_threshold, "DOWN" if < -cost_threshold, "FLAT" otherwise
+            probability:     legacy compat: 0.5 + expected_return * 10, clipped to [0.05, 0.95]
+            confidence:      abs(expected_return) / TARGET_RETURN, clipped to [0, 1]
+            meta_confidence: 1.0 (meta model deprecated in v2)
+            tradeable:       abs(expected_return) > COST_THRESHOLD
         """
         features = self.engine.build_features(bars_df, vix_df, mode=self.mode, symbol=self.symbol)
         features_norm = self.engine.transform(features)
 
         if len(features_norm) < seq_len:
             return {
-                "direction": "UNKNOWN", "probability": 0.5, "confidence": 0.0,
+                "expected_return": 0.0,
+                "direction": "FLAT", "probability": 0.5, "confidence": 0.0,
                 "meta_confidence": 1.0, "tradeable": False,
             }
 
         window = features_norm.iloc[-seq_len:].values
+        # Backward compat: old models trained on fewer features — truncate to match
+        n_saved = getattr(self, "_n_features_saved", window.shape[1])
+        if window.shape[1] > n_saved:
+            window = window[:, :n_saved]
         x = torch.FloatTensor(window).unsqueeze(0)
 
         with torch.no_grad():
-            prob = self.model(x).item()
+            expected_return = self.model(x).item()
 
-        direction = "UP" if prob > 0.5 else "DOWN"
-        confidence = abs(prob - 0.5) * 2
+        if expected_return > COST_THRESHOLD:
+            direction = "UP"
+        elif expected_return < -COST_THRESHOLD:
+            direction = "DOWN"
+        else:
+            direction = "FLAT"
 
-        # Meta-labeling gate
-        meta_confidence = 1.0
-        if self.meta_model is not None:
-            last_bar = features_norm.iloc[-1].values.astype(np.float32)
-            meta_feat = np.append(last_bar, prob).reshape(1, -1)
-            meta_confidence = float(self.meta_model.predict_proba(meta_feat)[0][1])
+        confidence = min(1.0, abs(expected_return) / TARGET_RETURN)
+        # Legacy probability compat for options_trader and other consumers
+        probability = max(0.05, min(0.95, 0.5 + expected_return * 10))
 
         return {
+            "expected_return": round(expected_return, 6),
             "direction": direction,
-            "probability": round(prob, 4),
+            "probability": round(probability, 4),
             "confidence": round(confidence, 4),
-            "meta_confidence": round(meta_confidence, 4),
-            "tradeable": meta_confidence >= self.meta_threshold,
+            "meta_confidence": 1.0,
+            "tradeable": abs(expected_return) > COST_THRESHOLD,
         }
 
 

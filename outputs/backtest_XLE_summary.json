@@ -1,0 +1,19 @@
+{
+  "symbol": "XLE",
+  "mode": "daily",
+  "intraday_interval": "5min",
+  "start_date": "2024-01-02",
+  "end_date": "2026-03-06",
+  "initial_capital": 100000.0,
+  "final_equity": 103608.64,
+  "total_return_pct": 3.61,
+  "annualized_return_pct": 1.65,
+  "sharpe_ratio": 0.639,
+  "max_drawdown_pct": -3.19,
+  "total_trades": 23,
+  "win_rate": 0.609,
+  "avg_win_pct": 3.26,
+  "avg_loss_pct": -2.72,
+  "profit_factor": 2.274,
+  "avg_trade_duration_days": 24.2
+}

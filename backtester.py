@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-ML-Prediction-Driven Backtester
+ML-Prediction-Driven Backtester (v2 Regression)
 =================================
-Walk-forward backtest using LSTM predictions from ml_model.py.
-Supports LONG and SHORT positions, trailing stop, take-profit, and intraday mode.
+Walk-forward backtest using ML regression predictions.
+Architecture: trend-following base layer (SMA) + signal-proportional sizing
++ signal-decay exits + disaster stop (ATR safety net).
 
 Usage (via main.py):
     python main.py backtest --symbol SPY --start 2024-01-01
-    python main.py backtest --symbol SPY --start 2024-01-01 --trailing-stop 0.05 --take-profit 0.08
-    python main.py backtest --symbol SPY --start 2025-01-01 --mode intraday
+    python main.py backtest --symbol SPY --start 2024-01-01 --model swing
+    python main.py backtest --symbol XLE --start 2024-01-01 --model expansion
 
 Requires: trained model (run: python main.py train --symbol SPY first).
 """
@@ -31,12 +32,13 @@ import pandas as pd
 import torch
 
 from signals_engine import (
-    build_adapter, FREDVixFetcher, PROJECT_ROOT,
-    compute_atr, compute_adx, compute_bollinger_bands,
+    build_adapter, PROJECT_ROOT,
+    compute_atr,
 )
 from ml_model import (
-    FeatureEngine, DirectionLSTM, Predictor, FEATURE_COLS, get_feature_cols, SEQ_LEN,
-    DEFAULT_MODEL_DIR, META_THRESHOLD, _fetch_vix_for_training,
+    FeatureEngine, DirectionLSTM, get_feature_cols, SEQ_LEN,
+    DEFAULT_MODEL_DIR, _fetch_vix_for_training,
+    COST_THRESHOLD, TARGET_RETURN,
 )
 
 logging.basicConfig(
@@ -109,13 +111,13 @@ class BacktestResult:
 # Backtester
 # ===================================================================
 class Backtester:
-    """Walk-forward backtester driven by ML predictions.
+    """Walk-forward backtester driven by ML regression predictions (v2).
 
-    Supports LONG and SHORT positions with:
-    - ATR-based adaptive trailing stop
-    - Volatility-adjusted, confidence-scaled position sizing
-    - Regime filter (ADX-based trend detection)
-    - Trailing take-profit that locks in gains progressively
+    Architecture:
+    - Trend-following base layer: SMA(50) determines allowed direction
+    - ML signal: expected return magnitude determines position size
+    - Signal-decay exit: re-run model each bar, exit when signal reverses
+    - Disaster stop: 3x ATR safety net (not primary exit mechanism)
     """
 
     def __init__(
@@ -125,93 +127,35 @@ class Backtester:
         fred_key: Optional[str] = None,
         model_dir: str = DEFAULT_MODEL_DIR,
         initial_capital: float = 100_000.0,
-        confidence_threshold: float = 0.2,
-        short_confidence_threshold: float = 0.15,
-        exit_confidence: float = 0.1,
-        trailing_stop_pct: float = 0.05,
-        take_profit_pct: float = 0.08,
         position_pct: float = 0.95,
         mode: str = "daily",
         intraday_interval: str = "5min",
-        # --- New optimization parameters ---
-        use_atr_stop: bool = True,
-        atr_stop_mult: float = 2.5,
-        use_regime_filter: bool = True,
-        adx_threshold: float = 20.0,
-        use_vol_sizing: bool = True,
-        target_vol: float = 0.15,
-        use_confidence_sizing: bool = True,
-        use_trailing_tp: bool = True,
-        trailing_tp_activation: float = 0.04,
-        trailing_tp_trail: float = 0.02,
-        kelly_fraction: float = 0.5,            # Chan: base half-Kelly multiplier (0 = off)
-        use_dynamic_kelly: bool = True,         # Re-estimate Kelly from rolling 60 closed trades
+        model_type: str = "lstm",
+        # v2 regression parameters
+        trend_sma_period: int = 50,
+        cost_threshold: float = COST_THRESHOLD,
+        target_return: float = TARGET_RETURN,
+        disaster_stop_atr_mult: float = 3.0,
     ):
         self.symbol = symbol
         self.adapter = adapter
         self.fred_key = fred_key
         self.model_dir = model_dir
         self.initial_capital = initial_capital
-        self.long_confidence_threshold = confidence_threshold
-        self.short_confidence_threshold = short_confidence_threshold
-        self.exit_confidence = exit_confidence
-        self.trailing_stop_pct = trailing_stop_pct
-        self.take_profit_pct = take_profit_pct
         self.position_pct = position_pct
         self.mode = mode
         self.intraday_interval = intraday_interval
-        # New parameters
-        self.use_atr_stop = use_atr_stop
-        self.atr_stop_mult = atr_stop_mult
-        self.use_regime_filter = use_regime_filter
-        self.adx_threshold = adx_threshold
-        self.use_vol_sizing = use_vol_sizing
-        self.target_vol = target_vol
-        self.use_confidence_sizing = use_confidence_sizing
-        self.use_trailing_tp = use_trailing_tp
-        self.trailing_tp_activation = trailing_tp_activation
-        self.trailing_tp_trail = trailing_tp_trail
-        self.kelly_fraction    = kelly_fraction
-        self.use_dynamic_kelly = use_dynamic_kelly
+        self.model_type = model_type
+        self.trend_sma_period = trend_sma_period
+        self.cost_threshold = cost_threshold
+        self.target_return = target_return
+        self.disaster_stop_atr_mult = disaster_stop_atr_mult
 
     # ------------------------------------------------------------------
-    KELLY_WINDOW     = 60   # rolling window for dynamic Kelly estimation
-    MIN_KELLY_TRADES = 20   # min closed trades before switching to dynamic
-
-    def _compute_dynamic_kelly(self, closed_trades: list) -> float:
-        """Return dynamic half-Kelly fraction from last KELLY_WINDOW closed trades.
-
-        Falls back to static ``self.kelly_fraction`` when disabled or insufficient data.
-        """
-        if self.kelly_fraction <= 0 or not self.use_dynamic_kelly:
-            return self.kelly_fraction
-
-        window = closed_trades[-self.KELLY_WINDOW:]
-        if len(window) < self.MIN_KELLY_TRADES:
-            return self.kelly_fraction
-
-        pnl_pcts = []
-        for t in window:
-            cost = t.entry_price * t.size
-            pnl_pcts.append(t.pnl / cost if cost > 0 else 0.0)
-
-        wins   = [p for p in pnl_pcts if p > 0]
-        losses = [abs(p) for p in pnl_pcts if p <= 0]
-
-        if not losses:
-            return self.kelly_fraction * 2.0
-        if not wins:
-            return 0.0
-
-        W = len(wins) / len(pnl_pcts)
-        B = np.mean(wins) / np.mean(losses)
-
-        kelly_full = (W * (B + 1) - 1) / B
-        if kelly_full <= 0:
-            return 0.0
-
-        half_kelly = kelly_full * 0.5
-        return float(np.clip(half_kelly, self.kelly_fraction * 0.5, self.kelly_fraction * 2.0))
+    def _compute_trend_signal(self, close_series: pd.Series) -> pd.Series:
+        """Trend-following base layer: +1 when close > SMA, -1 when below."""
+        sma = close_series.rolling(self.trend_sma_period).mean()
+        return (close_series > sma).astype(float) * 2 - 1  # +1 or -1
 
     def run(self, start_date: str, end_date: Optional[str] = None,
             seq_len: int = SEQ_LEN) -> BacktestResult:
@@ -237,51 +181,114 @@ class Backtester:
         vix_df = _fetch_vix_for_training(self.fred_key, lookback_days=max(lookback, 500))
         log.info("Got %d VIX rows.", len(vix_df))
 
-        # Build features using saved scaler
-        engine = FeatureEngine()
-        suffix = "" if self.mode == "daily" else f"_{self.intraday_interval}"
-        scaler_path = os.path.join(self.model_dir, f"{self.symbol}_scaler{suffix}.json")
-        if not os.path.exists(scaler_path):
-            log.error("No scaler for %s (%s mode). Train first: "
-                      "python main.py train --symbol %s%s",
-                      self.symbol, self.mode, self.symbol,
-                      f" --mode {self.mode}" if self.mode != "daily" else "")
-            sys.exit(1)
-        engine.load_scaler(scaler_path)
+        # Build features and load model — varies by model_type
+        model = None       # LSTM/PatchTST nn.Module (None for XGBoost)
+        xgb_model = None   # XGBoost regressor (None for LSTM/PatchTST)
+        effective_seq_len = seq_len  # may change for PatchTST
 
-        features = engine.build_features(bars, vix_df, mode=self.mode, symbol=self.symbol)
-        features_norm = engine.transform(features)
-        log.info("Built %d feature rows.", len(features_norm))
+        if self.model_type == "swing":
+            from swing_model import SwingFeatureEngine, PatchTST, get_swing_feature_cols, SWING_SEQ_LEN
+            engine = SwingFeatureEngine()
+            scaler_path = os.path.join(self.model_dir, f"{self.symbol}_patchtst_swing_scaler.json")
+            if not os.path.exists(scaler_path):
+                log.error("No swing PatchTST scaler for %s. Train first: "
+                          "python main.py train-swing --symbols %s", self.symbol, self.symbol)
+                sys.exit(1)
+            engine.load_scaler(scaler_path)
+            features = engine.build_features(bars, vix_df, mode="daily", symbol=self.symbol)
+            features_norm = engine.transform(features)
+            log.info("Built %d swing feature rows (PatchTST).", len(features_norm))
 
-        # Load primary LSTM model
-        weights_path = os.path.join(self.model_dir, f"{self.symbol}_lstm{suffix}.pt")
-        model = DirectionLSTM(n_features=len(get_feature_cols(self.mode, self.symbol)))
-        model.load_state_dict(
-            torch.load(weights_path, map_location="cpu", weights_only=True))
-        model.eval()
+            n_features = len(get_swing_feature_cols(self.symbol))
+            weights_path = os.path.join(self.model_dir, f"{self.symbol}_patchtst_swing.pt")
+            model = PatchTST(n_features=n_features, seq_len=SWING_SEQ_LEN)
+            model.load_state_dict(torch.load(weights_path, map_location="cpu", weights_only=True))
+            model.eval()
+            effective_seq_len = SWING_SEQ_LEN
+            log.info("Loaded PatchTST for %s (%d features, seq_len=%d).",
+                     self.symbol, n_features, SWING_SEQ_LEN)
 
-        # Load meta RF (optional — silently skip if not trained yet)
-        meta_model = None
-        meta_threshold = META_THRESHOLD  # per-symbol override loaded below
-        meta_path    = os.path.join(self.model_dir, f"{self.symbol}_meta_rf{suffix}.joblib")
-        config_path  = os.path.join(self.model_dir, f"{self.symbol}_meta_rf{suffix}_config.json")
-        if os.path.exists(meta_path):
-            meta_model = joblib.load(meta_path)
-            if os.path.exists(config_path):
-                with open(config_path) as _f:
-                    _cfg = json.load(_f)
-                meta_threshold = float(_cfg.get("threshold", META_THRESHOLD))
-            log.info("Loaded meta RF for %s — entry gate active (threshold %.3f).",
-                     self.symbol, meta_threshold)
+        elif self.model_type == "expansion":
+            from expansion_model import ExpansionFeatureEngine, get_expansion_feature_cols
+            engine = ExpansionFeatureEngine()
+            scaler_path = os.path.join(self.model_dir, f"{self.symbol}_xgb_expansion_scaler.json")
+            if not os.path.exists(scaler_path):
+                log.error("No expansion XGBoost scaler for %s. Train first: "
+                          "python main.py train-expansion --symbols %s", self.symbol, self.symbol)
+                sys.exit(1)
+            engine.load_scaler(scaler_path)
+            # Fetch SPY for relative momentum
+            spy_bars = self.adapter.fetch_daily("SPY", lookback) if self.mode == "daily" else None
+            features = engine.build_features(bars, vix_df, spy_bars=spy_bars, symbol=self.symbol)
+            features_norm = engine.transform(features)
+            log.info("Built %d expansion feature rows (XGBoost).", len(features_norm))
 
-        # Pre-compute technical indicators for the strategy
+            model_path = os.path.join(self.model_dir, f"{self.symbol}_xgb_expansion.joblib")
+            xgb_model = joblib.load(model_path)
+            effective_seq_len = 1  # XGBoost uses point-in-time, no sequence
+            exp_feature_cols = get_expansion_feature_cols(self.symbol)
+            log.info("Loaded XGBoost for %s (%d features).", self.symbol, len(exp_feature_cols))
+
+        elif self.model_type == "pairs":
+            from pairs_model import PairsFeatureEngine, PAIRS_FEATURES, PAIRS_MAP
+            if self.symbol not in PAIRS_MAP:
+                log.error("No pairs mapping for %s. Available: %s",
+                          self.symbol, ", ".join(PAIRS_MAP.keys()))
+                sys.exit(1)
+            engine = PairsFeatureEngine()
+            pair_sym = PAIRS_MAP[self.symbol]
+            pair_bars = self.adapter.fetch_daily(pair_sym, lookback)
+            features = engine.build_features(bars, pair_bars, self.symbol, pair_sym)
+            log.info("Built %d pairs feature rows.", len(features))
+
+            scaler_path = os.path.join(self.model_dir, f"{self.symbol}_{pair_sym}_xgb_pairs_scaler.json")
+            if not os.path.exists(scaler_path):
+                # Try reverse pair order
+                scaler_path = os.path.join(self.model_dir, f"{pair_sym}_{self.symbol}_xgb_pairs_scaler.json")
+            if not os.path.exists(scaler_path):
+                log.error("No pairs scaler for %s. Train first: "
+                          "python main.py train-pairs --symbols %s,%s",
+                          self.symbol, self.symbol, pair_sym)
+                sys.exit(1)
+            engine.load_scaler(scaler_path)
+            features_norm = engine.transform(features)
+
+            model_path = os.path.join(self.model_dir, f"{self.symbol}_{pair_sym}_xgb_pairs.joblib")
+            if not os.path.exists(model_path):
+                model_path = os.path.join(self.model_dir, f"{pair_sym}_{self.symbol}_xgb_pairs.joblib")
+            xgb_model = joblib.load(model_path)
+            effective_seq_len = 1  # XGBoost point-in-time
+            log.info("Loaded pairs XGBoost for %s↔%s (%d features).",
+                     self.symbol, pair_sym, len(PAIRS_FEATURES))
+
+        else:  # "lstm" (default)
+            engine = FeatureEngine()
+            suffix = "" if self.mode == "daily" else f"_{self.intraday_interval}"
+            scaler_path = os.path.join(self.model_dir, f"{self.symbol}_scaler{suffix}.json")
+            if not os.path.exists(scaler_path):
+                log.error("No scaler for %s (%s mode). Train first: "
+                          "python main.py train --symbol %s%s",
+                          self.symbol, self.mode, self.symbol,
+                          f" --mode {self.mode}" if self.mode != "daily" else "")
+                sys.exit(1)
+            engine.load_scaler(scaler_path)
+            features = engine.build_features(bars, vix_df, mode=self.mode, symbol=self.symbol)
+            features_norm = engine.transform(features)
+            log.info("Built %d feature rows.", len(features_norm))
+
+            # Load primary LSTM model
+            weights_path = os.path.join(self.model_dir, f"{self.symbol}_lstm{suffix}.pt")
+            model = DirectionLSTM(n_features=len(get_feature_cols(self.mode, self.symbol)))
+            model.load_state_dict(
+                torch.load(weights_path, map_location="cpu", weights_only=True))
+            model.eval()
+
+        # Pre-compute indicators for v2 strategy
         close_s = bars["close"].astype(float)
         high_s = bars["high"].astype(float)
         low_s = bars["low"].astype(float)
-        annualize = np.sqrt(78 * 252) if self.mode == "intraday" else np.sqrt(252)
         atr_series = compute_atr(high_s, low_s, close_s, period=14)
-        adx_series = compute_adx(high_s, low_s, close_s, period=14)
-        vol20_series = close_s.pct_change().rolling(20).std() * annualize
+        trend_signal = self._compute_trend_signal(close_s)
 
         # Date filtering
         bar_timestamps = pd.to_datetime(bars["ts"])
@@ -298,7 +305,7 @@ class Backtester:
         log.info("Walking %d bars from %s to %s...", len(feature_indices), start_dt, end_dt)
 
         last_bar_idx = len(feature_indices) - 1
-        for idx_pos in range(seq_len, len(feature_indices)):
+        for idx_pos in range(effective_seq_len, len(feature_indices)):
             feat_idx = feature_indices[idx_pos]
             bar_date = bar_dates.iloc[feat_idx]
 
@@ -313,93 +320,53 @@ class Backtester:
 
             bar_close = float(close_s.iloc[feat_idx])
             bar_atr = float(atr_series.iloc[feat_idx]) if not np.isnan(atr_series.iloc[feat_idx]) else bar_close * 0.02
-            bar_adx = float(adx_series.iloc[feat_idx]) if not np.isnan(adx_series.iloc[feat_idx]) else 25.0
-            bar_vol = float(vol20_series.iloc[feat_idx]) if not np.isnan(vol20_series.iloc[feat_idx]) else 0.15
+            bar_trend = float(trend_signal.iloc[feat_idx]) if not np.isnan(trend_signal.iloc[feat_idx]) else 0.0
 
-            # Get prediction
-            window_start = idx_pos - seq_len
-            window = features_norm.iloc[window_start:idx_pos].values
-            x = torch.FloatTensor(window).unsqueeze(0)
-            with torch.no_grad():
-                prob = model(x).item()
-            direction = "UP" if prob > 0.5 else "DOWN"
-            confidence = abs(prob - 0.5) * 2
+            # --- Get prediction (v2 regression: expected return) ---
+            if xgb_model is not None:
+                x_row = features_norm.iloc[idx_pos:idx_pos + 1].values.astype(np.float32)
+                expected_return = float(xgb_model.predict(x_row)[0])
+            else:
+                window_start = idx_pos - effective_seq_len
+                window = features_norm.iloc[window_start:idx_pos].values
+                x = torch.FloatTensor(window).unsqueeze(0)
+                with torch.no_grad():
+                    expected_return = model(x).item()
 
-            # Meta-labeling gate: compute meta_confidence if RF is loaded.
-            # Use idx_pos-1 (last bar of the LSTM input window), matching train_meta_model()
-            # where last_bar_features = feat_arr[SEQ_LEN-1+i] = last bar of window i.
-            meta_confidence = 1.0
-            if meta_model is not None:
-                last_bar = features_norm.iloc[idx_pos - 1].values.astype(np.float32)
-                meta_feat = np.append(last_bar, prob).reshape(1, -1)
-                meta_confidence = float(meta_model.predict_proba(meta_feat)[0][1])
-
-            # --- Exit logic ---
-            flip_direction = None
+            # --- Exit logic (v2: signal-decay + disaster stop) ---
             if portfolio.position is not None:
                 pos = portfolio.position
 
                 if pos.direction == "LONG":
-                    pos.peak_price = max(pos.peak_price, bar_close)
                     unrealized_pct = (bar_close - pos.entry_price) / pos.entry_price
-                    drawdown_from_peak = (pos.peak_price - bar_close) / pos.peak_price
                 else:
-                    pos.peak_price = min(pos.peak_price, bar_close)
                     unrealized_pct = (pos.entry_price - bar_close) / pos.entry_price
-                    drawdown_from_peak = (bar_close - pos.peak_price) / pos.peak_price if pos.peak_price > 0 else 0
 
-                # Determine stop level: ATR-based or fixed percentage
-                if self.use_atr_stop and pos.atr_at_entry > 0:
-                    stop_distance = self.atr_stop_mult * pos.atr_at_entry / pos.entry_price
-                else:
-                    stop_distance = self.trailing_stop_pct
+                # Disaster stop: safety net at N×ATR
+                disaster_stop_pct = self.disaster_stop_atr_mult * pos.atr_at_entry / pos.entry_price if pos.atr_at_entry > 0 else 0.10
+                if unrealized_pct <= -disaster_stop_pct:
+                    self._close_position(portfolio, bar_date, bar_close, "disaster_stop")
+                    self._record_equity(portfolio, bar_date, bar_close)
+                    continue
 
-                # Trailing take-profit: once activated, use a tighter trail
-                if self.use_trailing_tp and unrealized_pct >= self.trailing_tp_activation:
-                    if not pos.tp_activated:
-                        pos.tp_activated = True
-                        pos.tp_trail_peak = unrealized_pct
-                    pos.tp_trail_peak = max(pos.tp_trail_peak, unrealized_pct)
-                    if unrealized_pct < pos.tp_trail_peak - self.trailing_tp_trail:
-                        self._close_position(portfolio, bar_date, bar_close, "trailing_tp")
-                        continue
+                # Signal-decay: exit when expected return reverses
+                if pos.direction == "LONG" and expected_return <= 0:
+                    self._close_position(portfolio, bar_date, bar_close, "signal_decay")
+                elif pos.direction == "SHORT" and expected_return >= 0:
+                    self._close_position(portfolio, bar_date, bar_close, "signal_decay")
 
-                # Trailing stop
-                if drawdown_from_peak >= stop_distance:
-                    self._close_position(portfolio, bar_date, bar_close, "trailing_stop")
-                elif (pos.direction == "LONG" and direction == "DOWN"
-                      and confidence >= self.exit_confidence):
-                    self._close_position(portfolio, bar_date, bar_close, "signal_flip")
-                    flip_direction = "SHORT"
-                elif (pos.direction == "SHORT" and direction == "UP"
-                      and confidence >= self.exit_confidence):
-                    self._close_position(portfolio, bar_date, bar_close, "signal_flip")
-                    flip_direction = "LONG"
-
-            # --- Entry logic ---
+            # --- Entry logic (v2: trend filter + signal-proportional sizing) ---
             if portfolio.position is None and not is_last_bar:
-                # Regime filter: skip entries when market is trendless (low ADX)
-                if self.use_regime_filter and bar_adx < self.adx_threshold:
-                    self._record_equity(portfolio, bar_date, bar_close)
-                    continue
-
-                # Meta-labeling gate: skip if meta RF says primary is unreliable
-                if meta_confidence < meta_threshold:
-                    self._record_equity(portfolio, bar_date, bar_close)
-                    continue
-
                 enter_dir = None
-                if flip_direction is not None and confidence >= self.exit_confidence:
-                    enter_dir = flip_direction
-                elif direction == "UP" and confidence >= self.long_confidence_threshold:
+                if expected_return > self.cost_threshold and bar_trend > 0:
                     enter_dir = "LONG"
-                elif direction == "DOWN" and confidence >= self.short_confidence_threshold:
+                elif expected_return < -self.cost_threshold and bar_trend < 0:
                     enter_dir = "SHORT"
 
                 if enter_dir is not None:
                     self._open_position(
                         portfolio, bar_date, bar_close, enter_dir,
-                        confidence=confidence, bar_vol=bar_vol, bar_atr=bar_atr,
+                        expected_return=expected_return, bar_atr=bar_atr,
                     )
 
             self._record_equity(portfolio, bar_date, bar_close)
@@ -430,29 +397,18 @@ class Backtester:
         return self._compute_results(portfolio, price_df)
 
     def _open_position(self, portfolio: Portfolio, date, price: float,
-                       direction: str = "LONG", confidence: float = 0.5,
-                       bar_vol: float = 0.15, bar_atr: float = 0.0) -> None:
+                       direction: str = "LONG", expected_return: float = 0.0,
+                       bar_atr: float = 0.0) -> None:
+        """Signal-proportional position sizing (v2).
+
+        Size = clip(abs(E[r]) / target_return, 0.1, 1.0) * base_allocation
+        """
         equity = self._current_equity(portfolio, price)
-        base_pct = self.position_pct
 
-        # Volatility-adjusted sizing: scale down when vol is high
-        if self.use_vol_sizing and bar_vol > 0:
-            vol_scalar = min(2.0, max(0.3, self.target_vol / bar_vol))
-            base_pct *= vol_scalar
-
-        # Confidence-scaled sizing: bigger positions when ML is more certain
-        if self.use_confidence_sizing:
-            conf_scalar = 0.5 + confidence  # range [0.5, 1.5]
-            base_pct *= conf_scalar
-
-        # Chan: dynamic half-Kelly — scales size up/down based on recent win rate and profit ratio
-        dyn_kelly = self._compute_dynamic_kelly(portfolio.closed_trades)
-        if dyn_kelly > 0:
-            base_pct *= dyn_kelly
-        elif dyn_kelly == 0.0 and self.kelly_fraction > 0:
-            return  # negative edge: skip this trade entirely
-
-        base_pct = min(base_pct, 0.98)  # never exceed 98% of equity
+        # Signal-proportional sizing
+        signal_pct = min(1.0, max(0.1, abs(expected_return) / self.target_return))
+        base_pct = self.position_pct * signal_pct
+        base_pct = min(base_pct, 0.98)
 
         invest = equity * base_pct
         shares = invest / price
@@ -908,7 +864,7 @@ def print_report(result: BacktestResult) -> None:
 # ===================================================================
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="ML-driven backtester for ETF signals.",
+        description="ML-driven backtester for ETF signals (v2 regression).",
     )
     parser.add_argument("--symbol", required=True, help="Symbol to backtest (e.g. SPY)")
     parser.add_argument("--provider", default="yahoo",
@@ -917,46 +873,22 @@ def main() -> None:
     parser.add_argument("--end", default=None, help="End date YYYY-MM-DD (default: today)")
     parser.add_argument("--capital", type=float, default=100_000,
                         help="Initial capital (default: 100000)")
-    parser.add_argument("--confidence", type=float, default=0.01,
-                        help="Min ML confidence to enter LONG (default: 0.01; attention-LSTM "
-                             "outputs compressed probs, ~0.01-0.12 range — meta gate filters quality)")
-    parser.add_argument("--short-confidence", type=float, default=0.01,
-                        help="Min ML confidence to enter SHORT (default: 0.01)")
-    parser.add_argument("--exit-confidence", type=float, default=0.005,
-                        help="Min ML confidence to exit/flip (default: 0.005)")
-    parser.add_argument("--trailing-stop", type=float, default=0.05,
-                        help="Trailing stop from peak (default: 0.05 = 5%%)")
-    parser.add_argument("--take-profit", type=float, default=0.08,
-                        help="Take profit target (default: 0.08 = 8%%)")
     parser.add_argument("--mode", default="daily", choices=["daily", "intraday"],
                         help="Backtest mode (default: daily)")
     parser.add_argument("--interval", default="5min", choices=["1min", "5min"],
                         help="Intraday bar interval (default: 5min)")
-    # Optimization flags
-    parser.add_argument("--no-atr-stop", action="store_true",
-                        help="Disable ATR-based adaptive trailing stop (use fixed %%)")
-    parser.add_argument("--atr-stop-mult", type=float, default=2.5,
-                        help="ATR multiplier for trailing stop (default: 2.5)")
-    parser.add_argument("--no-regime-filter", action="store_true",
-                        help="Disable ADX regime filter")
-    parser.add_argument("--adx-threshold", type=float, default=20.0,
-                        help="Min ADX to allow entries (default: 20.0)")
-    parser.add_argument("--no-vol-sizing", action="store_true",
-                        help="Disable volatility-adjusted position sizing")
-    parser.add_argument("--target-vol", type=float, default=0.15,
-                        help="Target annualized vol for position sizing (default: 0.15)")
-    parser.add_argument("--no-confidence-sizing", action="store_true",
-                        help="Disable confidence-scaled position sizing")
-    parser.add_argument("--no-trailing-tp", action="store_true",
-                        help="Disable trailing take-profit")
-    parser.add_argument("--kelly-fraction", type=float, default=0.5,
-                        help="Base half-Kelly multiplier: 0.5=half-Kelly, 0=off (default: 0.5)")
-    parser.add_argument("--no-dynamic-kelly", action="store_true",
-                        help="Use static kelly-fraction instead of rolling Kelly estimate")
-    parser.add_argument("--trailing-tp-activation", type=float, default=0.04,
-                        help="Unrealized P&L %% to activate trailing TP (default: 0.04)")
-    parser.add_argument("--trailing-tp-trail", type=float, default=0.02,
-                        help="Trail distance after TP activation (default: 0.02)")
+    parser.add_argument("--model", default="lstm",
+                        choices=["lstm", "swing", "expansion", "pairs"],
+                        help="Model type: lstm (default), swing (PatchTST), expansion (XGBoost), pairs (cointegration)")
+    # v2 regression parameters
+    parser.add_argument("--trend-sma", type=int, default=50,
+                        help="SMA period for trend filter (default: 50)")
+    parser.add_argument("--cost-threshold", type=float, default=COST_THRESHOLD,
+                        help="Min expected return to trade (default: 0.001 = 0.1%%)")
+    parser.add_argument("--target-return", type=float, default=TARGET_RETURN,
+                        help="Expected return for full position size (default: 0.02 = 2%%)")
+    parser.add_argument("--disaster-stop-mult", type=float, default=3.0,
+                        help="ATR multiplier for disaster stop (default: 3.0)")
 
     args = parser.parse_args()
 
@@ -968,40 +900,17 @@ def main() -> None:
         adapter=adapter,
         fred_key=fred_key,
         initial_capital=args.capital,
-        confidence_threshold=args.confidence,
-        short_confidence_threshold=args.short_confidence,
-        exit_confidence=args.exit_confidence,
-        trailing_stop_pct=args.trailing_stop,
-        take_profit_pct=args.take_profit,
         mode=args.mode,
         intraday_interval=args.interval,
-        use_atr_stop=not args.no_atr_stop,
-        atr_stop_mult=args.atr_stop_mult,
-        use_regime_filter=not args.no_regime_filter,
-        adx_threshold=args.adx_threshold,
-        use_vol_sizing=not args.no_vol_sizing,
-        target_vol=args.target_vol,
-        use_confidence_sizing=not args.no_confidence_sizing,
-        use_trailing_tp=not args.no_trailing_tp,
-        trailing_tp_activation=args.trailing_tp_activation,
-        trailing_tp_trail=args.trailing_tp_trail,
-        kelly_fraction=args.kelly_fraction,
-        use_dynamic_kelly=not args.no_dynamic_kelly,
+        model_type=args.model,
+        trend_sma_period=args.trend_sma,
+        cost_threshold=args.cost_threshold,
+        target_return=args.target_return,
+        disaster_stop_atr_mult=args.disaster_stop_mult,
     )
 
     result = bt.run(start_date=args.start, end_date=args.end)
     print_report(result)
-    
-    # Auto-generate comprehensive dashboard after backtest
-    try:
-        import subprocess
-        dashboard_script = os.path.join(OUTPUT_DIR, "create_comprehensive_dashboard.py")
-        if os.path.exists(dashboard_script):
-            print("\n🔄 Updating comprehensive dashboard with latest results...")
-            subprocess.run(["python", dashboard_script], cwd=OUTPUT_DIR, capture_output=True)
-            print("✅ Comprehensive dashboard updated!")
-    except Exception as e:
-        log.info("Could not auto-update dashboard: %s", e)
 
 
 if __name__ == "__main__":

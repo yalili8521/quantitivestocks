@@ -9,7 +9,7 @@ Usage (via main.py):
     python main.py train-vol --symbol ALL
 
 Architecture:
-    Reuses DirectionLSTM from ml_model.py (same 2-layer LSTM + attention).
+    Uses VolLSTM (same 2-layer LSTM + attention, classification head).
     15 vol-focused features: vol20, bb_bandwidth, vol_regime, bb_pct_b,
     ret5, rsi14, vix, vix_chg, momentum_quality, adx,
     iv_rv_spread, vov, ewma_vol, vol5, vol20_change
@@ -41,9 +41,44 @@ from torch.utils.data import TensorDataset, DataLoader
 
 from signals_engine import build_adapter, PROJECT_ROOT
 from ml_model import (
-    DirectionLSTM, FeatureEngine, _fetch_vix_for_training,
+    FeatureEngine, TemporalAttention, _fetch_vix_for_training,
     DEFAULT_MODEL_DIR, SEQ_LEN,
 )
+
+
+class VolLSTM(nn.Module):
+    """Classification LSTM for vol expansion prediction (binary: expand yes/no).
+
+    Identical architecture to the original DirectionLSTM (pre-v2 regression rename).
+    Uses self.classifier with Sigmoid — NOT the ReturnLSTM regression head.
+    This ensures backward compatibility with saved vol checkpoints.
+    """
+
+    def __init__(self, n_features: int, hidden_size: int = 96,
+                 num_layers: int = 2, dropout: float = 0.25):
+        super().__init__()
+        self.input_norm = nn.LayerNorm(n_features)
+        self.lstm = nn.LSTM(
+            input_size=n_features,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            batch_first=True,
+            dropout=dropout if num_layers > 1 else 0.0,
+        )
+        self.attention = TemporalAttention(hidden_size)
+        self.classifier = nn.Sequential(
+            nn.Linear(hidden_size, 48),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(48, 1),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.input_norm(x)
+        lstm_out, _ = self.lstm(x)
+        context = self.attention(lstm_out)
+        return self.classifier(context).squeeze(-1)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -199,7 +234,7 @@ def train_vol_model(
 ) -> None:
     """Train VolExpansion LSTM for one symbol.
 
-    Architecture: reuses DirectionLSTM with hidden_size=96, 15 vol features.
+    Architecture: reuses VolLSTM with hidden_size=96, 15 vol features.
 
     Saves:
         {symbol}_vol_lstm.pt
@@ -254,8 +289,8 @@ def train_vol_model(
 
     log.info("Train: %d, Val: %d", len(X_train), len(X_val))
 
-    # Model: reuse DirectionLSTM — hidden_size=96 matches direction model capacity
-    model = DirectionLSTM(n_features=len(VOL_FEATURE_COLS), hidden_size=96)
+    # Model: reuse VolLSTM — hidden_size=96 matches direction model capacity
+    model = VolLSTM(n_features=len(VOL_FEATURE_COLS), hidden_size=96)
 
     LABEL_SMOOTH = 0.05
     criterion = nn.BCELoss()
@@ -361,7 +396,7 @@ def train_vol_meta_model(
     # Load vol LSTM
     engine = FeatureEngine()
     engine.load_scaler(scaler_path)
-    vol_model = DirectionLSTM(n_features=len(VOL_FEATURE_COLS), hidden_size=96)
+    vol_model = VolLSTM(n_features=len(VOL_FEATURE_COLS), hidden_size=96)
     vol_model.load_state_dict(
         torch.load(weights_path, map_location="cpu", weights_only=True))
     vol_model.eval()
@@ -464,7 +499,7 @@ class VolPredictor:
         self.symbol    = symbol
         self.model_dir = model_dir
         self.engine    = FeatureEngine()
-        self.model: Optional[DirectionLSTM] = None
+        self.model: Optional[VolLSTM] = None
         self.meta_model = None
         self.meta_threshold = VOL_META_THRESHOLD
         self._loaded = False
@@ -479,7 +514,7 @@ class VolPredictor:
             return
 
         self.engine.load_scaler(scaler_path)
-        self.model = DirectionLSTM(n_features=len(VOL_FEATURE_COLS), hidden_size=96)
+        self.model = VolLSTM(n_features=len(VOL_FEATURE_COLS), hidden_size=96)
         try:
             self.model.load_state_dict(
                 torch.load(weights_path, map_location="cpu", weights_only=True))

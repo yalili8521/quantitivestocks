@@ -9,12 +9,12 @@ if (-not (Test-Path -LiteralPath $PythonExe)) {
 
 Set-Location -LiteralPath $ProjectRoot
 
-function Get-WritableLogDir {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$ProjectRoot
-    )
+# Force UTF-8 output so Unicode chars (arrows, symbols) don't crash on Windows cp1252
+$env:PYTHONUTF8     = '1'
+$env:PYTHONIOENCODING = 'utf-8'
 
+function Get-WritableLogDir {
+    param([string]$ProjectRoot)
     $preferred = Join-Path $ProjectRoot 'logs'
     try {
         New-Item -ItemType Directory -Force -Path $preferred | Out-Null
@@ -23,126 +23,111 @@ function Get-WritableLogDir {
         Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
         return $preferred
     } catch {
-        # Fall back when running as SYSTEM and the project folder isn't writable (common under OneDrive)
         $fallback = Join-Path $env:ProgramData 'QuantitativeStocks\logs'
         New-Item -ItemType Directory -Force -Path $fallback | Out-Null
         return $fallback
     }
 }
 
-$LogDir = Get-WritableLogDir -ProjectRoot $ProjectRoot
-
-$Timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-$LogFile = Join-Path $LogDir "paper_trader_$Timestamp.log"
-
 function Import-DotEnvFile {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path
-    )
-
-    if (-not (Test-Path -LiteralPath $Path)) {
-        return
-    }
-
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return }
     Get-Content -LiteralPath $Path -ErrorAction Stop | ForEach-Object {
         $line = $_.Trim()
-        if ($line.Length -eq 0) { return }
-        if ($line.StartsWith('#')) { return }
-
+        if ($line.Length -eq 0 -or $line.StartsWith('#')) { return }
         $idx = $line.IndexOf('=')
         if ($idx -lt 1) { return }
-
-        $name = $line.Substring(0, $idx).Trim()
+        $name  = $line.Substring(0, $idx).Trim()
         $value = $line.Substring($idx + 1).Trim()
         if ($name.Length -eq 0) { return }
-
-        # Strip optional surrounding quotes
         if ($value.StartsWith('"') -and $value.EndsWith('"') -and $value.Length -ge 2) {
             $value = $value.Substring(1, $value.Length - 2)
         }
-
         Set-Item -Path ("Env:" + $name) -Value $value
     }
 }
 
-# Scheduled task context may not inherit user env vars.
-# Try local env files in priority order.
-$EnvCandidates = @(
-    (Join-Path $ProjectRoot 'secrets\alpaca.env')
-)
+function Test-MarketHours {
+    $tz  = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
+    $now = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $tz)
+    $dow = $now.DayOfWeek
+    if ($dow -eq 'Saturday' -or $dow -eq 'Sunday') { return $false }
+    $t = $now.TimeOfDay
+    # 6:20 AM - 4:25 PM ET
+    return ($t -ge [TimeSpan]'06:20:00' -and $t -le [TimeSpan]'16:25:00')
+}
 
+function Test-AfterMarketClose {
+    $tz  = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
+    $now = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $tz)
+    $dow = $now.DayOfWeek
+    $t   = $now.TimeOfDay
+    # Weekday after 4:25 PM ET - done for the day
+    if ($dow -ne 'Saturday' -and $dow -ne 'Sunday' -and $t -gt [TimeSpan]'16:25:00') { return $true }
+    # Weekend
+    if ($dow -eq 'Saturday' -or $dow -eq 'Sunday') { return $true }
+    return $false
+}
+
+$LogDir = Get-WritableLogDir -ProjectRoot $ProjectRoot
+
+$EnvCandidates = @( (Join-Path $ProjectRoot 'secrets\alpaca.env') )
 if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
     foreach ($candidate in $EnvCandidates) {
         if (Test-Path -LiteralPath $candidate) {
             Import-DotEnvFile -Path $candidate
-            if ($env:ALPACA_API_KEY -and $env:ALPACA_API_SECRET) {
-                break
-            }
+            if ($env:ALPACA_API_KEY -and $env:ALPACA_API_SECRET) { break }
         }
     }
 }
 
+if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
+    Write-Error "ERROR: Missing ALPACA_API_KEY / ALPACA_API_SECRET."
+    exit 1
+}
+
 # ---------------------------------------------------------------------------
-# 3-account group configuration
-# Groups split by trading MODE (not asset class):
-#   intraday  — SPY/QQQ/IWM/SOXX    → 5-min LSTM, time filter active
-#   swing     — EWT/GLD/EEM/SLV     → daily LSTM (TLT dropped: poor win rate)
-#   expansion — EWJ/EWS/XLE/INDA    → daily LSTM (IGV/FXI dropped: <50% win rate)
-# Group → env key prefix (e.g. ALPACA_INTRADAY_KEY / ALPACA_INTRADAY_SECRET)
-# Fall back to generic ALPACA_API_KEY / ALPACA_API_SECRET if group keys not set.
+# Group configuration
 # ---------------------------------------------------------------------------
 $Groups = @(
-    @{ Name = 'intraday';  EnvPrefix = 'ALPACA_INTRADAY_';  Mode = 'intraday'; Interval = '5min' },
-    @{ Name = 'swing';     EnvPrefix = 'ALPACA_SWING_';     Mode = 'daily';    Interval = '5min' },
-    @{ Name = 'expansion'; EnvPrefix = 'ALPACA_EXPANSION_'; Mode = 'daily';    Interval = '5min' }
+    @{ Name = 'intraday';  EnvPrefix = 'ALPACA_INTRADAY_';  Mode = 'intraday'; Interval = '5min';
+       ExtraArgs = @() },
+    @{ Name = 'swing';     EnvPrefix = 'ALPACA_SWING_';     Mode = 'daily';    Interval = '5min';
+       ExtraArgs = @() },
+    @{ Name = 'expansion'; EnvPrefix = 'ALPACA_EXPANSION_'; Mode = 'daily';    Interval = '5min';
+       ExtraArgs = @() }
 )
 
 $CommonArgs = @(
     '-u', 'main.py', 'trade',
-    '--provider',         'alpaca',
-    '--confidence',       '0.05',
-    '--short-confidence', '0.05',
-    '--exit-confidence',  '0.02',
-    '--trailing-stop',    '0.05',
-    '--take-profit',      '0.08'
+    '--provider', 'alpaca'
 )
 
-# Stop any existing trader processes first
+# Stop any existing trader processes (LSTM + range)
 $existingTraders = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -match 'main.py trade' }
+    Where-Object { $_.CommandLine -match 'main\.py (trade|range-trade)' }
 foreach ($proc in $existingTraders) {
     try { Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop } catch {}
 }
-if ($existingTraders) {
-    Write-Host "Stopped $($existingTraders.Count) existing trader process(es)."
-}
+if ($existingTraders) { Write-Host "Stopped $($existingTraders.Count) existing trader process(es)." }
 
-Write-Host "[$(Get-Date -Format s)] Starting 3 paper trader account groups (intraday/swing/expansion)..."
-Write-Host "Python: $PythonExe"
-foreach ($candidate in $EnvCandidates) {
-    if (Test-Path -LiteralPath $candidate) { Write-Host "Env file: $candidate" }
-}
+# ---------------------------------------------------------------------------
+# Function: launch one group process, return the Process object
+# ---------------------------------------------------------------------------
+function Start-TraderGroup {
+    param($grp)
 
-# Validate at least the generic fallback keys exist
-if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
-    Write-Error "ERROR: Missing ALPACA_API_KEY / ALPACA_API_SECRET. Set machine env vars or add secrets\alpaca.env"
-    exit 1
-}
-
-# Launch one process per group
-foreach ($grp in $Groups) {
-    $modeArgs  = @('--mode', $grp.Mode, '--interval', $grp.Interval)
-    $groupArgs = $CommonArgs + $modeArgs + @('--group', $grp.Name)
-    $ArgLine   = $groupArgs -join ' '
-    $groupLog   = Join-Path $LogDir ("paper_trader_$($grp.Name)_$Timestamp.log")
+    $ts          = Get-Date -Format 'yyyyMMdd_HHmmss'
+    $groupLog    = Join-Path $LogDir ("paper_trader_$($grp.Name)_${ts}.log")
     $groupErrLog = $groupLog -replace '\.log$', '_err.log'
 
-    # Set group-specific env vars for this process if available
+    $modeArgs  = @('--mode', $grp.Mode, '--interval', $grp.Interval)
+    $groupArgs = $CommonArgs + $modeArgs + @('--group', $grp.Name) + $grp.ExtraArgs
+    $ArgLine   = $groupArgs -join ' '
+
     $keyVar = $grp.EnvPrefix + 'KEY'
     $secVar = $grp.EnvPrefix + 'SECRET'
     if (-not (Get-Item -Path "Env:$keyVar" -ErrorAction SilentlyContinue)) {
-        # Group key not set — copy generic keys so the process inherits them
         Set-Item -Path "Env:$keyVar" -Value $env:ALPACA_API_KEY   -ErrorAction SilentlyContinue
         Set-Item -Path "Env:$secVar" -Value $env:ALPACA_API_SECRET -ErrorAction SilentlyContinue
     }
@@ -155,8 +140,78 @@ foreach ($grp in $Groups) {
         -RedirectStandardError  $groupErrLog `
         -WindowStyle      Hidden `
         -PassThru
+
     Write-Host "  [$($grp.Name)] PID $($proc.Id)  log: $groupLog"
+    return $proc
 }
 
-Write-Host "[$(Get-Date -Format s)] All 3 trader groups started."
-Write-Host "Logs directory: $LogDir"
+# ---------------------------------------------------------------------------
+# Initial launch
+# ---------------------------------------------------------------------------
+Write-Host "[$(Get-Date -Format s)] Starting 3 paper trader groups (intraday/swing/expansion) + range trader..."
+Write-Host "Python: $PythonExe"
+foreach ($c in $EnvCandidates) { if (Test-Path -LiteralPath $c) { Write-Host "Env: $c" } }
+
+$GroupProcs = @{}
+foreach ($grp in $Groups) {
+    $proc = Start-TraderGroup $grp
+    $GroupProcs[$grp.Name] = $proc
+}
+
+# ---------------------------------------------------------------------------
+# Range trader: 30% budget, intraday symbols, same account as intraday group
+# ---------------------------------------------------------------------------
+$rangeTs      = Get-Date -Format 'yyyyMMdd_HHmmss'
+$rangeLog     = Join-Path $LogDir "range_trader_${rangeTs}.log"
+$rangeErrLog  = $rangeLog -replace '\.log$', '_err.log'
+$rangeArgLine = '-u main.py range-trade --symbols SPY,QQQ,IWM,SOXX --provider alpaca'
+$rangeProc    = Start-Process `
+    -FilePath         $PythonExe `
+    -ArgumentList     $rangeArgLine `
+    -WorkingDirectory $ProjectRoot `
+    -RedirectStandardOutput $rangeLog `
+    -RedirectStandardError  $rangeErrLog `
+    -WindowStyle      Hidden `
+    -PassThru
+Write-Host "  [range] PID $($rangeProc.Id)  log: $rangeLog"
+
+Write-Host "[$(Get-Date -Format s)] All groups started. Watchdog active."
+
+# ---------------------------------------------------------------------------
+# Watchdog loop - check every 2 minutes, restart dead processes during market hours
+# ---------------------------------------------------------------------------
+while (-not (Test-AfterMarketClose)) {
+    Start-Sleep -Seconds 120
+
+    if (-not (Test-MarketHours)) { continue }
+
+    foreach ($grp in $Groups) {
+        $proc = $GroupProcs[$grp.Name]
+        $alive = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
+        if (-not $alive) {
+            Write-Host "[$(Get-Date -Format s)] [$($grp.Name)] Process $($proc.Id) died - restarting..."
+            $newProc = Start-TraderGroup $grp
+            $GroupProcs[$grp.Name] = $newProc
+        }
+    }
+
+    # Restart range trader if it died
+    $rangeAlive = Get-Process -Id $rangeProc.Id -ErrorAction SilentlyContinue
+    if (-not $rangeAlive) {
+        Write-Host "[$(Get-Date -Format s)] [range] Process $($rangeProc.Id) died - restarting..."
+        $rTs         = Get-Date -Format 'yyyyMMdd_HHmmss'
+        $rLog        = Join-Path $LogDir "range_trader_${rTs}.log"
+        $rErrLog     = $rLog -replace '\.log$', '_err.log'
+        $rangeProc   = Start-Process `
+            -FilePath         $PythonExe `
+            -ArgumentList     $rangeArgLine `
+            -WorkingDirectory $ProjectRoot `
+            -RedirectStandardOutput $rLog `
+            -RedirectStandardError  $rErrLog `
+            -WindowStyle      Hidden `
+            -PassThru
+        Write-Host "  [range] PID $($rangeProc.Id)  log: $rLog"
+    }
+}
+
+Write-Host "[$(Get-Date -Format s)] Market closed - watchdog exiting."

@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 """
-Alpaca Paper Trader — Continuous Loop
-=======================================
-Runs the LSTM ML model in a loop and executes trades on Alpaca paper trading.
-Supports LONG and SHORT positions, trailing stop, take-profit, and intraday mode.
+Alpaca Paper Trader — Continuous Loop (v2 Regression)
+=====================================================
+Runs ML regression models in a loop and executes trades on Alpaca paper trading.
+Supports LONG and SHORT positions with signal-decay exits and disaster stop.
+
+Architecture (v2 — mirrors backtester):
+- Trend-following base layer: SMA(50) determines allowed direction
+- ML signal: expected return magnitude determines position size
+- Signal-decay exit: re-run model each cycle, exit when signal reverses
+- Disaster stop: 3×ATR safety net (not primary exit mechanism)
 
 Usage (via main.py):
-    python main.py trade
-    python main.py trade --interval 5 --confidence 0.2 --trailing-stop 0.05
-    python main.py trade --symbols SPY,QQQ --mode intraday --interval 1
+    python main.py trade --group intraday --mode intraday --interval 5min
+    python main.py trade --group swing
+    python main.py trade --group expansion
 
 Required env vars:
     ALPACA_API_KEY, ALPACA_API_SECRET, FRED_API_KEY
@@ -29,7 +35,6 @@ from __future__ import annotations
 
 import argparse
 import atexit
-import collections
 import logging
 import os
 import signal
@@ -49,9 +54,15 @@ from alpaca.trading.enums import OrderSide, TimeInForce
 from signals_engine import (
     DEFAULT_UNIVERSE, EXTENDED_HOURS_UNIVERSE,
     DAILY_LOOKBACK, build_adapter, FREDVixFetcher,
-    compute_atr, compute_adx_full, compute_hurst_exponent,
+    compute_atr,
 )
-from ml_model import Predictor, _fetch_vix_for_training, DEFAULT_MODEL_DIR, META_THRESHOLD
+from ml_model import (
+    Predictor, _fetch_vix_for_training, DEFAULT_MODEL_DIR,
+    COST_THRESHOLD, TARGET_RETURN,
+)
+from alerts import AlertEngine
+from options_flow import OptionsFlowEngine
+from pairs_model import PairsPredictor, PAIRS_MAP
 
 logging.basicConfig(
     level=logging.INFO,
@@ -65,8 +76,8 @@ log = logging.getLogger("paper_trader")
 # ---------------------------------------------------------------------------
 SYMBOL_GROUPS: Dict[str, List[str]] = {
     # Account 1 — Intraday (5min LSTM, time filter active)
-    # IGV re-added: intraday backtest ~3mo showed 57.7% win rate, Sharpe 1.02, -0.55% max DD
-    "intraday":  ["SPY", "QQQ", "IWM", "SOXX", "IGV"],
+    # IGV dropped: meta RF val_acc=0.47, precision 0.0% on Alpaca 2yr data — no learnable signal
+    "intraday":  ["SPY", "QQQ", "IWM", "SOXX"],
     # Account 2 — Swing (daily LSTM, broader macro ETFs)
     # TLT dropped: 42.9% win rate, Sharpe 0.300 across all feature sets (bonds need rate signals)
     "swing":     ["EWT", "GLD", "EEM", "SLV"],
@@ -76,19 +87,12 @@ SYMBOL_GROUPS: Dict[str, List[str]] = {
     "expansion": ["EWJ", "EWS", "XLE", "INDA"],
 }
 
-# Dynamic Kelly constants
-KELLY_WINDOW       = 60   # rolling window: last N closed trades to estimate W and B
-MIN_KELLY_TRADES   = 20   # minimum closed trades before switching from static to dynamic sizing
-
 # Legacy / wrong-algorithm positions: opened by a previous buggy model. Manage them
 # with stricter exits (lock profit or cut loss sooner) and optionally no new entries.
 # Set via env: PAPER_LEGACY_STRICTER_EXIT=IGV,QQQ  PAPER_LEGACY_NO_NEW_ENTRIES=IGV,QQQ
-LEGACY_STRICTER_EXIT_DEFAULT: Set[str] = set()   # e.g. {"IGV", "QQQ"} to use 3% trail, 2% TP
-LEGACY_NO_NEW_ENTRIES_DEFAULT: Set[str] = set()  # e.g. {"IGV", "QQQ"} to manage out only
-# Tighter params when symbol is in legacy_stricter_exit (or exit_only)
-LEGACY_TRAILING_STOP_PCT = 0.03   # 3% from peak (vs default 5%)
-LEGACY_TP_ACTIVATION     = 0.02   # lock profit after +2% (vs default 4%)
-LEGACY_TP_TRAIL           = 0.01   # 1% trail after activation (vs default 2%)
+LEGACY_STRICTER_EXIT_DEFAULT: Set[str] = set()
+LEGACY_NO_NEW_ENTRIES_DEFAULT: Set[str] = set()
+LEGACY_TRAILING_STOP_PCT = 0.03   # 3% from peak for legacy positions
 
 # Option positions (OCC symbols): data-driven from equity backtest (78.9% WR, 2:1 payoff)
 OPTION_MAX_LOSS_PCT      = 0.35   # stop loss -35%
@@ -300,13 +304,13 @@ def _time_until_next_session() -> str:
 # Paper Trader
 # ===================================================================
 class AlpacaPaperTrader:
-    """Continuous paper trading loop driven by ML predictions.
+    """Continuous paper trading loop driven by ML regression predictions (v2).
 
-    Supports LONG and SHORT positions with:
-    - ATR-based adaptive trailing stop
-    - Volatility-adjusted, confidence-scaled position sizing
-    - Regime filter (ADX-based trend detection)
-    - Trailing take-profit that locks in gains progressively
+    Architecture (mirrors backtester v2):
+    - Trend-following base layer: SMA(50) determines allowed direction
+    - ML signal: expected return magnitude determines position size
+    - Signal-decay exit: re-run model each cycle, exit when signal reverses
+    - Disaster stop: 3×ATR safety net (not primary exit mechanism)
     """
 
     def __init__(
@@ -315,40 +319,20 @@ class AlpacaPaperTrader:
         api_secret: str,
         symbols: List[str],
         provider: str = "yahoo",
-        confidence_threshold: float = 0.2,
-        short_confidence_threshold: float = 0.15,
-        exit_confidence: float = 0.1,
-        trailing_stop_pct: float = 0.05,
-        take_profit_pct: float = 0.08,
         position_pct: float = 0.90,
         check_interval_min: int = 5,
         model_dir: str = DEFAULT_MODEL_DIR,
         mode: str = "daily",
         intraday_interval: str = "5min",
-        # --- Optimization parameters ---
-        use_atr_stop: bool = True,
-        atr_stop_mult: float = 2.5,
-        use_regime_filter: bool = True,
-        adx_threshold: float = 20.0,
-        use_vol_sizing: bool = True,
-        target_vol: float = 0.15,
-        use_confidence_sizing: bool = True,
-        use_trailing_tp: bool = True,
-        trailing_tp_activation: float = 0.04,
-        trailing_tp_trail: float = 0.02,
-        max_loss_atr_mult: float = 1.0,       # Hard cut: exit if loss > N×ATR from entry (0 = off)
-        # --- Book-derived filters ---
-        use_hurst_filter: bool = True,          # Chan: skip entries when H < hurst_threshold
-        hurst_threshold: float = 0.55,          # H > 0.55 = confirmed trending regime
-        kelly_fraction: float = 0.5,            # Chan: base half-Kelly multiplier (0 = off, 0.5 = half)
-        use_dynamic_kelly: bool = True,         # Re-estimate Kelly fraction from recent 60 closed trades
-        use_vix_halt: bool = True,              # Aldridge: halt new entries on VIX spike > 2σ
-        vix_halt_sigma: float = 2.0,            # Aldridge: # of σ for VIX halt
-        use_time_filter: bool = True,           # Aldridge: block opening/closing auction windows (intraday only)
-        use_corr_sizing: bool = True,           # Scale down size when multiple same-direction positions open
-        loss_cooldown_hours: float = 4.0,       # Hours to block re-entry after max_loss or regime_exit (0=off)
-        legacy_stricter_exit: Optional[Set[str]] = None,   # Stricter stops (3% trail, 2% TP) for wrong-algorithm positions
-        legacy_no_new_entries: Optional[Set[str]] = None, # Exit-only for these until flat (no new size)
+        # v2 regression parameters
+        trend_sma_period: int = 50,
+        cost_threshold: float = COST_THRESHOLD,
+        target_return: float = TARGET_RETURN,
+        disaster_stop_atr_mult: float = 3.0,
+        loss_cooldown_hours: float = 4.0,
+        legacy_stricter_exit: Optional[Set[str]] = None,
+        legacy_no_new_entries: Optional[Set[str]] = None,
+        group: Optional[str] = None,
     ):
         self.trading_client = TradingClient(
             api_key=api_key,
@@ -356,36 +340,15 @@ class AlpacaPaperTrader:
             paper=True,  # HARDCODED for safety
         )
         self.symbols = symbols
-        self.long_confidence_threshold = confidence_threshold
-        self.short_confidence_threshold = short_confidence_threshold
-        self.exit_confidence = exit_confidence
-        self.trailing_stop_pct = trailing_stop_pct
-        self.take_profit_pct = take_profit_pct
         self.position_pct = position_pct
         self.check_interval = check_interval_min * 60
         self.mode = mode
         self.intraday_interval = intraday_interval
-        # Optimization params
-        self.use_atr_stop = use_atr_stop
-        self.atr_stop_mult = atr_stop_mult
-        self.use_regime_filter = use_regime_filter
-        self.adx_threshold = adx_threshold
-        self.use_vol_sizing = use_vol_sizing
-        self.target_vol = target_vol
-        self.use_confidence_sizing = use_confidence_sizing
-        self.use_trailing_tp = use_trailing_tp
-        self.trailing_tp_activation = trailing_tp_activation
-        self.trailing_tp_trail = trailing_tp_trail
-        self.max_loss_atr_mult = max_loss_atr_mult
-        self.use_hurst_filter = use_hurst_filter
-        self.hurst_threshold  = hurst_threshold
-        self.kelly_fraction    = kelly_fraction
-        self.use_dynamic_kelly = use_dynamic_kelly
-        self.use_vix_halt      = use_vix_halt
-        self.vix_halt_sigma   = vix_halt_sigma
-        self._vix_halted      = False   # set each cycle by run_loop
-        self.use_time_filter  = use_time_filter
-        self.use_corr_sizing  = use_corr_sizing
+        # v2 regression parameters
+        self.trend_sma_period = trend_sma_period
+        self.cost_threshold = cost_threshold
+        self.target_return = target_return
+        self.disaster_stop_atr_mult = disaster_stop_atr_mult
 
         self.adapter = build_adapter(provider)
         self.fred_key = os.environ.get("FRED_API_KEY")
@@ -397,25 +360,65 @@ class AlpacaPaperTrader:
         # Per-symbol tracking
         self._peak_prices: Dict[str, float] = {}
         self._entry_atrs: Dict[str, float] = {}
-        self._tp_activated: Dict[str, bool] = {}
-        self._tp_trail_peaks: Dict[str, float] = {}
-        self._cooldown_until: Dict[str, datetime] = {}  # symbol → earliest re-entry time
+        self._cooldown_until: Dict[str, datetime] = {}
 
-        # Dynamic Kelly: rolling closed-trade P&L history (cross-symbol, shared)
-        self._closed_trades: collections.deque = collections.deque(maxlen=KELLY_WINDOW)
+        self._vix_cache: Optional[pd.DataFrame] = None
+
+        # Alert engine for microstructure alerts
+        self._alert_engine = AlertEngine()
+        self._options_flow_engine = OptionsFlowEngine()
+        self._options_flow_cache: Optional[Dict] = None
+        self._consecutive_losses: int = 0
+
+        # Pairs fallback: lazy-loaded predictors for mean-reversion regime
+        self._pairs_predictors: Dict[str, Optional[PairsPredictor]] = {}
 
         self.predictors: Dict[str, Optional[Predictor]] = {}
         for sym in symbols:
-            try:
-                self.predictors[sym] = Predictor(
-                    sym, model_dir=model_dir,
-                    mode=mode, intraday_interval=intraday_interval)
-                log.info("Loaded ML model for %s (%s).", sym, mode)
-            except (FileNotFoundError, RuntimeError) as exc:
-                log.warning("No trained model for %s (%s): %s — will skip ML signals.", sym, mode, exc)
-                self.predictors[sym] = None
+            predictor = self._create_predictor(sym, group, model_dir, mode, intraday_interval)
+            self.predictors[sym] = predictor
+            if predictor is not None:
+                model_type = getattr(predictor, 'model_type', 'lstm')
+                log.info("Loaded %s model for %s (%s).", model_type, sym, mode)
 
         self._running = True
+
+    # -- Predictor factory (selects model type per group) ----------------
+    @staticmethod
+    def _create_predictor(symbol: str, group: Optional[str], model_dir: str,
+                          mode: str, intraday_interval: str):
+        """Create the right predictor based on account group.
+
+        Tries group-specific model first (LightGBM/PatchTST/XGBoost),
+        falls back to LSTM if the group-specific model isn't trained yet.
+        """
+        if group == "intraday":
+            try:
+                from intraday_model import IntradayPredictor
+                return IntradayPredictor(symbol, model_dir=model_dir)
+            except (FileNotFoundError, ImportError) as exc:
+                log.info("No intraday LightGBM for %s, falling back to LSTM: %s", symbol, exc)
+        elif group == "swing":
+            try:
+                from swing_model import SwingPredictor
+                return SwingPredictor(symbol, model_dir=model_dir)
+            except (FileNotFoundError, ImportError) as exc:
+                log.info("No swing PatchTST for %s, falling back to LSTM: %s", symbol, exc)
+        elif group == "expansion":
+            try:
+                from expansion_model import ExpansionPredictor
+                return ExpansionPredictor(symbol, model_dir=model_dir)
+            except (FileNotFoundError, ImportError) as exc:
+                log.info("No expansion XGBoost for %s, falling back to LSTM: %s", symbol, exc)
+
+        # Fallback: original LSTM predictor
+        try:
+            return Predictor(symbol, model_dir=model_dir,
+                             mode=mode, intraday_interval=intraday_interval)
+        except (FileNotFoundError, RuntimeError) as exc:
+            log.warning("No trained model for %s (%s): %s — will skip ML signals.",
+                        symbol, mode, exc)
+            return None
 
     # -- Account info --------------------------------------------------
     def get_account_summary(self) -> dict:
@@ -529,6 +532,18 @@ class AlpacaPaperTrader:
         return oid
 
     # -- ML prediction -------------------------------------------------
+    def _get_vix_df(self) -> pd.DataFrame:
+        """Fetch VIX data once per cycle; cache and fall back to last good value on failure."""
+        vix_days = 10 if self.mode == "intraday" else 400
+        try:
+            vix_df = _fetch_vix_for_training(self.fred_key, lookback_days=vix_days)
+            if len(vix_df) >= 2:
+                self._vix_cache = vix_df   # update cache on success
+            return vix_df
+        except Exception as exc:
+            log.warning("VIX fetch failed, using cached value: %s", exc)
+            return self._vix_cache if self._vix_cache is not None else pd.DataFrame()
+
     def get_prediction(self, symbol: str) -> dict:
         """Get ML prediction for a symbol."""
         predictor = self.predictors.get(symbol)
@@ -544,7 +559,7 @@ class AlpacaPaperTrader:
             else:
                 # 400 days needed: GLD/SLV use frac_diff_close (~282-bar warmup)
                 bars = self.adapter.fetch_daily(symbol, 400)
-            vix_df = _fetch_vix_for_training(self.fred_key, lookback_days=400)
+            vix_df = self._vix_cache if self._vix_cache is not None else self._get_vix_df()
             return predictor.predict(bars, vix_df)
         except Exception as exc:
             log.error("Prediction failed for %s: %s", symbol, exc)
@@ -563,133 +578,59 @@ class AlpacaPaperTrader:
         except Exception:
             return None
 
-    def _get_hurst(self, symbol: str) -> float:
-        """Compute Hurst exponent from ~100 daily bars.
-
-        H > 0.55 → trending (momentum strategy valid).
-        H < 0.45 → mean-reverting (momentum signals unreliable).
-        Per Ernest Chan, *Algorithmic Trading*, Chapter 2.
-        """
-        try:
-            bars = self.adapter.fetch_daily(symbol, 100)
-            if len(bars) < 30:
-                return 0.5
-            return compute_hurst_exponent(bars["close"].astype(float))
-        except Exception as exc:
-            log.warning("Hurst fetch failed for %s: %s", symbol, exc)
-            return 0.5
-
-    def _check_vix_halt(self) -> bool:
-        """Return True if today's VIX move is anomalously large (> vix_halt_sigma × σ).
-
-        When True, halt ALL new entries for this cycle (exits still allowed).
-        Per Irene Aldridge, *High-Frequency Trading* — cease new entries during
-        structural regime changes flagged by abnormal VIX spikes.
-        """
-        try:
-            vix_df = _fetch_vix_for_training(self.fred_key, lookback_days=60)
-            if len(vix_df) < 22:
-                return False
-            vix_chg = vix_df["vix"].pct_change().dropna()
-            rolling_std = float(vix_chg.rolling(20).std().iloc[-1])
-            today_chg   = float(vix_chg.iloc[-1])
-            if rolling_std > 0 and abs(today_chg) > self.vix_halt_sigma * rolling_std:
-                log.warning(
-                    "VIX HALT: today_chg=%.2f%% > %.1fσ (σ=%.2f%%) — no new entries this cycle.",
-                    today_chg * 100, self.vix_halt_sigma, rolling_std * 100,
-                )
-                return True
-            return False
-        except Exception as exc:
-            log.warning("VIX halt check failed: %s", exc)
-            return False
-
-    def _intraday_time_window(self) -> str:
-        """Return the current intraday time-of-day window (ET).
-
-        Aldridge, High-Frequency Trading Ch. 5-7:
-          open_noise   9:30-10:00  — opening auction, wide spreads, fake momentum → block entries
-          momentum_1  10:00-11:30  — primary momentum window → full size
-          midday      11:30-14:00  — low volume, mean-reverting → half size
-          momentum_2  14:00-15:30  — secondary momentum window → full size
-          close_noise 15:30-16:00  — closing auction risk → block entries, exits only
-
-        Only meaningful in intraday mode.
-        """
-        from datetime import time as dt_time
-        try:
-            from zoneinfo import ZoneInfo
-        except ImportError:
-            from backports.zoneinfo import ZoneInfo
-
-        t = datetime.now(ZoneInfo("America/New_York")).time()
-        if   dt_time(9,  30) <= t < dt_time(10,  0): return "open_noise"
-        elif dt_time(10,  0) <= t < dt_time(11, 30): return "momentum_1"
-        elif dt_time(11, 30) <= t < dt_time(14,  0): return "midday"
-        elif dt_time(14,  0) <= t < dt_time(15, 30): return "momentum_2"
-        elif dt_time(15, 30) <= t <= dt_time(16, 0): return "close_noise"
-        return "n/a"
-
     def _get_market_context(self, symbol: str) -> Dict[str, float]:
-        """Fetch ATR, ADX, +DI, -DI, and realized vol for position sizing, stops, and DI filter."""
+        """Fetch ATR and trend signal for position management."""
         try:
             bars = self.adapter.fetch_daily(symbol, 60)
             if len(bars) < 30:
-                return {"atr": 0.0, "adx": 25.0, "plus_di": 25.0, "minus_di": 25.0, "vol20": 0.15}
+                return {"atr": 0.0, "trend": 0.0}
             close = bars["close"].astype(float)
             high = bars["high"].astype(float)
             low = bars["low"].astype(float)
             atr_s = compute_atr(high, low, close, period=14)
-            adx_s, plus_di_s, minus_di_s = compute_adx_full(high, low, close, period=14)
-            vol_s = close.pct_change().rolling(20).std() * np.sqrt(252)
+
+            # Trend signal: SMA(50)
+            sma = close.rolling(self.trend_sma_period).mean()
+            trend = 1.0 if float(close.iloc[-1]) > float(sma.iloc[-1]) else -1.0
+            if np.isnan(float(sma.iloc[-1])):
+                trend = 0.0
 
             def _safe(s: "pd.Series", default: float) -> float:
                 v = float(s.iloc[-1])
                 return default if np.isnan(v) else v
 
             return {
-                "atr":      _safe(atr_s,      0.0),
-                "adx":      _safe(adx_s,      25.0),
-                "plus_di":  _safe(plus_di_s,  25.0),
-                "minus_di": _safe(minus_di_s, 25.0),
-                "vol20":    _safe(vol_s,       0.15),
+                "atr":   _safe(atr_s, 0.0),
+                "trend": trend,
             }
         except Exception as exc:
             log.warning("Market context fetch failed for %s: %s", symbol, exc)
-            return {"atr": 0.0, "adx": 25.0, "plus_di": 25.0, "minus_di": 25.0, "vol20": 0.15}
+            return {"atr": 0.0, "trend": 0.0}
 
     # -- Trading logic (one symbol) ------------------------------------
     def check_and_trade(self, symbol: str, positions: Dict[str, dict],
                         allocation: float, exit_only: bool = False) -> str:
-        """Check ML signal and manage position for one symbol.
+        """Check ML signal and manage position for one symbol (v2 regression).
 
-        Optimized strategy with ATR-based stops, vol sizing, regime filter,
-        and trailing take-profit.
-
-        When exit_only=True (symbol not in this group's list), only exit logic
-        runs: trailing stop, take-profit, signal flip. No new entries. Use this
-        to manage out positions that were opened under a previous/wrong model.
+        Architecture mirrors backtester v2:
+        - Exit: signal-decay (E[r] reverses) + disaster stop (3×ATR)
+        - Entry: E[r] > cost_threshold AND trend agrees → trade
+        - Sizing: signal-proportional
+        - Preserves: EOD exit for intraday, option exits, legacy exits
 
         Returns action string for display.
         """
         pred = self.get_prediction(symbol)
         direction = pred["direction"]
         confidence = pred["confidence"]
-        meta_confidence = pred.get("meta_confidence", 1.0)
-        meta_tradeable  = pred.get("tradeable", True)
+        expected_return = pred.get("expected_return", 0.0)
 
         ctx = self._get_market_context(symbol)
-        bar_atr      = ctx["atr"]
-        bar_adx      = ctx["adx"]
-        bar_plus_di  = ctx["plus_di"]
-        bar_minus_di = ctx["minus_di"]
-        bar_vol      = ctx["vol20"]
-        # DI-implied direction: True when +DI > -DI (uptrend dominant)
-        di_bullish = bar_plus_di > bar_minus_di
+        bar_atr = ctx["atr"]
+        bar_trend = ctx["trend"]
 
         pos = positions.get(symbol)
         has_position = pos is not None and pos["qty"] > 0
-        flip_direction = None
 
         # Wrongly placed: symbol has no position here — nothing to manage
         if exit_only and not has_position:
@@ -703,12 +644,10 @@ class AlpacaPaperTrader:
             entry_price = pos["entry_price"]
             pnl_pct = pos["unrealized_pnl_pct"]
 
-            # Legacy / wrong-algorithm positions: use tighter stops to lock profit or cut loss sooner
             use_legacy_stops = exit_only or (symbol in self._legacy_stricter_exit)
             use_option_stops = _is_option_symbol(symbol)
 
-            # Initialize peak from entry_price when we first see a position so inherited/down positions
-            # trigger the trailing stop immediately (e.g. short entered at 80, now 84 -> peak=80, drawdown=5%).
+            # Initialize peak from entry_price
             if symbol not in self._peak_prices:
                 self._peak_prices[symbol] = entry_price
             if side == "LONG":
@@ -721,7 +660,28 @@ class AlpacaPaperTrader:
                                       / self._peak_prices[symbol]
                                       if self._peak_prices[symbol] > 0 else 0)
 
-            # Option positions: fixed -35% max loss (data-driven from backtest)
+            # EOD exit for intraday momentum models: close all positions at 15:30 ET
+            predictor = self.predictors.get(symbol)
+            if getattr(predictor, 'eod_exit', False):
+                try:
+                    from zoneinfo import ZoneInfo
+                except ImportError:
+                    from backports.zoneinfo import ZoneInfo
+                import datetime as _dt
+                now_et = _dt.datetime.now(ZoneInfo("America/New_York"))
+                if now_et.time() >= _dt.time(15, 30):
+                    if side == "LONG":
+                        self.sell(symbol, qty, reason="eod_exit (intraday momentum)",
+                                  limit_price=current_price)
+                    else:
+                        self.buy_to_cover(symbol, qty, reason="eod_exit (intraday momentum)",
+                                          limit_price=current_price)
+                    self._record_closed_trade(pnl_pct)
+                    self._clear_symbol_state(symbol)
+                    return (f"EXIT  (EOD close {pnl_pct:+.2%}, {qty} sh {side})  "
+                            f"ML: {direction} E[r]={expected_return:+.4f}")
+
+            # Option positions: fixed -35% max loss
             if use_option_stops and pnl_pct <= -OPTION_MAX_LOSS_PCT:
                 if side == "LONG":
                     self.sell(symbol, qty, reason=f"max_loss ({pnl_pct:+.2%})",
@@ -732,68 +692,7 @@ class AlpacaPaperTrader:
                 self._record_closed_trade(pnl_pct)
                 self._clear_symbol_state(symbol)
                 return (f"EXIT  (option max loss {pnl_pct:+.2%} <= -{OPTION_MAX_LOSS_PCT:.0%}, "
-                        f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
-
-            # Hard max-loss cut: exit if loss exceeds N×ATR from entry price (ATR-adaptive floor)
-            entry_atr_for_floor = self._entry_atrs.get(symbol, bar_atr)
-            if (not use_option_stops
-                    and self.max_loss_atr_mult > 0 and entry_atr_for_floor > 0
-                    and entry_price > 0
-                    and pnl_pct <= -(self.max_loss_atr_mult * entry_atr_for_floor / entry_price)):
-                floor_pct = self.max_loss_atr_mult * entry_atr_for_floor / entry_price
-                if side == "LONG":
-                    self.sell(symbol, qty, reason=f"max_loss ({pnl_pct:+.2%})",
-                              limit_price=current_price)
-                else:
-                    self.buy_to_cover(symbol, qty, reason=f"max_loss ({pnl_pct:+.2%})",
-                                      limit_price=current_price)
-                self._record_closed_trade(pnl_pct)
-                self._clear_symbol_state(symbol)
-                if self.loss_cooldown_hours > 0:
-                    cd = timedelta(hours=self.loss_cooldown_hours)
-                    self._cooldown_until[symbol] = datetime.now(timezone.utc) + cd
-                    log.info("Cooldown %s: no re-entry for %.1fh after max_loss exit", symbol, self.loss_cooldown_hours)
-                return (f"EXIT  (max loss {pnl_pct:+.2%} >= -{floor_pct:.2%} floor [{self.max_loss_atr_mult}×ATR], "
-                        f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
-
-            # Regime breakdown exit: trend that justified entry has collapsed (equity only; skip for options)
-            # ADX < 15 = no trend at all; Hurst < 0.50 = mean-reverting/random
-            regime_exit_reason: str | None = None
-            if not use_option_stops and self.use_regime_filter and bar_adx < 15.0:
-                regime_exit_reason = f"ADX={bar_adx:.1f}<15 (no trend)"
-            if regime_exit_reason is None and not use_option_stops and self.use_hurst_filter:
-                hurst = self._get_hurst(symbol)
-                if hurst < 0.50:
-                    label = "mean-reverting" if hurst < 0.45 else "random-walk"
-                    regime_exit_reason = f"H={hurst:.2f}<0.50 ({label})"
-            if regime_exit_reason:
-                if side == "LONG":
-                    self.sell(symbol, qty, reason="regime_exit", limit_price=current_price)
-                else:
-                    self.buy_to_cover(symbol, qty, reason="regime_exit", limit_price=current_price)
-                self._record_closed_trade(pnl_pct)
-                self._clear_symbol_state(symbol)
-                if self.loss_cooldown_hours > 0:
-                    cd = timedelta(hours=self.loss_cooldown_hours)
-                    self._cooldown_until[symbol] = datetime.now(timezone.utc) + cd
-                    log.info("Cooldown %s: no re-entry for %.1fh after regime exit", symbol, self.loss_cooldown_hours)
-                return (f"EXIT  (regime breakdown: {regime_exit_reason}, P&L={pnl_pct:+.2%}, "
-                        f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
-
-            # ATR-based or fixed stop distance (option vs legacy vs normal)
-            entry_atr = self._entry_atrs.get(symbol, bar_atr)
-            if use_option_stops:
-                stop_distance = OPTION_TRAILING_STOP_PCT
-                tp_activation, tp_trail = OPTION_TP_ACTIVATION, OPTION_TP_TRAIL
-            elif use_legacy_stops:
-                stop_distance = LEGACY_TRAILING_STOP_PCT
-                tp_activation, tp_trail = LEGACY_TP_ACTIVATION, LEGACY_TP_TRAIL
-            else:
-                if self.use_atr_stop and entry_atr > 0 and entry_price > 0:
-                    stop_distance = self.atr_stop_mult * entry_atr / entry_price
-                else:
-                    stop_distance = self.trailing_stop_pct
-                tp_activation, tp_trail = self.trailing_tp_activation, self.trailing_tp_trail
+                        f"{qty} sh {side})  ML: {direction} E[r]={expected_return:+.4f}")
 
             # Option: fixed +70% profit target
             if use_option_stops and pnl_pct >= OPTION_TP_TARGET_PCT:
@@ -806,244 +705,172 @@ class AlpacaPaperTrader:
                 self._record_closed_trade(pnl_pct)
                 self._clear_symbol_state(symbol)
                 return (f"EXIT  (option profit target {pnl_pct:+.2%} >= +{OPTION_TP_TARGET_PCT:.0%}, "
-                        f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
+                        f"{qty} sh {side})  ML: {direction} E[r]={expected_return:+.4f}")
 
-            # Trailing take-profit: lock in gains once threshold is reached
-            if self.use_trailing_tp and pnl_pct >= tp_activation:
-                if not self._tp_activated.get(symbol, False):
-                    self._tp_activated[symbol] = True
-                    self._tp_trail_peaks[symbol] = pnl_pct
-                    log.info("Trailing TP activated for %s at %+.2f%%", symbol, pnl_pct * 100)
-                self._tp_trail_peaks[symbol] = max(
-                    self._tp_trail_peaks.get(symbol, pnl_pct), pnl_pct)
-                if pnl_pct < self._tp_trail_peaks[symbol] - tp_trail:
-                    if side == "LONG":
-                        self.sell(symbol, qty, reason=f"trailing_tp ({pnl_pct:+.2%})",
-                                  limit_price=current_price)
-                    else:
-                        self.buy_to_cover(symbol, qty, reason=f"trailing_tp ({pnl_pct:+.2%})",
-                                          limit_price=current_price)
-                    self._record_closed_trade(pnl_pct)
-                    self._clear_symbol_state(symbol)
-                    return (f"EXIT  (trailing TP {pnl_pct:+.2%}, peak {self._tp_trail_peaks.get(symbol, 0):+.2%}, "
-                            f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
-
-            # Trailing stop
-            if drawdown_from_peak >= stop_distance:
+            # Option: trailing stop (20% from peak)
+            if use_option_stops and drawdown_from_peak >= OPTION_TRAILING_STOP_PCT:
                 if side == "LONG":
-                    self.sell(symbol, qty, reason=f"trailing_stop ({drawdown_from_peak:.2%})",
+                    self.sell(symbol, qty, reason=f"option_trailing_stop ({drawdown_from_peak:.2%})",
                               limit_price=current_price)
                 else:
-                    self.buy_to_cover(symbol, qty, reason=f"trailing_stop ({drawdown_from_peak:.2%})",
+                    self.buy_to_cover(symbol, qty, reason=f"option_trailing_stop ({drawdown_from_peak:.2%})",
                                       limit_price=current_price)
                 self._record_closed_trade(pnl_pct)
                 self._clear_symbol_state(symbol)
-                return (f"EXIT  (trailing stop {drawdown_from_peak:.2%} from peak, "
-                        f"{qty} sh {side})  ML: {direction} {confidence:.2f}")
+                return (f"EXIT  (option trailing stop {drawdown_from_peak:.2%} from peak, "
+                        f"{qty} sh {side})  ML: {direction} E[r]={expected_return:+.4f}")
 
-            # Signal flip
-            if (side == "LONG" and direction == "DOWN"
-                    and confidence >= self.exit_confidence):
-                self.sell(symbol, qty, reason="signal_flip", limit_price=current_price)
-                self._record_closed_trade(pnl_pct)
-                self._clear_symbol_state(symbol)
-                flip_direction = "SHORT"
-            elif (side == "SHORT" and direction == "UP"
-                  and confidence >= self.exit_confidence):
-                self.buy_to_cover(symbol, qty, reason="signal_flip", limit_price=current_price)
-                self._record_closed_trade(pnl_pct)
-                self._clear_symbol_state(symbol)
-                flip_direction = "LONG"
-            else:
-                if use_option_stops:
-                    stop_info = f"{OPTION_TRAILING_STOP_PCT:.0%} trail"
+            # Legacy positions: trailing stop (3% from peak)
+            if use_legacy_stops and not use_option_stops:
+                if drawdown_from_peak >= LEGACY_TRAILING_STOP_PCT:
+                    if side == "LONG":
+                        self.sell(symbol, qty, reason=f"legacy_trailing_stop ({drawdown_from_peak:.2%})",
+                                  limit_price=current_price)
+                    else:
+                        self.buy_to_cover(symbol, qty, reason=f"legacy_trailing_stop ({drawdown_from_peak:.2%})",
+                                          limit_price=current_price)
+                    self._record_closed_trade(pnl_pct)
+                    self._clear_symbol_state(symbol)
+                    return (f"EXIT  (legacy trailing stop {drawdown_from_peak:.2%} from peak, "
+                            f"{qty} sh {side})  ML: {direction} E[r]={expected_return:+.4f}")
+
+            # --- v2: Disaster stop (safety net at N×ATR) ---
+            if not use_option_stops and not use_legacy_stops:
+                entry_atr = self._entry_atrs.get(symbol, bar_atr)
+                if entry_atr > 0 and entry_price > 0:
+                    disaster_stop_pct = self.disaster_stop_atr_mult * entry_atr / entry_price
                 else:
-                    stop_info = f"ATR×{self.atr_stop_mult}" if self.use_atr_stop else f"{self.trailing_stop_pct:.0%}"
-                return (f"HOLD  ({side} {qty} sh @ ${entry_price:.2f}, "
-                        f"P&L: {pnl_pct:+.2%}, stop={stop_info})  "
-                        f"ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}")
+                    disaster_stop_pct = 0.10
+                if pnl_pct <= -disaster_stop_pct:
+                    if side == "LONG":
+                        self.sell(symbol, qty, reason=f"disaster_stop ({pnl_pct:+.2%})",
+                                  limit_price=current_price)
+                    else:
+                        self.buy_to_cover(symbol, qty, reason=f"disaster_stop ({pnl_pct:+.2%})",
+                                          limit_price=current_price)
+                    self._record_closed_trade(pnl_pct)
+                    self._clear_symbol_state(symbol)
+                    if self.loss_cooldown_hours > 0:
+                        cd = timedelta(hours=self.loss_cooldown_hours)
+                        self._cooldown_until[symbol] = datetime.now(timezone.utc) + cd
+                        log.info("Cooldown %s: no re-entry for %.1fh after disaster stop", symbol, self.loss_cooldown_hours)
+                    return (f"EXIT  (disaster stop {pnl_pct:+.2%} >= -{disaster_stop_pct:.2%} "
+                            f"[{self.disaster_stop_atr_mult}×ATR], "
+                            f"{qty} sh {side})  ML: {direction} E[r]={expected_return:+.4f}")
+
+            # --- v2: Signal-decay exit (primary exit mechanism) ---
+            if not use_option_stops and not use_legacy_stops:
+                if side == "LONG" and expected_return <= 0:
+                    self.sell(symbol, qty, reason="signal_decay", limit_price=current_price)
+                    self._record_closed_trade(pnl_pct)
+                    self._clear_symbol_state(symbol)
+                    return (f"EXIT  (signal decay: E[r]={expected_return:+.4f} ≤ 0, "
+                            f"P&L={pnl_pct:+.2%}, {qty} sh {side})")
+                elif side == "SHORT" and expected_return >= 0:
+                    self.buy_to_cover(symbol, qty, reason="signal_decay", limit_price=current_price)
+                    self._record_closed_trade(pnl_pct)
+                    self._clear_symbol_state(symbol)
+                    return (f"EXIT  (signal decay: E[r]={expected_return:+.4f} ≥ 0, "
+                            f"P&L={pnl_pct:+.2%}, {qty} sh {side})")
+
+            # HOLD
+            return (f"HOLD  ({side} {qty} sh @ ${entry_price:.2f}, "
+                    f"P&L: {pnl_pct:+.2%})  "
+                    f"ML: {direction} E[r]={expected_return:+.4f}  trend={bar_trend:+.0f}")
 
         # --- Entry logic ---
         # Exit-only: manage out wrongly placed positions; do not open new ones
         if exit_only:
-            return (f"EXIT-ONLY  (managing out — {direction} {confidence:.2f}, "
+            return (f"EXIT-ONLY  (managing out — {direction} E[r]={expected_return:+.4f}, "
                     f"no new entries for this symbol in this account)")
-        # Aldridge: intraday time-of-day filter — block opening/closing auction windows
-        _midday_sizing_mult = 1.0
-        if self.use_time_filter and self.mode == "intraday" and not flip_direction:
-            _tw = self._intraday_time_window()
-            if _tw == "open_noise":
-                return (f"TIME BLOCK  (9:30-10:00 ET opening noise — wide spreads, false momentum)  "
-                        f"ML: {direction} {confidence:.2f}")
-            if _tw == "close_noise":
-                return (f"TIME BLOCK  (15:30-16:00 ET closing risk — exits only)  "
-                        f"ML: {direction} {confidence:.2f}")
-            if _tw == "midday":
-                _midday_sizing_mult = 0.5   # low volume doldrums: half size
 
-        # Aldridge: VIX halt — block ALL new entries on extreme VIX spikes
-        if self._vix_halted and not flip_direction:
-            return (f"SKIP  (VIX halt active — no new entries this cycle)  "
-                    f"ML: {direction} {confidence:.2f}")
-
-        # Regime filter: skip in trendless markets (ADX)
-        if self.use_regime_filter and bar_adx < self.adx_threshold:
-            if flip_direction:
-                return (f"EXIT  (signal flip, no re-entry: ADX={bar_adx:.0f}<{self.adx_threshold:.0f})  "
-                        f"ML: {direction} {confidence:.2f}")
-            return f"SKIP  (low trend ADX={bar_adx:.0f}<{self.adx_threshold:.0f})  ML: {direction} {confidence:.2f}"
-
-        # Chan: Hurst regime filter — skip momentum entries in mean-reverting markets
-        if self.use_hurst_filter and not flip_direction:
-            hurst = self._get_hurst(symbol)
-            if hurst < self.hurst_threshold:
-                regime = "mean-reverting" if hurst < 0.45 else "random-walk"
-                return (f"SKIP  (H={hurst:.2f}<{self.hurst_threshold} {regime}, "
-                        f"momentum invalid)  ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}")
-
-        # De Prado: meta-labeling gate — only enter when meta RF trusts the primary signal
-        if not meta_tradeable and not flip_direction:
-            return (f"META BLOCK  (meta_conf={meta_confidence:.2f}<{META_THRESHOLD:.2f}, "
-                    f"primary signal not trusted)  ML: {direction} {confidence:.2f}")
-
+        # Determine entry direction
         enter_dir = None
-        if flip_direction is not None and confidence >= self.exit_confidence:
-            enter_dir = flip_direction
-        elif direction == "UP" and confidence >= self.long_confidence_threshold:
-            if not di_bullish:
-                return (f"SKIP  (ML=UP but -DI={bar_minus_di:.0f} > +DI={bar_plus_di:.0f}, "
-                        f"DI conflict)  ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}")
+        if expected_return > self.cost_threshold and bar_trend > 0:
             enter_dir = "LONG"
-        elif direction == "DOWN" and confidence >= self.short_confidence_threshold:
-            if di_bullish:
-                return (f"SKIP  (ML=DOWN but +DI={bar_plus_di:.0f} > -DI={bar_minus_di:.0f}, "
-                        f"DI conflict)  ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}")
+        elif expected_return < -self.cost_threshold and bar_trend < 0:
             enter_dir = "SHORT"
 
         if enter_dir is not None:
-            # Cooldown check: don't re-enter after a max_loss or regime_exit
+            # Cooldown check
             cd_until = self._cooldown_until.get(symbol)
             if cd_until and datetime.now(timezone.utc) < cd_until:
                 remaining = (cd_until - datetime.now(timezone.utc)).seconds // 60
                 return (f"COOLDOWN  ({symbol} blocked for {remaining}m after loss exit, "
-                        f"enter_dir={enter_dir})  ML: {direction} {confidence:.2f}")
+                        f"enter_dir={enter_dir})  ML: {direction} E[r]={expected_return:+.4f}")
 
             current_price = self._get_current_price(symbol)
             if current_price is None:
-                action = "flip" if flip_direction else "entry"
-                return (f"SKIP  (price fetch failed for {action})  "
-                        f"ML: {direction} {confidence:.2f}")
+                return (f"SKIP  (price fetch failed for entry)  "
+                        f"ML: {direction} E[r]={expected_return:+.4f}")
 
-            # Chan: volatility-adjusted + confidence-scaled sizing with half-Kelly multiplier
-            sizing_pct = self.position_pct
-            if self.use_vol_sizing and bar_vol > 0:
-                vol_scalar = min(2.0, max(0.3, self.target_vol / bar_vol))
-                sizing_pct *= vol_scalar
-            if self.use_confidence_sizing:
-                conf_scalar = 0.5 + confidence
-                sizing_pct *= conf_scalar
-            dyn_kelly = self._compute_dynamic_kelly()
-            if dyn_kelly > 0:
-                sizing_pct *= dyn_kelly   # dynamic half-Kelly (falls back to static if < MIN_KELLY_TRADES)
-            # Aldridge: midday doldrums — reduce size during 11:30-14:00 ET
-            if _midday_sizing_mult < 1.0:
-                sizing_pct *= _midday_sizing_mult
-            # Correlated position sizing: 1/sqrt(N) when opening additional same-direction positions
-            if self.use_corr_sizing:
-                n_same = sum(1 for p in positions.values() if p["side"] == enter_dir) + 1
-                if n_same > 1:
-                    corr_scalar = 1.0 / np.sqrt(n_same)
-                    sizing_pct *= corr_scalar
-                    log.debug("Corr sizing: %.2fx (%d same-direction open)", corr_scalar, n_same)
+            # Signal-proportional sizing (v2)
+            signal_pct = min(1.0, max(0.1, abs(expected_return) / self.target_return))
+            sizing_pct = self.position_pct * signal_pct
             sizing_pct = min(sizing_pct, 0.98)
 
             invest = allocation * sizing_pct
             qty = int(invest / current_price)
             if qty <= 0:
-                return f"SKIP  (insufficient allocation)  ML: {direction} {confidence:.2f}"
+                return f"SKIP  (insufficient allocation)  ML: {direction} E[r]={expected_return:+.4f}"
 
             if enter_dir == "LONG":
                 self.buy(symbol, qty, limit_price=current_price)
-                verb = "FLIP->BUY" if flip_direction else "BUY"
             else:
                 self.sell_short(symbol, qty, limit_price=current_price)
-                verb = "FLIP->SHORT" if flip_direction else "SHORT"
 
             self._peak_prices[symbol] = current_price
             self._entry_atrs[symbol] = bar_atr
-            self._tp_activated[symbol] = False
-            self._tp_trail_peaks[symbol] = 0.0
 
-            return (f"{verb}  ({qty} sh @ ~${current_price:.2f}, "
+            return (f"{enter_dir}  ({qty} sh @ ~${current_price:.2f}, "
                     f"${qty * current_price:,.0f}, size={sizing_pct:.0%})  "
-                    f"ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}  "
-                    f"+DI={bar_plus_di:.0f}/-DI={bar_minus_di:.0f}")
+                    f"ML: {direction} E[r]={expected_return:+.4f}  trend={bar_trend:+.0f}")
 
-        if flip_direction:
-            return (f"EXIT  (signal flip, no re-entry)  "
-                    f"ML: {direction} {confidence:.2f}")
-
-        return f"SKIP  (no signal)  ML: {direction} {confidence:.2f}  ADX={bar_adx:.0f}"
+        return (f"SKIP  (no signal)  ML: {direction} E[r]={expected_return:+.4f}  "
+                f"trend={bar_trend:+.0f}")
 
     def _record_closed_trade(self, pnl_pct: float) -> None:
-        """Push realized P&L fraction into the rolling Kelly window."""
-        self._closed_trades.append(pnl_pct)
-
-    def _compute_dynamic_kelly(self) -> float:
-        """Return the dynamic half-Kelly fraction estimated from recent closed trades.
-
-        Formula (Chan, *Machine Trading*, ch. 6):
-            full-Kelly f* = (W*(B+1) - 1) / B
-            half-Kelly   = f* * 0.5
-        where W = win rate, B = avg_win / avg_loss over the last KELLY_WINDOW trades.
-
-        Falls back to the static ``self.kelly_fraction`` when:
-        - dynamic Kelly is disabled (use_dynamic_kelly=False)
-        - fewer than MIN_KELLY_TRADES are recorded
-        - computed f* is non-positive (no edge detected)
-
-        The result is clamped to [kelly_fraction*0.5, kelly_fraction*2.0] so it never
-        deviate more than 2x from the configured base fraction.
-        """
-        if self.kelly_fraction <= 0 or not self.use_dynamic_kelly:
-            return self.kelly_fraction
-
-        trades = list(self._closed_trades)
-        if len(trades) < MIN_KELLY_TRADES:
-            return self.kelly_fraction  # not enough history yet
-
-        wins   = [p for p in trades if p > 0]
-        losses = [abs(p) for p in trades if p <= 0]
-
-        if not losses:
-            # Never lost in the window — cap at 2x base
-            return self.kelly_fraction * 2.0
-        if not wins:
-            return 0.0  # no wins in window — skip new trades
-
-        W = len(wins) / len(trades)
-        B = np.mean(wins) / np.mean(losses)  # profit ratio
-
-        kelly_full = (W * (B + 1) - 1) / B
-        if kelly_full <= 0:
-            return 0.0  # negative edge — do not trade
-
-        half_kelly = kelly_full * 0.5
-        kelly_min  = self.kelly_fraction * 0.5
-        kelly_max  = self.kelly_fraction * 2.0
-        result = float(np.clip(half_kelly, kelly_min, kelly_max))
-        log.debug(
-            "Dynamic Kelly: W=%.2f B=%.2f f*=%.3f half=%.3f clamped=%.3f (n=%d trades)",
-            W, B, kelly_full, half_kelly, result, len(trades),
-        )
-        return result
+        """Track consecutive losses for portfolio alerts."""
+        if pnl_pct <= 0:
+            self._consecutive_losses += 1
+        else:
+            self._consecutive_losses = 0
 
     def _clear_symbol_state(self, symbol: str) -> None:
         """Reset tracking state for a symbol after exit."""
         self._peak_prices.pop(symbol, None)
         self._entry_atrs.pop(symbol, None)
-        self._tp_activated.pop(symbol, None)
-        self._tp_trail_peaks.pop(symbol, None)
+
+    # -- Pairs fallback ------------------------------------------------
+    def _get_pairs_prediction(self, symbol: str) -> Optional[dict]:
+        """Lazy-load PairsPredictor and get a pairs-model prediction.
+
+        Called when Hurst < 0.45 (mean-reverting regime) as a fallback
+        instead of skipping the symbol entirely.
+
+        Returns prediction dict or None if no pairs model available.
+        """
+        if symbol not in PAIRS_MAP:
+            return None
+
+        if symbol not in self._pairs_predictors:
+            try:
+                self._pairs_predictors[symbol] = PairsPredictor(symbol)
+            except (FileNotFoundError, ImportError) as exc:
+                log.info("No pairs model for %s: %s", symbol, exc)
+                self._pairs_predictors[symbol] = None
+
+        predictor = self._pairs_predictors[symbol]
+        if predictor is None:
+            return None
+
+        try:
+            bars = self.adapter.fetch_daily(symbol, 200)
+            vix_df = self._vix_cache if self._vix_cache is not None else self._get_vix_df()
+            return predictor.predict(bars, vix_df)
+        except Exception as exc:
+            log.warning("Pairs prediction failed for %s: %s", symbol, exc)
+            return None
 
     # -- Main loop -----------------------------------------------------
     def run_loop(self) -> None:
@@ -1051,26 +878,12 @@ class AlpacaPaperTrader:
         log.info("Starting paper trading loop (%s mode)...", self.mode)
         log.info("Symbols: %s", ", ".join(self.symbols))
         log.info("Check interval: %d min", self.check_interval // 60)
-        log.info("Entry confidence: LONG %.2f, SHORT %.2f, Exit: %.2f",
-                 self.long_confidence_threshold, self.short_confidence_threshold, self.exit_confidence)
-        kelly_desc = (f"Dynamic (base={self.kelly_fraction}, window={KELLY_WINDOW}, min={MIN_KELLY_TRADES})"
-                      if self.use_dynamic_kelly else f"Static {self.kelly_fraction}")
-        log.info("Stops: %s + MaxLoss=%.1f×ATR + RegimeExit(ADX<15,H<0.50) | "
-                 "ADX filter: %s (>%.0f) | Vol sizing: %s (target=%.0f%%) | "
-                 "Conf sizing: %s | Trailing TP: %s | Kelly: %s | "
-                 "Hurst filter: %s (>%.2f) | VIX halt: %s (>%.1fσ) | "
-                 "Time filter: %s | Corr sizing: %s",
-                 f"ATR×{self.atr_stop_mult}" if self.use_atr_stop else f"Fixed {self.trailing_stop_pct:.0%}",
-                 self.max_loss_atr_mult,
-                 "ON" if self.use_regime_filter else "OFF", self.adx_threshold,
-                 "ON" if self.use_vol_sizing else "OFF", self.target_vol * 100,
-                 "ON" if self.use_confidence_sizing else "OFF",
-                 "ON" if self.use_trailing_tp else "OFF",
-                 kelly_desc,
-                 "ON" if self.use_hurst_filter else "OFF", self.hurst_threshold,
-                 "ON" if self.use_vix_halt else "OFF", self.vix_halt_sigma,
-                 "ON (intraday)" if self.use_time_filter else "OFF",
-                 "ON (1/√N)" if self.use_corr_sizing else "OFF")
+        log.info("Strategy: v2 regression | trend SMA(%d) | cost_threshold=%.4f | "
+                 "target_return=%.4f | disaster_stop=%.1f×ATR | "
+                 "cooldown=%.1fh",
+                 self.trend_sma_period, self.cost_threshold,
+                 self.target_return, self.disaster_stop_atr_mult,
+                 self.loss_cooldown_hours)
         print()
 
         # Graceful shutdown
@@ -1110,11 +923,16 @@ class AlpacaPaperTrader:
                 print(f"  Allocation per symbol: ${allocation_per_sym:,.2f}")
                 print()
 
-                # Aldridge: compute VIX halt once per cycle (not per symbol)
-                if self.use_vix_halt:
-                    self._vix_halted = self._check_vix_halt()
-                    if self._vix_halted:
-                        print(f"  [!] VIX HALT ACTIVE -- exits allowed, no new entries this cycle")
+                # Refresh VIX cache once per cycle so all symbols share the same fetch.
+                self._vix_cache = None   # force fresh fetch this cycle
+                self._get_vix_df()       # populates _vix_cache (or retains old on failure)
+
+                # Refresh options flow cache once per cycle (market-wide sentiment)
+                try:
+                    self._options_flow_cache = self._options_flow_engine.get_model_features()
+                except Exception as exc:
+                    log.debug("Options flow refresh failed: %s", exc)
+                    self._options_flow_cache = None
 
                 # Positions in this account for symbols not in this group (wrongly placed).
                 # Option positions (OCC symbols) are NOT managed here — options_trader.py owns
@@ -1157,6 +975,23 @@ class AlpacaPaperTrader:
                 for sym in exit_only_symbols:
                     action = self.check_and_trade(sym, positions, allocation_per_sym, exit_only=True)
                     print(f"  {sym:>5}:  {action}  [EXIT-ONLY]")
+
+                # Microstructure alert checks (per-symbol + market-wide + portfolio)
+                try:
+                    for sym in self.symbols:
+                        ctx = self._get_market_context(sym)
+                        ctx["symbol"] = sym
+                        self._alert_engine.check(market_context=ctx)
+                    if self._options_flow_cache:
+                        self._alert_engine.check(options_flow=self._options_flow_cache)
+                    initial_capital = 100_000.0
+                    drawdown_pct = ((account["equity"] - initial_capital) / initial_capital) * 100
+                    self._alert_engine.check(portfolio_state={
+                        "consecutive_losses": self._consecutive_losses,
+                        "drawdown_pct": drawdown_pct,
+                    })
+                except Exception as exc:
+                    log.debug("Alert check failed: %s", exc)
 
                 print(f"\n  Next check in {self.check_interval // 60} min...")
 
@@ -1403,8 +1238,8 @@ def check_positions_main() -> None:
 
     # Algorithm check summary (no code bug found; "wrong" = previous model version)
     print("\n  === Algorithm check ===")
-    print("  Current logic: LSTM direction + meta gate, ATR/ADX stops, trailing TP, DI filter.")
-    print("  Mode matches group (intraday -> 5min LSTM; daily -> daily LSTM).")
+    print("  Current logic: v2 regression (E[r] forward 10d) + SMA(50) trend filter + signal-decay exits.")
+    print("  Mode matches group (intraday -> LightGBM; swing -> PatchTST; expansion -> XGBoost; LSTM fallback).")
     print("  No known code bugs. 'Wrong algorithm' = positions opened by an older/wrong model.")
     print()
 
@@ -1485,7 +1320,7 @@ def main() -> None:
         sys.exit(0)
 
     parser = argparse.ArgumentParser(
-        description="Alpaca paper trader — continuous ML-driven trading loop.",
+        description="Alpaca paper trader — continuous ML-driven trading loop (v2 regression).",
     )
     parser.add_argument("--group", type=str, default=None,
                         choices=list(SYMBOL_GROUPS.keys()) + ["all"],
@@ -1497,68 +1332,30 @@ def main() -> None:
                         help="Data provider (default: yahoo)")
     parser.add_argument("--check-interval", type=int, default=None,
                         help="Check interval in minutes (default: 5 daily, 1 intraday)")
-    parser.add_argument("--confidence", type=float, default=0.01,
-                        help="Min ML confidence to enter LONG (default: 0.01; attention-LSTM "
-                             "outputs compressed probs, ~0.01-0.12 range — meta gate filters quality)")
-    parser.add_argument("--short-confidence", type=float, default=0.01,
-                        help="Min ML confidence to enter SHORT (default: 0.01)")
-    parser.add_argument("--exit-confidence", type=float, default=0.005,
-                        help="Min ML confidence to exit/flip (default: 0.005)")
-    parser.add_argument("--trailing-stop", type=float, default=0.05,
-                        help="Trailing stop from peak (default: 0.05 = 5%%)")
-    parser.add_argument("--max-loss-atr", type=float, default=1.0,
-                        help="Hard max-loss cut: exit if loss > N×ATR from entry (default: 1.0; 0 = off)")
-    parser.add_argument("--take-profit", type=float, default=0.08,
-                        help="Take profit target (default: 0.08 = 8%%)")
     parser.add_argument("--mode", default="daily", choices=["daily", "intraday"],
                         help="Trading mode (default: daily)")
     parser.add_argument("--interval", default="5min", choices=["1min", "5min"],
                         help="Intraday bar interval (default: 5min)")
-    # Optimization flags
-    parser.add_argument("--no-atr-stop", action="store_true",
-                        help="Disable ATR-based adaptive trailing stop")
-    parser.add_argument("--atr-stop-mult", type=float, default=2.5,
-                        help="ATR multiplier for trailing stop (default: 2.5)")
-    parser.add_argument("--no-regime-filter", action="store_true",
-                        help="Disable ADX regime filter")
-    parser.add_argument("--adx-threshold", type=float, default=20.0,
-                        help="Min ADX to allow entries (default: 20.0)")
-    parser.add_argument("--no-vol-sizing", action="store_true",
-                        help="Disable volatility-adjusted position sizing")
-    parser.add_argument("--target-vol", type=float, default=0.15,
-                        help="Target annualized vol for sizing (default: 0.15)")
-    parser.add_argument("--no-confidence-sizing", action="store_true",
-                        help="Disable confidence-scaled position sizing")
-    parser.add_argument("--no-trailing-tp", action="store_true",
-                        help="Disable trailing take-profit")
-    # Book-derived filters
-    parser.add_argument("--no-hurst-filter", action="store_true",
-                        help="Disable Hurst regime filter (Chan)")
-    parser.add_argument("--hurst-threshold", type=float, default=0.55,
-                        help="Min Hurst exponent to allow momentum entries (default: 0.55)")
-    parser.add_argument("--kelly-fraction", type=float, default=0.5,
-                        help="Base half-Kelly multiplier: 0.5=half-Kelly, 0=off (Chan, default: 0.5)")
-    parser.add_argument("--no-dynamic-kelly", action="store_true",
-                        help="Use static kelly-fraction instead of rolling Kelly estimate")
-    parser.add_argument("--no-vix-halt", action="store_true",
-                        help="Disable VIX spike halt rule (Aldridge)")
-    parser.add_argument("--vix-halt-sigma", type=float, default=2.0,
-                        help="VIX change σ threshold for halt (Aldridge, default: 2.0)")
-    parser.add_argument("--no-time-filter", action="store_true",
-                        help="Disable intraday time-of-day filter (Aldridge: blocks 9:30-10:00 and 15:30-16:00 ET)")
-    parser.add_argument("--no-corr-sizing", action="store_true",
-                        help="Disable correlated position sizing (1/sqrt(N) when multiple same-direction positions)")
+    # v2 regression parameters
+    parser.add_argument("--trend-sma", type=int, default=50,
+                        help="SMA period for trend filter (default: 50)")
+    parser.add_argument("--cost-threshold", type=float, default=COST_THRESHOLD,
+                        help="Min expected return to trade (default: 0.001 = 0.1%%)")
+    parser.add_argument("--target-return", type=float, default=TARGET_RETURN,
+                        help="Expected return for full position size (default: 0.02 = 2%%)")
+    parser.add_argument("--disaster-stop-mult", type=float, default=3.0,
+                        help="ATR multiplier for disaster stop (default: 3.0)")
     parser.add_argument("--loss-cooldown-hours", type=float, default=4.0,
-                        help="Hours to block re-entry after max_loss or regime_exit (default: 4.0; 0=off)")
+                        help="Hours to block re-entry after disaster stop (default: 4.0; 0=off)")
     parser.add_argument("--legacy-stricter-exit", type=str, default="",
-                        help="Comma-separated symbols to use stricter exits (3%% trail, 2%% TP) for wrong-algorithm positions (e.g. IGV,QQQ)")
+                        help="Comma-separated symbols to use stricter exits (3%% trail) for wrong-algorithm positions")
     parser.add_argument("--legacy-no-new-entries", type=str, default="",
-                        help="Comma-separated symbols to manage out only, no new entries until flat (e.g. IGV,QQQ)")
+                        help="Comma-separated symbols to manage out only, no new entries until flat")
 
     args = parser.parse_args()
 
     # Resolve API keys: group-specific keys take priority over generic ALPACA_API_KEY
-    group = args.group  # e.g. "equities", "commodities", "intl", "all", or None
+    group = args.group  # e.g. "intraday", "swing", "expansion", "all", or None
     if group and group != "all":
         env_prefix = f"ALPACA_{group.upper()}_"
         api_key    = os.environ.get(f"{env_prefix}KEY",    os.environ.get("ALPACA_API_KEY", ""))
@@ -1608,34 +1405,17 @@ def main() -> None:
         api_secret=api_secret,
         symbols=symbols,
         provider=args.provider,
-        confidence_threshold=args.confidence,
-        short_confidence_threshold=args.short_confidence,
-        exit_confidence=args.exit_confidence,
-        trailing_stop_pct=args.trailing_stop,
-        max_loss_atr_mult=args.max_loss_atr,
-        take_profit_pct=args.take_profit,
         check_interval_min=check_interval,
         mode=args.mode,
         intraday_interval=args.interval,
-        use_atr_stop=not args.no_atr_stop,
-        atr_stop_mult=args.atr_stop_mult,
-        use_regime_filter=not args.no_regime_filter,
-        adx_threshold=args.adx_threshold,
-        use_vol_sizing=not args.no_vol_sizing,
-        target_vol=args.target_vol,
-        use_confidence_sizing=not args.no_confidence_sizing,
-        use_trailing_tp=not args.no_trailing_tp,
-        use_hurst_filter=not args.no_hurst_filter,
-        hurst_threshold=args.hurst_threshold,
-        kelly_fraction=args.kelly_fraction,
-        use_dynamic_kelly=not args.no_dynamic_kelly,
-        use_vix_halt=not args.no_vix_halt,
-        vix_halt_sigma=args.vix_halt_sigma,
-        use_time_filter=not args.no_time_filter,
-        use_corr_sizing=not args.no_corr_sizing,
+        trend_sma_period=args.trend_sma,
+        cost_threshold=args.cost_threshold,
+        target_return=args.target_return,
+        disaster_stop_atr_mult=args.disaster_stop_mult,
         loss_cooldown_hours=args.loss_cooldown_hours if args.mode != "intraday" else min(args.loss_cooldown_hours, 0.5),
         legacy_stricter_exit=legacy_stricter,
         legacy_no_new_entries=legacy_no_new,
+        group=group,
     )
 
     # Show account before starting

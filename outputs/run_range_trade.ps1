@@ -36,7 +36,6 @@ function Get-WritableLogDir {
 $LogDir = Get-WritableLogDir -ProjectRoot $ProjectRoot
 
 $Timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-$LogFile = Join-Path $LogDir "options_trader_$Timestamp.log"
 
 function Import-DotEnvFile {
     param(
@@ -69,69 +68,77 @@ function Import-DotEnvFile {
 }
 
 $EnvCandidates = @(
-    (Join-Path $ProjectRoot 'secrets\alpaca.env'),
-    (Join-Path $ProjectRoot 'settings\alpaca.env')
+    (Join-Path $ProjectRoot 'secrets\alpaca.env')
 )
 
-if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET -or -not $env:FRED_API_KEY) {
+if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
     foreach ($candidate in $EnvCandidates) {
         if (Test-Path -LiteralPath $candidate) {
             Import-DotEnvFile -Path $candidate
-            if ($env:ALPACA_API_KEY -and $env:ALPACA_API_SECRET -and $env:FRED_API_KEY) {
+            if ($env:ALPACA_API_KEY -and $env:ALPACA_API_SECRET) {
                 break
             }
         }
     }
 }
 
-$PythonArgs = @(
-    '-u','main.py','trade-options',
-    '--symbols','SOXX,QQQ,GLD',
-    '--strategy','both',
-    '--max-risk-pct','0.06',
-    '--max-risk','3000',
-    '--dir-confidence','0.10',
-    '--confidence','0.10',
-    '--check-interval','15'
-)
+# ---------------------------------------------------------------------------
+# Range trader uses ALPACA_RANGE_KEY / ALPACA_RANGE_SECRET from secrets\alpaca.env
+# Falls back to generic ALPACA_API_KEY / ALPACA_API_SECRET if not set.
+# Add these lines to secrets\alpaca.env:
+#   ALPACA_RANGE_KEY=<your range paper account key>
+#   ALPACA_RANGE_SECRET=<your range paper account secret>
+# ---------------------------------------------------------------------------
 
-# Stop any existing options trader loop first
+# Stop any existing range trader processes first
 $existingTraders = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -match 'trade-options' }
+    Where-Object { $_.CommandLine -match 'main.py range-trade' }
 foreach ($proc in $existingTraders) {
-    try {
-        Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop
-    } catch { }
+    try { Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop } catch {}
+}
+if ($existingTraders) {
+    Write-Host "Stopped $($existingTraders.Count) existing range trader process(es)."
 }
 
-Write-Host "[$(Get-Date -Format s)] Starting options trader..."
+Write-Host "[$(Get-Date -Format s)] Starting range trader..."
 Write-Host "Python: $PythonExe"
-Write-Host "Log: $LogFile"
 foreach ($candidate in $EnvCandidates) {
-    if (Test-Path -LiteralPath $candidate) { Write-Host "Env file present: $candidate" }
-}
-Write-Host "Args: $($PythonArgs -join ' ')"
-if ($existingTraders) {
-    Write-Host "Stopped existing options trader process count: $($existingTraders.Count)"
+    if (Test-Path -LiteralPath $candidate) { Write-Host "Env file: $candidate" }
 }
 
 if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
-    Write-Error "ERROR: Missing ALPACA_API_KEY / ALPACA_API_SECRET. Set machine env vars or add one of: $($EnvCandidates -join ', ')"
-    exit 1
-}
-if (-not $env:FRED_API_KEY) {
-    Write-Error "ERROR: Missing FRED_API_KEY. Add it to secrets\alpaca.env."
+    Write-Error "ERROR: Missing ALPACA_API_KEY / ALPACA_API_SECRET. Set machine env vars or add secrets\alpaca.env"
     exit 1
 }
 
-$ArgLine = $PythonArgs -join ' '
-$ErrLog  = $LogFile -replace '\.log$', '_err.log'
+# Use intraday group keys; fall back to generic keys
+if (-not $env:ALPACA_INTRADAY_KEY) {
+    Set-Item -Path "Env:ALPACA_INTRADAY_KEY"    -Value $env:ALPACA_API_KEY    -ErrorAction SilentlyContinue
+    Set-Item -Path "Env:ALPACA_INTRADAY_SECRET" -Value $env:ALPACA_API_SECRET -ErrorAction SilentlyContinue
+    Write-Host "  [range] No ALPACA_INTRADAY_KEY found - using generic keys (same account as momentum trader)"
+}
+
+$Symbols = 'SPY,QQQ,IWM,SOXX'
+
+$ArgList = @(
+    '-u', 'main.py', 'range-trade',
+    '--symbols',  $Symbols,
+    '--provider', 'alpaca'
+)
+$ArgLine = $ArgList -join ' '
+
+$rangeLog    = Join-Path $LogDir "range_trader_$Timestamp.log"
+$rangeErrLog = $rangeLog -replace '\.log$', '_err.log'
+
 $proc = Start-Process `
-    -FilePath        $PythonExe `
-    -ArgumentList    $ArgLine `
+    -FilePath         $PythonExe `
+    -ArgumentList     $ArgLine `
     -WorkingDirectory $ProjectRoot `
-    -RedirectStandardOutput $LogFile `
-    -RedirectStandardError  $ErrLog `
-    -WindowStyle     Hidden `
+    -RedirectStandardOutput $rangeLog `
+    -RedirectStandardError  $rangeErrLog `
+    -WindowStyle      Hidden `
     -PassThru
-Write-Host "Options trader started (PID $($proc.Id)). Log: $LogFile"
+
+Write-Host "  [range] PID $($proc.Id)  log: $rangeLog"
+Write-Host "[$(Get-Date -Format s)] Range trader started."
+Write-Host "Logs directory: $LogDir"

@@ -1,0 +1,19 @@
+{
+  "symbol": "EWJ",
+  "mode": "daily",
+  "intraday_interval": "5min",
+  "start_date": "2024-01-02",
+  "end_date": "2026-03-06",
+  "initial_capital": 100000.0,
+  "final_equity": 115334.93,
+  "total_return_pct": 15.33,
+  "annualized_return_pct": 6.79,
+  "sharpe_ratio": 0.92,
+  "max_drawdown_pct": -5.7,
+  "total_trades": 1,
+  "win_rate": 1.0,
+  "avg_win_pct": 43.26,
+  "avg_loss_pct": 0.0,
+  "profit_factor": 999.0,
+  "avg_trade_duration_days": 794.0
+}
