@@ -1,3 +1,4 @@
 direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,exit_reason
-LONG,2023-08-10,363.12,2023-08-29,369.21,71.57,435.76,1.68,signal_decay
-SHORT,2023-09-07,366.54,2023-09-20,359.65,260.31,1793.16,1.88,signal_decay
+LONG,2023-08-10,363.12,2023-09-01,371.99,49.89,442.38,2.44,signal_decay
+LONG,2023-10-11,366.24,2023-10-25,345.64,26.05,-536.71,-5.62,disaster_stop
+LONG,2023-11-03,362.78,2026-03-06,599.75,144.97,34352.8,65.32,end_of_backtest
