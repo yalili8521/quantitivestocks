@@ -75,17 +75,25 @@ log = logging.getLogger("paper_trader")
 # Account groups (3 separate Alpaca paper accounts by asset class)
 # ---------------------------------------------------------------------------
 SYMBOL_GROUPS: Dict[str, List[str]] = {
-    # Account 1 — Intraday (5min LSTM, time filter active)
-    # IGV dropped: meta RF val_acc=0.47, precision 0.0% on Alpaca 2yr data — no learnable signal
-    "intraday":  ["SPY", "QQQ", "IWM", "SOXX", "USO"],
-    # Account 2 — Swing (daily XGBoost, commodity/EM ETFs)
-    # TLT dropped: 42.9% win rate, Sharpe 0.300 across all feature sets (bonds need rate signals)
-    # USO moved to intraday: crude oil has strong first-30m momentum signal
-    "swing":     ["EWT", "GLD", "EEM", "SLV"],
-    # Account 3 — Expansion (daily LSTM, international/sector)
-    # IGV dropped: <50% win rate on both 12-feat and 17-feat (sector ETF, earnings-driven)
-    # FXI dropped: <50% win rate on both (China policy-driven, not technical)
-    "expansion": ["EWJ", "EWS", "XLE", "INDA"],
+    # Account 1 — Intraday LightGBM v2 (first-30m momentum, EOD exit ~15:30)
+    # Selection rule: >60% in-sample (2024-2026) AND positive OOS (2022-2023)
+    #                 AND regime cooldown fired <5 times OOS
+    # In-sample: SMH +369%, IWM +198%, IGV +165%, SOXX +101%, QQQ +83%, EWT +137%
+    # OOS 2022-2023: SMH +30.5%, IGV +34.7%, IWM +28.7%, QQQ +20.9%, SPY+15.9%, EWT +12.4%, SOXX +11.5%
+    # Dropped (failed OOS or regime-cooldown >16×): XLE -11%, USO -10.5%, SLV +1%,
+    #          GDX +3.3%, EEM -0.5%, SPY (cooldown >16×), XLK (cooldown >16×)
+    "intraday":  ["SMH", "IWM", "IGV", "QQQ", "EWT", "SOXX"],
+    # Account 2 — Swing XGBoost (daily regression, selective signal-decay exits)
+    # Selection rule: swing backtest 2024-2026 total return > 60%
+    # GDX +188%, SLV +118%, IGV +100%, QQQ +91%, GLD +88%, SMH +88%,
+    # XLK +73%, MCHI +68%, IBIT +64%
+    # Note: GDX/SLV/IGV/QQQ/SMH/XLK shared with intraday (separate account, separate model)
+    "swing":     ["GDX", "SLV", "IGV", "QQQ", "GLD", "SMH", "XLK", "MCHI", "IBIT"],
+    # Account 3 — Expansion: retired. Expansion XGBoost factor model (EWJ/EWS/XLE/INDA)
+    # produced <60% returns on its own feature set. Those symbols now use intraday LightGBM
+    # (EWT +137%, XLE +136%, EEM +63%) or are dropped (EWJ 44%, EWS 41%, INDA 24%).
+    # Keeping key "expansion" for CLI compatibility; add symbols when a new strategy qualifies.
+    "expansion": [],
 }
 
 # Legacy / wrong-algorithm positions: opened by a previous buggy model. Manage them
@@ -110,7 +118,7 @@ def _is_option_symbol(symbol: str) -> bool:
 
 
 def _warn_duplicate_symbols() -> None:
-    """Warn if any symbol appears in more than one group (wrong placement / double-trading)."""
+    """Log info if any symbol appears in more than one group (intentional cross-group allowed)."""
     from collections import defaultdict
     sym_to_groups: Dict[str, List[str]] = defaultdict(list)
     for grp, syms in SYMBOL_GROUPS.items():
@@ -118,8 +126,8 @@ def _warn_duplicate_symbols() -> None:
             sym_to_groups[s].append(grp)
     dupes = {s: grps for s, grps in sym_to_groups.items() if len(grps) > 1}
     if dupes:
-        log.warning(
-            "Symbol(s) in multiple groups (fix to avoid double-trading): %s",
+        log.info(
+            "Symbol(s) shared across groups (intentional — separate accounts, separate models): %s",
             ", ".join(f"{s}→{grps}" for s, grps in dupes.items()),
         )
 
@@ -365,6 +373,11 @@ class AlpacaPaperTrader:
 
         self._vix_cache: Optional[pd.DataFrame] = None
 
+        # Regime filter state
+        from collections import deque
+        self._recent_trade_wins: deque = deque(maxlen=20)
+        self._regime_cooldown_until: Optional[datetime] = None
+
         # Alert engine for microstructure alerts
         self._alert_engine = AlertEngine()
         self._options_flow_engine = OptionsFlowEngine()
@@ -531,6 +544,48 @@ class AlpacaPaperTrader:
         if oid:
             log.info("COVER reason: %s", reason)
         return oid
+
+    # -- Regime filter --------------------------------------------------
+    def _check_regime(self) -> tuple:
+        """Return (regime_ok: bool, reason: str).
+
+        Gate 1 — SPY SMA(200): only trade in bull market (SPY close > 200-day MA).
+        Gate 2 — VIX < 25: avoid elevated-volatility / crisis regimes.
+        Gate 3 — Rolling win rate: pause 7 days if last 20 trades win rate < 50%.
+
+        Returns True only when ALL gates pass.
+        """
+        # Gate 1 + 2: SPY SMA(200) and VIX
+        try:
+            spy_bars = self.adapter.fetch_daily("SPY", 210)
+            spy_close = float(spy_bars["close"].iloc[-1])
+            spy_sma200 = float(spy_bars["close"].rolling(200).mean().iloc[-1])
+            if spy_close <= spy_sma200:
+                return False, f"SPY below SMA(200): {spy_close:.2f} <= {spy_sma200:.2f}"
+        except Exception as exc:
+            log.warning("Regime SPY check failed (defaulting open): %s", exc)
+
+        try:
+            vix_df = self._vix_cache if self._vix_cache is not None else self._get_vix_df()
+            if not vix_df.empty:
+                vix_now = float(vix_df.iloc[-1].iloc[0] if vix_df.shape[1] == 1
+                                else vix_df["vix"].iloc[-1])
+                if vix_now >= 25.0:
+                    return False, f"VIX elevated: {vix_now:.1f} >= 25"
+        except Exception as exc:
+            log.warning("Regime VIX check failed (defaulting open): %s", exc)
+
+        # Gate 3: rolling 20-trade win rate cooldown
+        import datetime as _dt
+        now = _dt.datetime.now(timezone.utc)
+        if self._regime_cooldown_until is not None:
+            if now < self._regime_cooldown_until:
+                remaining = (self._regime_cooldown_until - now).seconds // 3600
+                return False, f"Win-rate cooldown active ({remaining}h remaining)"
+            else:
+                self._regime_cooldown_until = None  # expired
+
+        return True, "ok"
 
     # -- ML prediction -------------------------------------------------
     def _get_vix_df(self) -> pd.DataFrame:
@@ -785,6 +840,11 @@ class AlpacaPaperTrader:
             return (f"EXIT-ONLY  (managing out — {direction} E[r]={expected_return:+.4f}, "
                     f"no new entries for this symbol in this account)")
 
+        # Regime gate: SPY SMA(200) + VIX < 25 + rolling win rate
+        regime_ok, regime_reason = self._check_regime()
+        if not regime_ok:
+            return f"REGIME-BLOCK  ({regime_reason})  ML: {direction} E[r]={expected_return:+.4f}"
+
         # Determine entry direction
         enter_dir = None
         if expected_return > self.cost_threshold and bar_trend > 0:
@@ -831,11 +891,22 @@ class AlpacaPaperTrader:
                 f"trend={bar_trend:+.0f}")
 
     def _record_closed_trade(self, pnl_pct: float) -> None:
-        """Track consecutive losses for portfolio alerts."""
+        """Track consecutive losses and rolling win rate for regime cooldown."""
         if pnl_pct <= 0:
             self._consecutive_losses += 1
         else:
             self._consecutive_losses = 0
+        # Rolling 20-trade win rate cooldown
+        self._recent_trade_wins.append(1 if pnl_pct > 0 else 0)
+        if len(self._recent_trade_wins) == 20 and self._regime_cooldown_until is None:
+            wr = sum(self._recent_trade_wins) / 20
+            if wr < 0.5:
+                import datetime as _dt
+                self._regime_cooldown_until = (
+                    _dt.datetime.now(timezone.utc) + _dt.timedelta(days=7)
+                )
+                log.info("Rolling WR %.0f%% < 50%% → regime cooldown for 7 days (until %s)",
+                         wr * 100, self._regime_cooldown_until.date())
 
     def _clear_symbol_state(self, symbol: str) -> None:
         """Reset tracking state for a symbol after exit."""

@@ -57,8 +57,8 @@ CROSS_ASSET_MAP: Dict[str, List[str]] = {
     "INDA": ["usd_strength_ret5", "usd_strength_ret20", "treasury_slope"],
     "SPY":  ["treasury_slope"],
     "QQQ":  ["treasury_slope"],
-    "IWM":  ["treasury_slope"],
-    "SOXX": ["treasury_slope"],
+    "IWM":  ["treasury_slope"],           # small-cap: rate-sensitive
+    "SOXX": ["treasury_slope"],           # semis: follows broad rate regime
 }
 
 # All possible cross-asset feature names (union of all values)

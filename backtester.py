@@ -157,9 +157,186 @@ class Backtester:
         sma = close_series.rolling(self.trend_sma_period).mean()
         return (close_series > sma).astype(float) * 2 - 1  # +1 or -1
 
+    # ------------------------------------------------------------------
+    def _run_intraday_lgb(self, start_date: str,
+                          end_date: Optional[str] = None) -> BacktestResult:
+        """Day-level intraday backtest using LightGBM momentum filter.
+
+        Logic per trading day:
+          1. Build first-30m features (IntradayFeatureEngine)
+          2. LightGBM predicts P(following first-30m direction works today)
+          3. If P >= threshold: enter at first-30m close (~10:00), exit at EOD (~15:30)
+          4. Direction = sign of first-30m return
+        Alpaca data fetched for full lookback; Yahoo caps at 60 days.
+        """
+        from intraday_model import IntradayFeatureEngine, FEATURE_NAMES
+        import joblib
+
+        start_dt = pd.to_datetime(start_date).date()
+        end_dt = pd.to_datetime(end_date).date() if end_date else datetime.now(timezone.utc).date()
+        # Must reach back to start_dt from today, not just span the window
+        from datetime import date as _date
+        days_needed = (_date.today() - start_dt).days + 60
+
+        log.info("Fetching %d days of 5-min intraday data for %s (Alpaca)...",
+                 days_needed, self.symbol)
+        bars = self.adapter.fetch_intraday(self.symbol, "5min", lookback_days=days_needed)
+        log.info("Got %d bars.", len(bars))
+
+        vix_df = _fetch_vix_for_training(self.fred_key, lookback_days=max(days_needed, 500))
+        log.info("Got %d VIX rows.", len(vix_df))
+
+        # Build per-day feature dataset
+        engine = IntradayFeatureEngine()
+        data = engine.build_training_data(bars, vix_df)
+        if data.empty:
+            log.error("No training data built for %s intraday backtest.", self.symbol)
+            return self._compute_results(Portfolio(
+                initial_capital=self.initial_capital,
+                cash=self.initial_capital,
+            ))
+
+        log.info("Built %d daily samples for %s.", len(data), self.symbol)
+
+        # Load LightGBM model + threshold
+        model_path = os.path.join(self.model_dir, f"{self.symbol}_lgb_intraday.joblib")
+        config_path = os.path.join(self.model_dir, f"{self.symbol}_lgb_intraday_config.json")
+        if not os.path.exists(model_path):
+            log.error("No trained intraday model for %s. Run: "
+                      "python main.py train-intraday --symbols %s --provider alpaca",
+                      self.symbol, self.symbol)
+            sys.exit(1)
+
+        lgb_model = joblib.load(model_path)
+        threshold = 0.55
+        if os.path.exists(config_path):
+            with open(config_path) as f:
+                cfg = json.load(f)
+            threshold = float(cfg.get("threshold", 0.55))
+        log.info("Loaded LightGBM for %s (threshold=%.3f).", self.symbol, threshold)
+
+        # Filter to backtest window
+        data["date"] = pd.to_datetime(data["date"]).dt.date
+        data = data[(data["date"] >= start_dt) & (data["date"] <= end_dt)].reset_index(drop=True)
+        log.info("Backtest window: %d trading days (%s → %s).",
+                 len(data), start_dt, end_dt)
+
+        # --- Regime filter layer 1: SPY SMA(200) ---
+        # Only trade when SPY close > SMA(200) (bull regime).
+        spy_sma_lookup: dict = {}  # date -> bool (True = bull regime)
+        try:
+            from signals_engine import build_adapter as _build_yahoo
+            yahoo_adp = _build_yahoo("yahoo")
+            spy_df = yahoo_adp.fetch_daily("SPY", days_needed + 250)
+            if not spy_df.empty:
+                sma200 = spy_df["close"].rolling(200).mean()
+                for d, c, s in zip(spy_df.index, spy_df["close"], sma200):
+                    if not pd.isna(s):
+                        dk = d.date() if hasattr(d, "date") else d
+                        spy_sma_lookup[dk] = bool(c > s)
+            log.info("SPY SMA(200) regime lookup built (%d days).", len(spy_sma_lookup))
+        except Exception as exc:
+            log.warning("SPY SMA(200) regime filter unavailable: %s", exc)
+
+        # --- Regime filter layer 2: rolling 20-trade win rate cooldown ---
+        from collections import deque
+        from datetime import timedelta as _td
+        recent_wins: deque = deque(maxlen=20)
+        cooldown_until = None
+
+        # Simulate day-by-day
+        portfolio = Portfolio(initial_capital=self.initial_capital, cash=self.initial_capital)
+        price_rows = []
+        regime_skipped = 0
+        cooldown_skipped = 0
+
+        for _, row in data.iterrows():
+            day = row["date"]
+            entry_price = float(row["entry_price"])
+            eod_close = float(row["eod_close"])
+            first_30m_ret = float(row["first_30m_ret_raw"])
+
+            if entry_price <= 0 or eod_close <= 0:
+                continue
+
+            price_rows.append({"date": day, "close": eod_close})
+
+            # Layer 1: regime gate — SPY SMA(200) + VIX < 25
+            spy_bull = spy_sma_lookup.get(day, True)  # default open if data missing
+            vix_ok = float(row.get("vix", 20.0)) < 25.0
+            if not spy_bull or not vix_ok:
+                self._record_equity(portfolio, day, eod_close)
+                regime_skipped += 1
+                continue
+
+            # Layer 2: rolling win rate cooldown
+            if cooldown_until is not None:
+                if day <= cooldown_until:
+                    self._record_equity(portfolio, day, eod_close)
+                    cooldown_skipped += 1
+                    continue
+                else:
+                    cooldown_until = None  # cooldown expired
+
+            # LightGBM prediction
+            x = np.array([[row[f] for f in FEATURE_NAMES]], dtype=np.float32)
+            prob = float(lgb_model.predict_proba(x)[0][1])
+
+            # Entry: require LightGBM confidence + nonzero first-30m signal
+            if prob < threshold or abs(first_30m_ret) < 1e-6:
+                self._record_equity(portfolio, day, eod_close)
+                continue
+
+            direction = "LONG" if first_30m_ret > 0 else "SHORT"
+
+            # Open position at 10:00 (~first_30m close)
+            equity = self._current_equity(portfolio, entry_price)
+            invest = equity * min(self.position_pct, 0.98)
+            shares = invest / entry_price
+            portfolio.cash -= invest
+
+            trade = Trade(
+                entry_date=day, entry_price=entry_price,
+                direction=direction, size=shares,
+                peak_price=entry_price, atr_at_entry=0.0,
+            )
+
+            # Close at EOD (~15:30)
+            trade.exit_date = day
+            trade.exit_price = eod_close
+            trade.exit_reason = "eod"
+            if direction == "LONG":
+                trade.pnl = shares * (eod_close - entry_price)
+                proceeds = shares * eod_close
+            else:
+                trade.pnl = shares * (entry_price - eod_close)
+                proceeds = shares * entry_price + trade.pnl
+            portfolio.cash += proceeds
+            portfolio.closed_trades.append(trade)
+
+            # Update rolling win rate; trigger cooldown if < 50% over last 20 trades
+            recent_wins.append(1 if trade.pnl > 0 else 0)
+            if len(recent_wins) == 20 and cooldown_until is None:
+                wr = sum(recent_wins) / 20
+                if wr < 0.5:
+                    cooldown_until = day + _td(days=7)
+                    log.info("Rolling WR %.0f%% < 50%% → cooldown until %s", wr * 100, cooldown_until)
+
+            self._record_equity(portfolio, day, eod_close)
+
+        log.info("Regime filter skipped %d days; cooldown skipped %d days.",
+                 regime_skipped, cooldown_skipped)
+
+        price_df = pd.DataFrame(price_rows)
+        return self._compute_results(portfolio, price_df)
+
     def run(self, start_date: str, end_date: Optional[str] = None,
             seq_len: int = SEQ_LEN) -> BacktestResult:
         """Run the walk-forward backtest with optimized strategy."""
+        # Intraday LightGBM uses a separate day-level simulation
+        if self.model_type == "intraday":
+            return self._run_intraday_lgb(start_date, end_date)
+
         # Fetch data
         if self.mode == "daily":
             lookback = 1000
@@ -187,26 +364,24 @@ class Backtester:
         effective_seq_len = seq_len  # may change for PatchTST
 
         if self.model_type == "swing":
-            from swing_model import SwingFeatureEngine, PatchTST, get_swing_feature_cols, SWING_SEQ_LEN
+            from swing_model import SwingFeatureEngine, get_swing_feature_cols
             engine = SwingFeatureEngine()
-            scaler_path = os.path.join(self.model_dir, f"{self.symbol}_patchtst_swing_scaler.json")
+            scaler_path = os.path.join(self.model_dir, f"{self.symbol}_xgb_swing_scaler.json")
             if not os.path.exists(scaler_path):
-                log.error("No swing PatchTST scaler for %s. Train first: "
+                log.error("No swing XGBoost scaler for %s. Train first: "
                           "python main.py train-swing --symbols %s", self.symbol, self.symbol)
                 sys.exit(1)
             engine.load_scaler(scaler_path)
-            features = engine.build_features(bars, vix_df, mode="daily", symbol=self.symbol)
+            spy_bars = self.adapter.fetch_daily("SPY", lookback) if self.mode == "daily" else None
+            features = engine.build_features(bars, vix_df, spy_bars=spy_bars, symbol=self.symbol)
             features_norm = engine.transform(features)
-            log.info("Built %d swing feature rows (PatchTST).", len(features_norm))
+            log.info("Built %d swing feature rows (XGBoost).", len(features_norm))
 
-            n_features = len(get_swing_feature_cols(self.symbol))
-            weights_path = os.path.join(self.model_dir, f"{self.symbol}_patchtst_swing.pt")
-            model = PatchTST(n_features=n_features, seq_len=SWING_SEQ_LEN)
-            model.load_state_dict(torch.load(weights_path, map_location="cpu", weights_only=True))
-            model.eval()
-            effective_seq_len = SWING_SEQ_LEN
-            log.info("Loaded PatchTST for %s (%d features, seq_len=%d).",
-                     self.symbol, n_features, SWING_SEQ_LEN)
+            model_path = os.path.join(self.model_dir, f"{self.symbol}_xgb_swing.joblib")
+            xgb_model = joblib.load(model_path)
+            effective_seq_len = 1  # XGBoost point-in-time, no sequence
+            log.info("Loaded XGBoost swing for %s (%d features).",
+                     self.symbol, len(get_swing_feature_cols(self.symbol)))
 
         elif self.model_type == "expansion":
             from expansion_model import ExpansionFeatureEngine, get_expansion_feature_cols
@@ -296,6 +471,37 @@ class Backtester:
         start_dt = pd.to_datetime(start_date).date()
         end_dt = pd.to_datetime(end_date).date() if end_date else datetime.now(timezone.utc).date()
 
+        # --- Regime filter: SPY SMA(200) + VIX < 25 + rolling win rate ---
+        # Layer 1: SPY SMA(200) — use already-fetched spy_bars if available
+        _spy_for_regime = spy_bars if (spy_bars is not None and not spy_bars.empty) else bars
+        _spy_close = _spy_for_regime["close"].astype(float)
+        _spy_sma200 = _spy_close.rolling(200).mean()
+        _spy_ts = pd.to_datetime(_spy_for_regime["ts"]).dt.date
+        swing_spy_sma_lookup: dict = {}
+        for _d, _c, _s in zip(_spy_ts, _spy_close, _spy_sma200):
+            if not pd.isna(_s):
+                swing_spy_sma_lookup[_d] = bool(_c > _s)
+        log.info("SPY SMA(200) regime lookup built for swing (%d days).", len(swing_spy_sma_lookup))
+
+        # Layer 2: VIX lookup from vix_df
+        swing_vix_lookup: dict = {}
+        if not vix_df.empty:
+            _vcol = vix_df.columns[0]
+            for _idx, _row in vix_df.iterrows():
+                _dk = _idx.date() if hasattr(_idx, "date") else _idx
+                try:
+                    swing_vix_lookup[_dk] = float(_row[_vcol])
+                except Exception:
+                    pass
+
+        # Layer 3: rolling 20-trade win rate cooldown
+        from collections import deque
+        from datetime import timedelta as _td
+        swing_recent_wins: deque = deque(maxlen=20)
+        swing_cooldown_until = None
+        swing_regime_skipped = 0
+        swing_cooldown_skipped = 0
+
         portfolio = Portfolio(
             initial_capital=self.initial_capital,
             cash=self.initial_capital,
@@ -352,11 +558,41 @@ class Backtester:
                 # Signal-decay: exit when expected return reverses
                 if pos.direction == "LONG" and expected_return <= 0:
                     self._close_position(portfolio, bar_date, bar_close, "signal_decay")
+                    if portfolio.closed_trades:
+                        swing_recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
+                        if len(swing_recent_wins) == 20 and swing_cooldown_until is None:
+                            wr = sum(swing_recent_wins) / 20
+                            if wr < 0.5:
+                                swing_cooldown_until = bar_date + _td(days=7)
+                                log.info("Swing rolling WR %.0f%% < 50%% → cooldown until %s", wr * 100, swing_cooldown_until)
                 elif pos.direction == "SHORT" and expected_return >= 0:
                     self._close_position(portfolio, bar_date, bar_close, "signal_decay")
+                    if portfolio.closed_trades:
+                        swing_recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
+                        if len(swing_recent_wins) == 20 and swing_cooldown_until is None:
+                            wr = sum(swing_recent_wins) / 20
+                            if wr < 0.5:
+                                swing_cooldown_until = bar_date + _td(days=7)
+                                log.info("Swing rolling WR %.0f%% < 50%% → cooldown until %s", wr * 100, swing_cooldown_until)
 
-            # --- Entry logic (v2: trend filter + signal-proportional sizing) ---
+            # --- Entry logic (v2: trend filter + regime gate + signal-proportional sizing) ---
             if portfolio.position is None and not is_last_bar:
+                # Regime gate: SPY SMA(200) + VIX < 25
+                _spy_ok = swing_spy_sma_lookup.get(bar_date, True)
+                _vix_val = swing_vix_lookup.get(bar_date, 20.0)
+                if not _spy_ok or _vix_val >= 25.0:
+                    self._record_equity(portfolio, bar_date, bar_close)
+                    swing_regime_skipped += 1
+                    continue
+                # Rolling win rate cooldown
+                if swing_cooldown_until is not None:
+                    if bar_date <= swing_cooldown_until:
+                        self._record_equity(portfolio, bar_date, bar_close)
+                        swing_cooldown_skipped += 1
+                        continue
+                    else:
+                        swing_cooldown_until = None
+
                 enter_dir = None
                 if expected_return > self.cost_threshold and bar_trend > 0:
                     enter_dir = "LONG"
@@ -370,6 +606,9 @@ class Backtester:
                     )
 
             self._record_equity(portfolio, bar_date, bar_close)
+
+        log.info("Swing regime filter skipped %d days; cooldown skipped %d days.",
+                 swing_regime_skipped, swing_cooldown_skipped)
 
         # Close any open position at end
         if portfolio.position is not None:
@@ -878,7 +1117,7 @@ def main() -> None:
     parser.add_argument("--interval", default="5min", choices=["1min", "5min"],
                         help="Intraday bar interval (default: 5min)")
     parser.add_argument("--model", default="lstm",
-                        choices=["lstm", "swing", "expansion", "pairs"],
+                        choices=["lstm", "swing", "expansion", "pairs", "intraday"],
                         help="Model type: lstm (default), swing (PatchTST), expansion (XGBoost), pairs (cointegration)")
     # v2 regression parameters
     parser.add_argument("--trend-sma", type=int, default=50,

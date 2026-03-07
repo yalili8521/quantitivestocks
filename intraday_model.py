@@ -1,15 +1,25 @@
 #!/usr/bin/env python3
 """
-Intraday Momentum Model (LightGBM)
-====================================
-Rule-based intraday momentum signal with LightGBM confidence filter.
+Intraday Momentum Model (LightGBM) v2
+=======================================
+Regime-aware intraday momentum signal with LightGBM confidence filter.
 
 Based on Zarattini et al. (2024): first-30-minute return predicts
 rest-of-day return direction. Sharpe 1.33, 19.6% annualized on SPY 2007-2024.
 
+v2 adds 8 regime-switching features:
+  - ORB close position (where in range did first-30m end?)
+  - Gap/direction agreement
+  - VWAP zscore (how extended from intraday anchor)
+  - RVOL × |ret| conviction score
+  - VIX momentum regime flag (VIX>=18 AND ORB>=0.5% → momentum day)
+  - 2-day prior return (autocorrelation)
+  - ORB vs prev-day range (volatility expansion)
+  - Consecutive direction fraction (trend context)
+
 Strategy:
     1. Compute first 30-minute return (9:30-10:00 ET)
-    2. LightGBM predicts P(following that direction is profitable today)
+    2. LightGBM (24 features) predicts P(following that direction is profitable today)
     3. If P > threshold: enter in direction of first-30m return at ~10:00
     4. Exit at 15:30 (EOD) or via trailing stop
 
@@ -58,7 +68,7 @@ FEATURE_NAMES = [
     "vix",                   # VIX level
     "vix_chg",               # VIX 1-day pct change
     "day_of_week",           # 0=Mon, 4=Fri
-    "first_30m_range_pct",   # (first 30m high - low) / open
+    "first_30m_range_pct",   # (first 30m high - low) / open  [= ORB width]
     "prev_day_ret",          # previous day return
     "prev_day_range",        # previous day (high-low) / close
     # Options flow features (market-wide sentiment)
@@ -66,6 +76,15 @@ FEATURE_NAMES = [
     "pc_oi_ratio",           # aggregate put/call open interest ratio
     "vix_term_ratio",        # VIX / VIX3M ratio
     "vix_term_inverted",     # 1 if VIX term structure inverted
+    # --- Zarattini / regime-switching features (v2) ---
+    "orb_close_position",    # where in ORB did first-30m end: (close-low)/(high-low) [0=bottom,1=top]
+    "gap_direction_agree",   # +1 gap confirms first_30m dir, -1 contradicts, 0 flat
+    "vwap_zscore_first30",   # (first-30m close - VWAP) / std over first-30m bars
+    "rvol_quality",          # rvol * first_30m_ret_abs — conviction score
+    "vix_momentum_regime",   # 1 if VIX>=18 AND orb_width>=0.5% (Zarattini momentum flag)
+    "prev_2d_ret",           # 2-day prior return (autocorrelation context)
+    "orb_vs_prev_range",     # today ORB width / yesterday range (volatility expansion)
+    "consecutive_dir",       # fraction of last 5 days moving same dir as first_30m
 ]
 
 
@@ -189,6 +208,9 @@ class IntradayFeatureEngine:
             features["label"] = label
             features["date"] = day
             features["rest_ret"] = rest_ret  # for analysis, not used as feature
+            features["entry_price"] = first_close   # ~10:00 entry price
+            features["eod_close"] = eod_close       # ~15:30 exit price
+            features["first_30m_ret_raw"] = first_30m_ret  # signed (for direction)
             samples.append(features)
 
         return pd.DataFrame(samples)
@@ -260,6 +282,9 @@ class IntradayFeatureEngine:
     ) -> Dict:
         """Compute feature vector for a single day."""
         features = {}
+
+        # Derive first_close from first_30m (used by multiple feature blocks)
+        first_close = float(first_30m["close"].iloc[-1])
 
         # 1. First 30m return features
         features["first_30m_ret"] = first_30m_ret
@@ -371,6 +396,75 @@ class IntradayFeatureEngine:
         else:
             features["prev_day_range"] = 0
 
+        # 13-20. Zarattini / regime-switching features (v2)
+
+        # 13. ORB close position: where in first-30m range did we end?
+        orb_range = f30_high - f30_low
+        if orb_range > 0:
+            features["orb_close_position"] = (first_close - f30_low) / orb_range
+        else:
+            features["orb_close_position"] = 0.5
+
+        # 14. Gap direction agree: does overnight gap confirm first-30m direction?
+        gap = features["overnight_gap"]
+        if abs(gap) < 0.0005:
+            features["gap_direction_agree"] = 0.0
+        elif (gap > 0 and first_30m_ret > 0) or (gap < 0 and first_30m_ret < 0):
+            features["gap_direction_agree"] = 1.0
+        else:
+            features["gap_direction_agree"] = -1.0
+
+        # 15. VWAP zscore over first 30m bars
+        f30_closes = first_30m["close"].astype(float).values
+        f30_vols = first_30m["volume"].astype(float).values
+        total_vol_30m = float(f30_vols.sum())
+        if total_vol_30m > 0:
+            vwap_30m = float((f30_closes * f30_vols).sum()) / total_vol_30m
+        else:
+            vwap_30m = float(np.mean(f30_closes))
+        std_30m = float(np.std(f30_closes)) if len(f30_closes) > 1 else 1.0
+        features["vwap_zscore_first30"] = (first_close - vwap_30m) / max(std_30m, 1e-6)
+
+        # 16. RVOL quality: conviction = volume surprise × price move
+        features["rvol_quality"] = features["rvol"] * abs(first_30m_ret)
+
+        # 17. VIX momentum regime: Zarattini flag (wide ORB + elevated VIX = momentum day)
+        orb_width = features["first_30m_range_pct"]
+        vix_val_now = features["vix"]
+        features["vix_momentum_regime"] = float(vix_val_now >= 18.0 and orb_width >= 0.005)
+
+        # 18. 2-day prior return
+        if day_idx >= 2:
+            two_back = dates[day_idx - 2]
+            two_back_bars = all_bars[all_bars["et_date"] == two_back]
+            if len(two_back_bars) > 1:
+                po2 = float(two_back_bars["open"].iloc[0])
+                pc2 = float(two_back_bars["close"].iloc[-1])
+                features["prev_2d_ret"] = (pc2 - po2) / po2 if po2 > 0 else 0.0
+            else:
+                features["prev_2d_ret"] = 0.0
+        else:
+            features["prev_2d_ret"] = 0.0
+
+        # 19. ORB width vs previous day range (volatility expansion)
+        prev_rng = features["prev_day_range"]
+        features["orb_vs_prev_range"] = orb_width / max(prev_rng, 1e-6)
+
+        # 20. Consecutive direction: fraction of last 5 days moving in same dir as first_30m
+        direction_sign = 1 if first_30m_ret > 0 else -1
+        consecutive = 0
+        n_check = 0
+        for d in reversed(dates[max(0, day_idx - 5):day_idx]):
+            d_bars = all_bars[all_bars["et_date"] == d]
+            if len(d_bars) > 1:
+                d_o = float(d_bars["open"].iloc[0])
+                d_c = float(d_bars["close"].iloc[-1])
+                d_ret = (d_c - d_o) / d_o if d_o > 0 else 0.0
+                if (d_ret > 0) == (direction_sign > 0):
+                    consecutive += 1
+                n_check += 1
+        features["consecutive_dir"] = consecutive / max(n_check, 1)
+
         # 12. Options flow features (market-wide sentiment)
         # For training: use historical VIX term structure, NaN for P/C (not available historically)
         # For live: OptionsFlowEngine provides real-time data
@@ -452,17 +546,17 @@ def train_intraday_model(
     log.info("Train: %d samples, Val: %d samples. Train label balance: %.1f%% UP.",
              len(X_train), len(X_val), y_train.mean() * 100)
 
-    # 4. Train LightGBM
+    # 4. Train LightGBM (24 features; tighter regularization to prevent overfit)
     model = lgb.LGBMClassifier(
-        n_estimators=200,
+        n_estimators=300,
         max_depth=4,
         num_leaves=15,
-        min_child_samples=10,
-        learning_rate=0.05,
-        reg_lambda=1.0,
-        reg_alpha=0.1,
+        min_child_samples=15,
+        learning_rate=0.04,
+        reg_lambda=2.0,
+        reg_alpha=0.2,
         subsample=0.8,
-        colsample_bytree=0.8,
+        colsample_bytree=0.7,
         random_state=42,
         verbose=-1,
     )
@@ -496,8 +590,8 @@ def train_intraday_model(
 
     # Feature importance
     importances = model.feature_importances_
-    top_idx = np.argsort(importances)[::-1][:5]
-    log.info("Top 5 features: %s",
+    top_idx = np.argsort(importances)[::-1][:8]
+    log.info("Top 8 features: %s",
              ", ".join(f"{FEATURE_NAMES[i]}={importances[i]}" for i in top_idx))
 
     # 6. Save model + config

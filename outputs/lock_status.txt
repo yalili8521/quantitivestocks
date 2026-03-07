@@ -1,9 +1,0 @@
-
-  Paper trader lock status (group=intraday)
-  Lock file: C:\Users\yalil\AppData\Local\Temp\.paper_trader_intraday.lock
-  PID file:  C:\Users\yalil\AppData\Local\Temp\.paper_trader_intraday.pid
-
-  Status:  LOCK PRESENT - paper trader for this group is running.
-  You cannot start another instance until the lock is gone.
-  To stop: python main.py stop-paper-trader --group intraday
-  In Task Manager: use the Details tab (not Processes), find python.exe, then End task.
