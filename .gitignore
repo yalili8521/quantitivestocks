@@ -13,7 +13,14 @@ models/*.joblib
 # Output files (regenerated on each run)
 outputs/*.csv
 outputs/*.html
+outputs/*.ps1
 outputs/signals.json
+
+# Cached market data (regenerated on each run)
+data/
+
+# Project-level Claude instructions (contains API keys — never commit)
+CLAUDE.md
 
 # Environment
 .env
