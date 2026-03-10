@@ -51,6 +51,7 @@ def main() -> None:
     trade            Start Alpaca paper trading loop (stocks)
     range-trade      Start intraday mean reversion range paper trader (dedicated account)
     report           Generate HTML dashboard (outputs/report.html)
+    spread-trade     Start options credit spread trader (activates when VIX > 25)
     train-intraday   Train LightGBM intraday momentum model (replaces LSTM for intraday group)
     train-swing      Train TFT+XGBoost swing model
     training-tables Generate CSV/HTML tables of training & backtest metrics
@@ -132,14 +133,6 @@ def main() -> None:
         from reports import main as report_main
         report_main()
 
-    elif command == "range-backtest":
-        from range_backtester import main as rb_main
-        rb_main()
-
-    elif command == "range-trade":
-        from range_trader import main as rt_main
-        rt_main()
-
     elif command == "training-tables":
         import scripts.generate_training_tables as gen_tables
         gen_tables.main()
@@ -151,6 +144,10 @@ def main() -> None:
     elif command == "train-swing":
         from swing_model import main as swing_main
         swing_main()
+
+    elif command == "spread-trade":
+        from spread_trader import main as spread_main
+        spread_main()
 
     else:
         print(f"\n  Unknown command: {command!r}")

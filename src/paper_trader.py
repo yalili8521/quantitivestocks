@@ -56,10 +56,8 @@ from signals_engine import (
     DAILY_LOOKBACK, build_adapter, FREDVixFetcher,
     compute_atr,
 )
-from ml_model import (
-    Predictor, _fetch_vix_for_training, DEFAULT_MODEL_DIR,
-    COST_THRESHOLD, TARGET_RETURN,
-)
+from ml_model import Predictor  # LSTM fallback (deprecated)
+from utils import _fetch_vix_for_training, DEFAULT_MODEL_DIR, COST_THRESHOLD, TARGET_RETURN
 from alerts import AlertEngine
 
 logging.basicConfig(
@@ -361,6 +359,7 @@ class AlpacaPaperTrader:
         self._peak_prices: Dict[str, float] = {}
         self._entry_atrs: Dict[str, float] = {}
         self._cooldown_until: Dict[str, datetime] = {}
+        self._decay_cooldown_until: Dict[str, datetime] = {}  # re-entry block after signal-decay exit
 
         self._vix_cache: Optional[pd.DataFrame] = None
 
@@ -759,12 +758,20 @@ class AlpacaPaperTrader:
                     self.sell(symbol, qty, reason="signal_decay", limit_price=current_price)
                     self._record_closed_trade(pnl_pct)
                     self._clear_symbol_state(symbol)
+                    # Block re-entry for 2 bars (2× check_interval) to prevent churn
+                    self._decay_cooldown_until[symbol] = (
+                        datetime.now(timezone.utc) + timedelta(seconds=2 * self.check_interval)
+                    )
                     return (f"EXIT  (signal decay: E[r]={expected_return:+.4f} ≤ 0, "
                             f"P&L={pnl_pct:+.2%}, {qty} sh {side})")
                 elif side == "SHORT" and expected_return >= 0:
                     self.buy_to_cover(symbol, qty, reason="signal_decay", limit_price=current_price)
                     self._record_closed_trade(pnl_pct)
                     self._clear_symbol_state(symbol)
+                    # Block re-entry for 2 bars (2× check_interval) to prevent churn
+                    self._decay_cooldown_until[symbol] = (
+                        datetime.now(timezone.utc) + timedelta(seconds=2 * self.check_interval)
+                    )
                     return (f"EXIT  (signal decay: E[r]={expected_return:+.4f} ≥ 0, "
                             f"P&L={pnl_pct:+.2%}, {qty} sh {side})")
 
@@ -792,11 +799,18 @@ class AlpacaPaperTrader:
             enter_dir = "SHORT"
 
         if enter_dir is not None:
-            # Cooldown check
+            # Cooldown check (disaster stop)
             cd_until = self._cooldown_until.get(symbol)
             if cd_until and datetime.now(timezone.utc) < cd_until:
                 remaining = (cd_until - datetime.now(timezone.utc)).seconds // 60
                 return (f"COOLDOWN  ({symbol} blocked for {remaining}m after loss exit, "
+                        f"enter_dir={enter_dir})  ML: {direction} E[r]={expected_return:+.4f}")
+
+            # Decay cooldown check (anti-churn: 2 bars after signal-decay exit)
+            dc_until = self._decay_cooldown_until.get(symbol)
+            if dc_until and datetime.now(timezone.utc) < dc_until:
+                remaining = max(1, int((dc_until - datetime.now(timezone.utc)).total_seconds() // 60))
+                return (f"DECAY-COOLDOWN  ({symbol} blocked for {remaining}m after signal-decay exit, "
                         f"enter_dir={enter_dir})  ML: {direction} E[r]={expected_return:+.4f}")
 
             current_price = self._get_current_price(symbol)
@@ -851,10 +865,15 @@ class AlpacaPaperTrader:
         """Reset tracking state for a symbol after exit."""
         self._peak_prices.pop(symbol, None)
         self._entry_atrs.pop(symbol, None)
+        # Note: _decay_cooldown_until is intentionally NOT cleared here —
+        # signal-decay exits set it after calling this method.
 
     # -- Main loop -----------------------------------------------------
     def run_loop(self) -> None:
         """Main continuous trading loop."""
+        if not self.symbols:
+            log.info("No symbols configured for this group — exiting.")
+            return
         log.info("Starting paper trading loop (%s mode)...", self.mode)
         log.info("Symbols: %s", ", ".join(self.symbols))
         log.info("Check interval: %d min", self.check_interval // 60)
@@ -1344,6 +1363,19 @@ def main() -> None:
 
     # Warn if any symbol is in more than one group (wrong model placement)
     _warn_duplicate_symbols()
+
+    # Guard: intraday-only symbols must not be traded on non-intraday accounts
+    INTRADAY_ONLY = set(SYMBOL_GROUPS.get("intraday", [])) - set(SYMBOL_GROUPS.get("swing", [])) - set(SYMBOL_GROUPS.get("expansion", []))
+    if group and group not in ("intraday", "all") and args.mode == "intraday":
+        print(f"\n  ERROR: --mode intraday requires --group intraday (got --group {group}).")
+        print("  Intraday mode must use the intraday account to avoid cross-account contamination.\n")
+        sys.exit(1)
+    if group and group not in ("intraday", "all") and args.symbols:
+        bad = [s for s in args.symbols.split(",") if s.strip().upper() in INTRADAY_ONLY]
+        if bad:
+            print(f"\n  ERROR: Symbols {bad} are intraday-only and cannot be traded on the '{group}' account.")
+            print(f"  Use --group intraday instead.\n")
+            sys.exit(1)
 
     # Resolve symbols: --symbols > --group > full DEFAULT_UNIVERSE
     if args.symbols:

@@ -91,17 +91,16 @@ if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
 # ---------------------------------------------------------------------------
 $Groups = @(
     @{ Name = 'intraday';  EnvPrefix = 'ALPACA_INTRADAY_';  Mode = 'intraday'; Interval = '5min';
-       ExtraArgs = @() },
+       ExtraArgs = @(); Command = 'trade' },
     @{ Name = 'swing';     EnvPrefix = 'ALPACA_SWING_';     Mode = 'daily';    Interval = '5min';
-       ExtraArgs = @() },
+       ExtraArgs = @(); Command = 'trade' },
     @{ Name = 'expansion'; EnvPrefix = 'ALPACA_EXPANSION_'; Mode = 'daily';    Interval = '5min';
-       ExtraArgs = @() }
+       ExtraArgs = @(); Command = 'trade' },
+    @{ Name = 'spreads';   EnvPrefix = 'ALPACA_EXPANSION_'; Mode = 'daily';    Interval = '5min';
+       ExtraArgs = @('--vix-threshold', '25.0'); Command = 'spread-trade' }
 )
 
-$CommonArgs = @(
-    '-u', 'main.py', 'trade',
-    '--provider', 'alpaca'
-)
+$CommonArgs = @('-u', 'main.py')
 
 # Stop any existing trader processes (LSTM + range)
 $existingTraders = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
@@ -121,8 +120,12 @@ function Start-TraderGroup {
     $groupLog    = Join-Path $LogDir ("paper_trader_$($grp.Name)_${ts}.log")
     $groupErrLog = $groupLog -replace '\.log$', '_err.log'
 
-    $modeArgs  = @('--mode', $grp.Mode, '--interval', $grp.Interval)
-    $groupArgs = $CommonArgs + $modeArgs + @('--group', $grp.Name) + $grp.ExtraArgs
+    if ($grp.Command -eq 'spread-trade') {
+        $groupArgs = $CommonArgs + @($grp.Command) + $grp.ExtraArgs
+    } else {
+        $modeArgs  = @('--mode', $grp.Mode, '--interval', $grp.Interval)
+        $groupArgs = $CommonArgs + @($grp.Command) + $modeArgs + @('--group', $grp.Name) + $grp.ExtraArgs
+    }
     $ArgLine   = $groupArgs -join ' '
 
     $keyVar = $grp.EnvPrefix + 'KEY'
@@ -148,32 +151,19 @@ function Start-TraderGroup {
 # ---------------------------------------------------------------------------
 # Initial launch
 # ---------------------------------------------------------------------------
-Write-Host "[$(Get-Date -Format s)] Starting 3 paper trader groups (intraday/swing/expansion) + range trader..."
+Write-Host "[$(Get-Date -Format s)] Starting paper trader groups (intraday/swing/expansion)..."
 Write-Host "Python: $PythonExe"
 foreach ($c in $EnvCandidates) { if (Test-Path -LiteralPath $c) { Write-Host "Env: $c" } }
 
 $GroupProcs = @{}
 foreach ($grp in $Groups) {
-    $proc = Start-TraderGroup $grp
-    $GroupProcs[$grp.Name] = $proc
+    try {
+        $proc = Start-TraderGroup $grp
+        $GroupProcs[$grp.Name] = $proc
+    } catch {
+        Write-Host "  [$($grp.Name)] FAILED to start: $_"
+    }
 }
-
-# ---------------------------------------------------------------------------
-# Range trader: 30% budget, intraday symbols, same account as intraday group
-# ---------------------------------------------------------------------------
-$rangeTs      = Get-Date -Format 'yyyyMMdd_HHmmss'
-$rangeLog     = Join-Path $LogDir "range_trader_${rangeTs}.log"
-$rangeErrLog  = $rangeLog -replace '\.log$', '_err.log'
-$rangeArgLine = '-u main.py range-trade --symbols SPY,QQQ,IWM,SOXX --provider alpaca'
-$rangeProc    = Start-Process `
-    -FilePath         $PythonExe `
-    -ArgumentList     $rangeArgLine `
-    -WorkingDirectory $ProjectRoot `
-    -RedirectStandardOutput $rangeLog `
-    -RedirectStandardError  $rangeErrLog `
-    -WindowStyle      Hidden `
-    -PassThru
-Write-Host "  [range] PID $($rangeProc.Id)  log: $rangeLog"
 
 Write-Host "[$(Get-Date -Format s)] All groups started. Watchdog active."
 
@@ -187,30 +177,17 @@ while (-not (Test-AfterMarketClose)) {
 
     foreach ($grp in $Groups) {
         $proc = $GroupProcs[$grp.Name]
+        if (-not $proc) { continue }
         $alive = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
         if (-not $alive) {
             Write-Host "[$(Get-Date -Format s)] [$($grp.Name)] Process $($proc.Id) died - restarting..."
-            $newProc = Start-TraderGroup $grp
-            $GroupProcs[$grp.Name] = $newProc
+            try {
+                $newProc = Start-TraderGroup $grp
+                $GroupProcs[$grp.Name] = $newProc
+            } catch {
+                Write-Host "[$(Get-Date -Format s)] [$($grp.Name)] Restart failed: $_"
+            }
         }
-    }
-
-    # Restart range trader if it died
-    $rangeAlive = Get-Process -Id $rangeProc.Id -ErrorAction SilentlyContinue
-    if (-not $rangeAlive) {
-        Write-Host "[$(Get-Date -Format s)] [range] Process $($rangeProc.Id) died - restarting..."
-        $rTs         = Get-Date -Format 'yyyyMMdd_HHmmss'
-        $rLog        = Join-Path $LogDir "range_trader_${rTs}.log"
-        $rErrLog     = $rLog -replace '\.log$', '_err.log'
-        $rangeProc   = Start-Process `
-            -FilePath         $PythonExe `
-            -ArgumentList     $rangeArgLine `
-            -WorkingDirectory $ProjectRoot `
-            -RedirectStandardOutput $rLog `
-            -RedirectStandardError  $rErrLog `
-            -WindowStyle      Hidden `
-            -PassThru
-        Write-Host "  [range] PID $($rangeProc.Id)  log: $rLog"
     }
 }
 
