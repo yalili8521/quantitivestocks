@@ -423,6 +423,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
   <span class="topnav-brand">QS</span>
   <div class="topnav-links">
     <a href="#live-pnl">Live P&L</a>
+    <a href="#markets">Markets</a>
     <a href="#live-panel">Orders</a>
     <a href="#metrics">Metrics</a>
     <a href="#equity">Equity</a>
@@ -681,6 +682,108 @@ footer{border-top:1px solid var(--border);padding:40px 0}
     </div>
   </div>
 </section>
+
+
+<!-- TRADINGVIEW MARKET OVERVIEW -->
+<section id="markets" class="section-wrap reveal">
+  <div class="container">
+    <div class="sec-label">LIVE MARKETS</div>
+    <h2 class="sec-title" style="margin-bottom:8px">Market Overview</h2>
+    <p style="color:var(--text-sec);font-size:13px;margin-bottom:24px">Real-time prices for the full traded universe &bull; Powered by TradingView</p>
+
+    <!-- Symbol tabs -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px" id="tv-symbol-tabs">
+      <button class="acct-tab active" onclick="setTVSymbol('QQQ',this)">QQQ</button>
+      <button class="acct-tab" onclick="setTVSymbol('SPY',this)">SPY</button>
+      <button class="acct-tab" onclick="setTVSymbol('IWM',this)">IWM</button>
+      <button class="acct-tab" onclick="setTVSymbol('SMH',this)">SMH</button>
+      <button class="acct-tab" onclick="setTVSymbol('SOXX',this)">SOXX</button>
+      <button class="acct-tab" onclick="setTVSymbol('IGV',this)">IGV</button>
+      <button class="acct-tab" onclick="setTVSymbol('EWT',this)">EWT</button>
+      <button class="acct-tab" onclick="setTVSymbol('GLD',this)">GLD</button>
+      <button class="acct-tab" onclick="setTVSymbol('SLV',this)">SLV</button>
+      <button class="acct-tab" onclick="setTVSymbol('GDX',this)">GDX</button>
+      <button class="acct-tab" onclick="setTVSymbol('IBIT',this)">IBIT</button>
+      <button class="acct-tab" onclick="setTVSymbol('XLK',this)">XLK</button>
+    </div>
+
+    <!-- TradingView Advanced Chart -->
+    <div class="glass" style="padding:0;overflow:hidden;border-radius:12px">
+      <div id="tv-chart-container" style="height:500px">
+        <div class="tradingview-widget-container" style="height:100%;width:100%">
+          <div id="tv_chart_div" style="height:100%;width:100%"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mini ticker row -->
+    <div style="margin-top:16px">
+      <div class="tradingview-widget-container">
+        <div class="tradingview-widget-container__widget"></div>
+        <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js" async>
+        {
+          "symbols": [
+            {"proName": "NASDAQ:QQQ",  "title": "QQQ"},
+            {"proName": "AMEX:SPY",    "title": "SPY"},
+            {"proName": "AMEX:IWM",    "title": "IWM"},
+            {"proName": "NASDAQ:SMH",  "title": "SMH"},
+            {"proName": "NASDAQ:SOXX", "title": "SOXX"},
+            {"proName": "NASDAQ:IGV",  "title": "IGV"},
+            {"proName": "AMEX:EWT",    "title": "EWT"},
+            {"proName": "AMEX:GLD",    "title": "GLD"},
+            {"proName": "AMEX:SLV",    "title": "SLV"},
+            {"proName": "AMEX:GDX",    "title": "GDX"},
+            {"proName": "NASDAQ:IBIT", "title": "IBIT"},
+            {"proName": "NASDAQ:XLK",  "title": "XLK"}
+          ],
+          "showSymbolLogo": true,
+          "isTransparent": true,
+          "displayMode": "compact",
+          "colorTheme": "dark",
+          "locale": "en"
+        }
+        </script>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+var _tvWidget = null;
+function setTVSymbol(sym, btn) {
+  document.querySelectorAll('#tv-symbol-tabs .acct-tab').forEach(function(b){b.classList.remove('active')});
+  if(btn) btn.classList.add('active');
+  if (_tvWidget) {
+    _tvWidget.setSymbol('NASDAQ:' + sym, '1D', function(){});
+    return;
+  }
+}
+(function initTV() {
+  if (typeof TradingView === 'undefined') {
+    setTimeout(initTV, 500);
+    return;
+  }
+  _tvWidget = new TradingView.widget({
+    autosize: true,
+    symbol: 'NASDAQ:QQQ',
+    interval: '1D',
+    timezone: 'America/New_York',
+    theme: 'dark',
+    style: '1',
+    locale: 'en',
+    toolbar_bg: '#0b0f19',
+    enable_publishing: false,
+    hide_side_toolbar: false,
+    allow_symbol_change: true,
+    container_id: 'tv_chart_div',
+    studies: ['RSI@tv-basicstudies', 'MACD@tv-basicstudies'],
+    show_popup_button: true,
+    popup_width: '1000',
+    popup_height: '650',
+  });
+})();
+</script>
 
 
 <!-- RECENT ORDERS -->
