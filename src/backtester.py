@@ -9,7 +9,7 @@ Architecture: trend-following base layer (SMA) + signal-proportional sizing
 Usage (via main.py):
     python main.py backtest --symbol SPY --start 2024-01-01
     python main.py backtest --symbol SPY --start 2024-01-01 --model swing
-    python main.py backtest --symbol XLE --start 2024-01-01 --model expansion
+    python main.py backtest --symbol XLE --start 2024-01-01 --model options
 
 Requires: trained model (run: python main.py train --symbol SPY first).
 """
@@ -35,11 +35,8 @@ from signals_engine import (
     build_adapter, PROJECT_ROOT,
     compute_atr,
 )
-from ml_model import (
-    FeatureEngine, DirectionLSTM, get_feature_cols, SEQ_LEN,
-    DEFAULT_MODEL_DIR, _fetch_vix_for_training,
-    COST_THRESHOLD, TARGET_RETURN,
-)
+from ml_model import FeatureEngine, DirectionLSTM, get_feature_cols, SEQ_LEN  # LSTM path (deprecated)
+from utils import DEFAULT_MODEL_DIR, _fetch_vix_for_training, COST_THRESHOLD, TARGET_RETURN
 
 logging.basicConfig(
     level=logging.INFO,
@@ -261,10 +258,9 @@ class Backtester:
 
             price_rows.append({"date": day, "close": eod_close})
 
-            # Layer 1: regime gate — SPY SMA(200) + VIX < 25
+            # Layer 1: regime gate — SPY SMA(200) (VIX gate skipped for intraday)
             spy_bull = spy_sma_lookup.get(day, True)  # default open if data missing
-            vix_ok = float(row.get("vix", 20.0)) < 25.0
-            if not spy_bull or not vix_ok:
+            if not spy_bull:
                 self._record_equity(portfolio, day, eod_close)
                 regime_skipped += 1
                 continue
@@ -361,6 +357,7 @@ class Backtester:
         # Build features and load model — varies by model_type
         model = None       # LSTM/PatchTST nn.Module (None for XGBoost)
         xgb_model = None   # XGBoost regressor (None for LSTM/PatchTST)
+        spy_bars = None    # SPY bars for regime filter (fetched by swing, None for LSTM)
         effective_seq_len = seq_len  # may change for PatchTST
 
         if self.model_type == "swing":
@@ -378,6 +375,10 @@ class Backtester:
             log.info("Built %d swing feature rows (XGBoost).", len(features_norm))
 
             model_path = os.path.join(self.model_dir, f"{self.symbol}_xgb_swing.joblib")
+            if not os.path.exists(model_path):
+                log.error("No swing XGBoost model for %s. Train first: "
+                          "python main.py train-swing --symbols %s", self.symbol, self.symbol)
+                sys.exit(1)
             xgb_model = joblib.load(model_path)
             effective_seq_len = 1  # XGBoost point-in-time, no sequence
             log.info("Loaded XGBoost swing for %s (%d features).",
@@ -400,6 +401,12 @@ class Backtester:
 
             # Load primary LSTM model
             weights_path = os.path.join(self.model_dir, f"{self.symbol}_lstm{suffix}.pt")
+            if not os.path.exists(weights_path):
+                log.error("No LSTM weights for %s (%s mode). Train first: "
+                          "python main.py train --symbol %s%s",
+                          self.symbol, self.mode, self.symbol,
+                          f" --mode {self.mode}" if self.mode != "daily" else "")
+                sys.exit(1)
             model = DirectionLSTM(n_features=len(get_feature_cols(self.mode, self.symbol)))
             model.load_state_dict(
                 torch.load(weights_path, map_location="cpu", weights_only=True))
@@ -418,7 +425,7 @@ class Backtester:
         start_dt = pd.to_datetime(start_date).date()
         end_dt = pd.to_datetime(end_date).date() if end_date else datetime.now(timezone.utc).date()
 
-        # --- Regime filter: SPY SMA(200) + VIX < 25 + rolling win rate ---
+        # --- Regime filter: SPY SMA(200) + VIX < 30 + rolling win rate ---
         # Layer 1: SPY SMA(200) — use already-fetched spy_bars if available
         _spy_for_regime = spy_bars if (spy_bars is not None and not spy_bars.empty) else bars
         _spy_close = _spy_for_regime["close"].astype(float)
@@ -524,10 +531,10 @@ class Backtester:
 
             # --- Entry logic (v2: trend filter + regime gate + signal-proportional sizing) ---
             if portfolio.position is None and not is_last_bar:
-                # Regime gate: SPY SMA(200) + VIX < 25
+                # Regime gate: SPY SMA(200) + VIX < 30
                 _spy_ok = swing_spy_sma_lookup.get(bar_date, True)
                 _vix_val = swing_vix_lookup.get(bar_date, 20.0)
-                if not _spy_ok or _vix_val >= 25.0:
+                if not _spy_ok or _vix_val >= 30.0:
                     self._record_equity(portfolio, bar_date, bar_close)
                     swing_regime_skipped += 1
                     continue
@@ -1064,8 +1071,8 @@ def main() -> None:
     parser.add_argument("--interval", default="5min", choices=["1min", "5min"],
                         help="Intraday bar interval (default: 5min)")
     parser.add_argument("--model", default="lstm",
-                        choices=["lstm", "swing", "expansion", "intraday"],
-                        help="Model type: lstm (default), swing (PatchTST), expansion (XGBoost), pairs (cointegration)")
+                        choices=["lstm", "swing", "options", "intraday"],
+                        help="Model type: lstm (default), swing (PatchTST), options (XGBoost), pairs (cointegration)")
     # v2 regression parameters
     parser.add_argument("--trend-sma", type=int, default=50,
                         help="SMA period for trend filter (default: 50)")

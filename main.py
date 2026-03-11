@@ -10,8 +10,6 @@ Usage:
     python main.py predict          --symbol SPY
     python main.py backtest         --symbol SPY --start 2024-01-01
     python main.py trade            --interval 5 --confidence 0.2
-    python main.py range-backtest   --symbols SPY,QQQ --start 2024-01-01
-    python main.py range-trade      --symbols SPY,QQQ --provider alpaca --group range
     python main.py report                             # generate outputs/report.html
     python main.py report --open                      # generate + open in browser
 
@@ -47,11 +45,8 @@ def main() -> None:
     train-meta       Train Random Forest meta-model (requires trained primary LSTM)
     predict          Run ML prediction for a symbol
     backtest         Walk-forward backtest with ML predictions
-    range-backtest   Walk-forward backtest for intraday mean reversion range strategy
     trade            Start Alpaca paper trading loop (stocks)
-    range-trade      Start intraday mean reversion range paper trader (dedicated account)
     report           Generate HTML dashboard (outputs/report.html)
-    spread-trade     Start options credit spread trader (activates when VIX > 25)
     train-intraday   Train LightGBM intraday momentum model (replaces LSTM for intraday group)
     train-swing      Train TFT+XGBoost swing model
     training-tables Generate CSV/HTML tables of training & backtest metrics
@@ -68,12 +63,9 @@ def main() -> None:
     python main.py predict              --symbol SPY
     python main.py backtest             --symbol SPY --start 2024-01-01
     python main.py backtest             --symbol SPY --start 2025-01-01 --mode intraday
-    python main.py range-backtest       --symbols SPY,QQQ,IWM,SOXX,EWT,GLD,EEM,SLV,EWJ,EWS,XLE,INDA --start 2024-01-01
-    python main.py range-backtest       --symbols SPY --start 2025-01-01 --provider alpaca
-    python main.py range-trade          --symbols SPY,QQQ,IWM,SOXX,EWT,GLD,EEM,SLV,EWJ,EWS,XLE,INDA --provider alpaca --group range
-    python main.py trade                --confidence 0.2 --trailing-stop 0.05
-    python main.py trade                --group equities
-    python main.py trade                --group commodities
+    python main.py trade                --confidence 0.01 --trailing-stop 0.05
+    python main.py trade                --group swing
+    python main.py trade                --group intraday
     python main.py trade                --mode intraday --interval 5min
     python main.py report
     python main.py report               --open
@@ -145,13 +137,9 @@ def main() -> None:
         from swing_model import main as swing_main
         swing_main()
 
-    elif command == "spread-trade":
-        from spread_trader import main as spread_main
-        spread_main()
-
     else:
         print(f"\n  Unknown command: {command!r}")
-        print("  Available commands: signals, train, train-meta, train-intraday, train-swing, predict, backtest, range-backtest, trade, range-trade, report, training-tables, check-positions, stop-paper-trader, lock-status")
+        print("  Available commands: signals, train, train-meta, train-intraday, train-swing, predict, backtest, trade, report, training-tables, check-positions, stop-paper-trader, lock-status")
         print("  Run `python main.py --help` for usage.\n")
         sys.exit(1)
 

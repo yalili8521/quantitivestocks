@@ -14,7 +14,7 @@ Architecture (v2 — mirrors backtester):
 Usage (via main.py):
     python main.py trade --group intraday --mode intraday --interval 5min
     python main.py trade --group swing
-    python main.py trade --group expansion
+    python main.py trade --group options
 
 Required env vars:
     ALPACA_API_KEY, ALPACA_API_SECRET, FRED_API_KEY
@@ -85,11 +85,9 @@ SYMBOL_GROUPS: Dict[str, List[str]] = {
     # Dropped: MCHI (OOS 2022-2023: -7.2%, TFT discarded at 41.5% dir_acc)
     # Note: GDX/SLV/IGV/QQQ/SMH/XLK shared with intraday (separate account, separate model)
     "swing":     ["GDX", "SLV", "IGV", "QQQ", "GLD", "SMH", "XLK", "IBIT"],
-    # Account 3 — Expansion: retired. Expansion XGBoost factor model (EWJ/EWS/XLE/INDA)
-    # produced <60% returns on its own feature set. Those symbols now use intraday LightGBM
-    # (EWT +137%, XLE +136%, EEM +63%) or are dropped (EWJ 44%, EWS 41%, INDA 24%).
-    # Keeping key "expansion" for CLI compatibility; add symbols when a new strategy qualifies.
-    "expansion": [],
+    # Account 3 — Options: credit spread and directional options strategies (SpreadTrader).
+    # Add equity symbols here when a new options-supporting strategy qualifies.
+    "options": [],
 }
 
 # Legacy / wrong-algorithm positions: opened by a previous buggy model. Manage them
@@ -141,7 +139,7 @@ def _acquire_single_instance_lock() -> bool:
 
     Uses a PID file + byte-range lock. Stale locks (PID no longer running)
     are automatically cleared so a force-killed process never blocks restarts.
-    Lock file is group-specific so intraday/swing/expansion can run in parallel.
+    Lock file is group-specific so intraday/swing/options can run in parallel.
     """
     global _INSTANCE_LOCK_FH
 
@@ -528,12 +526,12 @@ class AlpacaPaperTrader:
         """Return (regime_ok: bool, reason: str).
 
         Gate 1 — SPY SMA(200): only trade in bull market (SPY close > 200-day MA).
-        Gate 2 — VIX < 25: avoid elevated-volatility / crisis regimes.
+        Gate 2 — VIX threshold: swing < 30 (skip for intraday — model handles vol).
         Gate 3 — Rolling win rate: pause 7 days if last 20 trades win rate < 50%.
 
         Returns True only when ALL gates pass.
         """
-        # Gate 1 + 2: SPY SMA(200) and VIX
+        # Gate 1: SPY SMA(200)
         try:
             spy_bars = self.adapter.fetch_daily("SPY", 210)
             spy_close = float(spy_bars["close"].iloc[-1])
@@ -543,15 +541,18 @@ class AlpacaPaperTrader:
         except Exception as exc:
             log.warning("Regime SPY check failed (defaulting open): %s", exc)
 
-        try:
-            vix_df = self._vix_cache if self._vix_cache is not None else self._get_vix_df()
-            if not vix_df.empty:
-                vix_now = float(vix_df.iloc[-1].iloc[0] if vix_df.shape[1] == 1
-                                else vix_df["vix"].iloc[-1])
-                if vix_now >= 25.0:
-                    return False, f"VIX elevated: {vix_now:.1f} >= 25"
-        except Exception as exc:
-            log.warning("Regime VIX check failed (defaulting open): %s", exc)
+        # Gate 2: VIX — skip for intraday (short holds benefit from vol),
+        #               block swing only above 30 (real panic, not routine vol)
+        if self.mode != "intraday":
+            try:
+                vix_df = self._vix_cache if self._vix_cache is not None else self._get_vix_df()
+                if not vix_df.empty:
+                    vix_now = float(vix_df.iloc[-1].iloc[0] if vix_df.shape[1] == 1
+                                    else vix_df["vix"].iloc[-1])
+                    if vix_now >= 30.0:
+                        return False, f"VIX elevated: {vix_now:.1f} >= 30"
+            except Exception as exc:
+                log.warning("Regime VIX check failed (defaulting open): %s", exc)
 
         # Gate 3: rolling 20-trade win rate cooldown
         import datetime as _dt
@@ -1229,7 +1230,7 @@ def check_positions_main() -> None:
     # Algorithm check summary (no code bug found; "wrong" = previous model version)
     print("\n  === Algorithm check ===")
     print("  Current logic: v2 regression (E[r] forward 10d) + SMA(50) trend filter + signal-decay exits.")
-    print("  Mode matches group (intraday -> LightGBM; swing -> PatchTST; expansion -> XGBoost; LSTM fallback).")
+    print("  Mode matches group (intraday -> LightGBM; swing -> PatchTST; options -> SpreadTrader; LSTM fallback).")
     print("  No known code bugs. 'Wrong algorithm' = positions opened by an older/wrong model.")
     print()
 
@@ -1314,7 +1315,7 @@ def main() -> None:
     )
     parser.add_argument("--group", type=str, default=None,
                         choices=list(SYMBOL_GROUPS.keys()) + ["all"],
-                        help="Trade a named account group: intraday / swing / expansion / all")
+                        help="Trade a named account group: intraday / swing / options / all")
     parser.add_argument("--symbols", type=str, default=None,
                         help="Comma-separated symbols override (overrides --group)")
     parser.add_argument("--provider", default="yahoo",
@@ -1345,7 +1346,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # Resolve API keys: group-specific keys take priority over generic ALPACA_API_KEY
-    group = args.group  # e.g. "intraday", "swing", "expansion", "all", or None
+    group = args.group  # e.g. "intraday", "swing", "options", "all", or None
     if group and group != "all":
         env_prefix = f"ALPACA_{group.upper()}_"
         api_key    = os.environ.get(f"{env_prefix}KEY",    os.environ.get("ALPACA_API_KEY", ""))
@@ -1365,7 +1366,7 @@ def main() -> None:
     _warn_duplicate_symbols()
 
     # Guard: intraday-only symbols must not be traded on non-intraday accounts
-    INTRADAY_ONLY = set(SYMBOL_GROUPS.get("intraday", [])) - set(SYMBOL_GROUPS.get("swing", [])) - set(SYMBOL_GROUPS.get("expansion", []))
+    INTRADAY_ONLY = set(SYMBOL_GROUPS.get("intraday", [])) - set(SYMBOL_GROUPS.get("swing", [])) - set(SYMBOL_GROUPS.get("options", []))
     if group and group not in ("intraday", "all") and args.mode == "intraday":
         print(f"\n  ERROR: --mode intraday requires --group intraday (got --group {group}).")
         print("  Intraday mode must use the intraday account to avoid cross-account contamination.\n")

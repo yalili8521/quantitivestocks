@@ -757,7 +757,8 @@ def run(symbols: List[str], provider: str, intraday_interval: str,
     # --- optional ML prediction ----------------------------------------
     if use_ml:
         try:
-            from ml_model import Predictor, _fetch_vix_for_training
+            from ml_model import Predictor  # LSTM fallback (deprecated)
+            from utils import _fetch_vix_for_training
             model_dir = os.path.join(PROJECT_ROOT, "models")
             ML_LOOKBACK = 400  # needs 282-bar frac_diff warmup for GLD/SLV
             ml_vix_df = _fetch_vix_for_training(fred_key, lookback_days=ML_LOOKBACK)
@@ -899,7 +900,7 @@ def main() -> None:
         "--ml",
         action="store_true",
         default=False,
-        help="Include ML predictions (requires trained models in data/models/)",
+        help="Include ML predictions (requires trained models in models/)",
     )
     args = parser.parse_args()
 

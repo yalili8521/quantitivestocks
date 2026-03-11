@@ -42,7 +42,7 @@ import numpy as np
 import pandas as pd
 
 from signals_engine import PROJECT_ROOT, build_adapter
-from ml_model import _fetch_vix_for_training, DEFAULT_MODEL_DIR
+from utils import _fetch_vix_for_training, DEFAULT_MODEL_DIR
 OPTIONS_FLOW_FEATURES = ["pc_volume_ratio", "pc_oi_ratio", "vix_term_ratio", "vix_term_inverted"]
 
 logging.basicConfig(
@@ -680,7 +680,8 @@ class IntradayPredictor:
         direction = "UP" if first_30m_ret > 0 else "DOWN"
 
         # LightGBM prediction
-        x = np.array([[features[f] for f in FEATURE_NAMES]], dtype=np.float32)
+        x = pd.DataFrame([[features[f] for f in FEATURE_NAMES]],
+                         columns=FEATURE_NAMES)
         prob = float(self.model.predict_proba(x)[0][1])
 
         # Confidence in LSTM-compatible format
