@@ -21,6 +21,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULT_MODEL_DIR = os.path.join(PROJECT_ROOT, "models")
+CRYPTO_MODEL_DIR  = os.path.join(PROJECT_ROOT, "models", "crypto")
 
 COST_THRESHOLD = 0.001   # 0.1 % minimum expected return to trade
 TARGET_RETURN  = 0.02    # 2 % return = full position size

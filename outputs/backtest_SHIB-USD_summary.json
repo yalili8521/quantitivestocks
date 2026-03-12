@@ -1,0 +1,19 @@
+{
+  "symbol": "SHIB-USD",
+  "mode": "daily",
+  "intraday_interval": "5min",
+  "start_date": "2024-02-28",
+  "end_date": "2026-03-12",
+  "initial_capital": 100000.0,
+  "final_equity": 123832.87,
+  "total_return_pct": 23.83,
+  "annualized_return_pct": 10.0,
+  "sharpe_ratio": 0.473,
+  "max_drawdown_pct": -32.54,
+  "total_trades": 2,
+  "win_rate": 0.5,
+  "avg_win_pct": 75.79,
+  "avg_loss_pct": -24.0,
+  "profit_factor": 2.721,
+  "avg_trade_duration_days": 341.0
+}

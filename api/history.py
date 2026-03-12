@@ -25,10 +25,10 @@ ACCOUNTS = [
         "secret_env": "ALPACA_SWING_SECRET",
     },
     {
-        "name": "Expansion",
-        "group": "expansion",
-        "key_env": "ALPACA_EXPANSION_KEY",
-        "secret_env": "ALPACA_EXPANSION_SECRET",
+        "name": "Crypto",
+        "group": "crypto",
+        "key_env": "ALPACA_CRYPTO_KEY",
+        "secret_env": "ALPACA_CRYPTO_SECRET",
     },
 ]
 

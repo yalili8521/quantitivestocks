@@ -49,6 +49,7 @@ def main() -> None:
     report           Generate HTML dashboard (outputs/report.html)
     train-intraday   Train LightGBM intraday momentum model (replaces LSTM for intraday group)
     train-swing      Train TFT+XGBoost swing model
+    train-crypto     Train swing models for crypto (BTC, ETH, SOL) → models/crypto/
     training-tables Generate CSV/HTML tables of training & backtest metrics
     check-positions Check paper account positions; recommend and run legacy handling for existing positions
     stop-paper-trader Stop the running paper trader for a group (e.g. intraday) so you can restart with different flags
@@ -72,6 +73,7 @@ def main() -> None:
     python main.py training-tables      # outputs/training_results_*.csv and .html
     python main.py train-intraday       --symbols SPY,QQQ,IWM,SOXX --provider alpaca
     python main.py train-swing          --symbols EWT,GLD,EEM,SLV --provider yahoo
+    python main.py train-crypto                                    # BTC, ETH, SOL → models/crypto/
 
   Run `python main.py <command> --help` for command-specific options.
 """)
@@ -137,9 +139,19 @@ def main() -> None:
         from swing_model import main as swing_main
         swing_main()
 
+    elif command == "train-crypto":
+        # Convenience: trains swing models for crypto symbols into models/crypto/
+        from utils import CRYPTO_MODEL_DIR
+        sys.argv = [sys.argv[0],
+                     "--symbols", "BTC-USD,ETH-USD,SOL-USD,AVAX-USD,LINK-USD,DOGE-USD,SHIB-USD,DOT-USD,NEAR-USD,SUSHI-USD,ADA-USD,CRV-USD,AAVE-USD,RENDER-USD",
+                     "--provider", "yahoo",
+                     "--save-dir", CRYPTO_MODEL_DIR] + sys.argv[1:]
+        from swing_model import main as swing_main
+        swing_main()
+
     else:
         print(f"\n  Unknown command: {command!r}")
-        print("  Available commands: signals, train, train-meta, train-intraday, train-swing, predict, backtest, trade, report, training-tables, check-positions, stop-paper-trader, lock-status")
+        print("  Available commands: signals, train, train-meta, train-intraday, train-swing, train-crypto, predict, backtest, trade, report, training-tables, check-positions, stop-paper-trader, lock-status")
         print("  Run `python main.py --help` for usage.\n")
         sys.exit(1)
 

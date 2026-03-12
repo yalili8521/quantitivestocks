@@ -1,0 +1,12 @@
+{
+  "symbol": "LINK-USD",
+  "model_type": "tft_swing",
+  "n_features": 61,
+  "seq_len": 20,
+  "hidden": 32,
+  "n_heads": 4,
+  "val_mse": 0.00864324,
+  "val_direction_accuracy": 0.5594,
+  "n_train": 572,
+  "n_val": 143
+}

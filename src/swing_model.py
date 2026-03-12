@@ -48,7 +48,7 @@ from signals_engine import (
     compute_rsi, compute_atr, compute_macd, compute_bollinger_bands,
     compute_adx, compute_momentum_quality, RSI_PERIOD,
 )
-from ml_model import _fetch_vix_for_training, DEFAULT_MODEL_DIR
+from utils import _fetch_vix_for_training, DEFAULT_MODEL_DIR, COST_THRESHOLD, TARGET_RETURN
 from cross_asset_signals import CrossAssetFeatureBuilder, get_cross_asset_features
 OPTIONS_FLOW_FEATURES = ["pc_volume_ratio", "pc_oi_ratio", "vix_term_ratio", "vix_term_inverted"]
 from alpha_signals import AlphaFeatureBuilder, get_alpha_features
@@ -102,7 +102,7 @@ _SUPPLEMENT_TICKERS: Dict[str, str] = {
 # XGBoost hyperparams
 _XGB_PARAMS = dict(
     n_estimators=300,
-    max_depth=4,          # shallower than expansion (fewer relevant features)
+    max_depth=4,          # shallower than options XGBoost (fewer relevant features)
     learning_rate=0.05,
     min_child_weight=15,  # conservative — ~3% of 500-sample dataset
     subsample=0.8,
@@ -744,6 +744,7 @@ def train_swing_model(
     batch_size: int = 32,     # ignored for XGBoost (kept for CLI compat)
     lookback: int = 1000,
     save_dir: str = DEFAULT_MODEL_DIR,
+    train_end: Optional[str] = None,  # e.g. "2023-08-01" — hard cutoff for OOS separation
 ) -> Optional[xgb.XGBRegressor]:
     """Train XGBoost swing model (v3 regression).
 
@@ -752,9 +753,16 @@ def train_swing_model(
     3. Forward 10-day return regression labels
     4. Train XGBRegressor with walk-forward split
     5. Save model + scaler + config
+
+    Args:
+        train_end: If set (e.g. "2023-08-01"), all data on or after this date is
+                   excluded from training and validation. This creates a clean OOS
+                   boundary so backtests starting from train_end are truly OOS.
     """
     os.makedirs(save_dir, exist_ok=True)
     log.info("=== Training swing XGBoost for %s ===", symbol)
+    if train_end:
+        log.info("Training cutoff: data before %s only (OOS boundary).", train_end)
 
     # 1. Fetch data
     log.info("Fetching %d daily bars for %s...", lookback, symbol)
@@ -767,6 +775,36 @@ def train_swing_model(
 
     vix_df = _fetch_vix_for_training(fred_key, lookback_days=max(lookback, 500))
     log.info("Got %d VIX rows.", len(vix_df))
+
+    # 1b. Apply train_end cutoff — drop any rows on or after the OOS boundary
+    if train_end:
+        cutoff = pd.Timestamp(train_end)
+        # fetch_daily() returns a RangeIndex DataFrame; find the date column by name
+        date_col = next((c for c in bars.columns if c.lower() in ("date", "timestamp", "time")), None)
+        cutoff_applied = False
+        if date_col:
+            bars_cut = bars[pd.to_datetime(bars[date_col]) < cutoff].copy().reset_index(drop=True)
+            if len(bars_cut) == 0:
+                log.warning("train_end cutoff left 0 bars for %s (symbol may have launched after %s). Training on all available data.", symbol, train_end)
+            else:
+                bars     = bars_cut
+                spy_bars = spy_bars[pd.to_datetime(spy_bars[date_col]) < cutoff].copy().reset_index(drop=True)
+                cutoff_applied = True
+        elif hasattr(bars.index, "dtype") and str(bars.index.dtype).startswith("datetime"):
+            # DatetimeIndex fallback
+            bars_cut = bars[bars.index < cutoff].copy()
+            if len(bars_cut) == 0:
+                log.warning("train_end cutoff left 0 bars for %s (symbol may have launched after %s). Training on all available data.", symbol, train_end)
+            else:
+                bars     = bars_cut
+                spy_bars = spy_bars[spy_bars.index < cutoff].copy()
+                cutoff_applied = True
+        else:
+            log.warning("train_end cutoff: no date column or DatetimeIndex found — cutoff not applied! columns=%s", list(bars.columns[:5]))
+        # Only filter vix_df when bars cutoff was actually applied (keeps date ranges consistent)
+        if cutoff_applied and "date" in vix_df.columns:
+            vix_df = vix_df[pd.to_datetime(vix_df["date"]) < cutoff].copy()
+        log.info("After cutoff: %d bars, %d SPY bars, %d VIX rows.", len(bars), len(spy_bars), len(vix_df))
 
     # 2. Build features
     engine = SwingFeatureEngine()
@@ -790,7 +828,7 @@ def train_swing_model(
     log.info("Labeled %d samples. Mean fwd return: %+.4f%%",
              len(y_all), y_all.mean() * 100)
 
-    # 5. Walk-forward split
+    # 5. Walk-forward split (80/20 within the training-only window)
     split = int(len(X_all) * 0.8)
     X_train, y_train = X_all[:split], y_all[:split]
     X_val,   y_val   = X_all[split:], y_all[split:]
@@ -837,6 +875,7 @@ def train_swing_model(
         "n_val":                len(X_val),
         "n_features":           n_features,
         "feature_names":        feature_cols,
+        "train_end":            train_end or "all_data",
     }
     with open(config_path, "w") as f:
         json.dump(config, f, indent=2)
@@ -862,19 +901,26 @@ def train_swing_model(
 # ---------------------------------------------------------------------------
 
 class SwingPredictor:
-    """TFT + XGBoost ensemble swing predictor (v4).
+    """TFT + XGBoost ensemble swing predictor (v5 — dynamic weighting).
 
     Compatible with ml_model.Predictor.predict() interface.
 
-    Blends 60% TFT (temporal self-attention over 20-day sequences) +
-    40% XGBoost (point-in-time tabular). Falls back to XGBoost-only
-    if no TFT model file is found.
+    Blends TFT + XGBoost using dynamic weights based on rolling prediction
+    error (MAE). Falls back to XGBoost-only if no TFT model file is found.
+
+    v5 changes (from v4):
+    - Dynamic ensemble weighting via rolling MAE (was fixed 60/40)
+    - Returns both sub-model predictions for transparency
 
     Architecture reference: Lim et al. (Google, 2021) — IJF.
     """
 
     model_type = "tft_xgb_swing"
     eod_exit   = False   # swing trades hold overnight
+
+    _ENSEMBLE_WINDOW = 30   # rolling window for dynamic weighting
+    _MIN_WEIGHT = 0.20      # floor: never go below 20% for either model
+    _MAX_WEIGHT = 0.80      # cap: never exceed 80%
 
     def __init__(self, symbol: str, model_dir: str = DEFAULT_MODEL_DIR):
         self.symbol    = symbol
@@ -885,6 +931,15 @@ class SwingPredictor:
         self._tft_seq_len    = _TFT_SEQ_LEN
         self._tft_n_features = 0
         self._spy_adapter    = None   # lazy-loaded for relative momentum
+
+        # Dynamic ensemble weighting: track rolling prediction errors
+        from collections import deque
+        self._xgb_errors: deque = deque(maxlen=self._ENSEMBLE_WINDOW)
+        self._tft_errors: deque = deque(maxlen=self._ENSEMBLE_WINDOW)
+        self._last_xgb_pred: Optional[float] = None
+        self._last_tft_pred: Optional[float] = None
+        self._tft_weight = _TFT_WEIGHT  # start at default, then adapt
+
         self._load()
 
     def _load(self) -> None:
@@ -927,12 +982,13 @@ class SwingPredictor:
 
     def predict(self, bars_df: pd.DataFrame, vix_df: pd.DataFrame,
                 seq_len: int = 60) -> dict:
-        """Produce regression prediction (v3).
+        """Produce regression prediction (v5 — dynamic ensemble weighting).
 
         Returns standard prediction dict with expected_return field.
+        Dynamically adjusts TFT/XGBoost weights based on rolling MAE.
         seq_len is accepted for interface compat but ignored by XGBoost.
         """
-        from ml_model import COST_THRESHOLD, TARGET_RETURN
+        # COST_THRESHOLD and TARGET_RETURN are now imported at module level from utils
 
         # Lazy-load SPY adapter for relative momentum
         if self._spy_adapter is None:
@@ -962,7 +1018,19 @@ class SwingPredictor:
         x = features_norm.iloc[-1:].values.astype(np.float32)
         xgb_ret = float(self.model.predict(x)[0])
 
-        # TFT ensemble blend: 60% TFT + 40% XGBoost
+        # --- Dynamic ensemble weighting ---
+        # Update error tracking: compare last prediction to realized return
+        if self._last_xgb_pred is not None and len(bars_df) >= 2:
+            realized = float(bars_df["close"].iloc[-1]) / float(bars_df["close"].iloc[-2]) - 1
+            self._xgb_errors.append(abs(self._last_xgb_pred - realized))
+            if self._last_tft_pred is not None:
+                self._tft_errors.append(abs(self._last_tft_pred - realized))
+
+        self._last_xgb_pred = xgb_ret
+        self._last_tft_pred = None
+
+        # Compute dynamic weights from rolling MAE (inverse error weighting)
+        tft_ret = None
         expected_return = xgb_ret
         if self._tft is not None:
             try:
@@ -973,9 +1041,24 @@ class SwingPredictor:
                     xt = torch.FloatTensor(window).unsqueeze(0)   # (1, seq, n_feat)
                     with torch.no_grad():
                         tft_ret = self._tft(xt).item()
-                    expected_return = _TFT_WEIGHT * tft_ret + (1 - _TFT_WEIGHT) * xgb_ret
-                    log.debug("[TFT] %s: xgb=%.4f tft=%.4f blend=%.4f",
-                              self.symbol, xgb_ret, tft_ret, expected_return)
+                    self._last_tft_pred = tft_ret
+
+                    # Dynamic weight calculation
+                    if (len(self._xgb_errors) >= 10 and
+                            len(self._tft_errors) >= 10):
+                        xgb_mae = sum(self._xgb_errors) / len(self._xgb_errors)
+                        tft_mae = sum(self._tft_errors) / len(self._tft_errors)
+                        # Inverse MAE weighting (lower error → higher weight)
+                        if xgb_mae > 0 and tft_mae > 0:
+                            w_tft = (1 / tft_mae) / (1 / tft_mae + 1 / xgb_mae)
+                            w_tft = max(self._MIN_WEIGHT, min(self._MAX_WEIGHT, w_tft))
+                            self._tft_weight = w_tft
+                        # else keep previous weight
+                    # else: not enough history, use default _TFT_WEIGHT
+
+                    expected_return = self._tft_weight * tft_ret + (1 - self._tft_weight) * xgb_ret
+                    log.debug("[TFT] %s: xgb=%.4f tft=%.4f w_tft=%.2f blend=%.4f",
+                              self.symbol, xgb_ret, tft_ret, self._tft_weight, expected_return)
             except Exception as exc:
                 log.warning("[TFT] predict failed for %s: %s — XGB only.", self.symbol, exc)
                 expected_return = xgb_ret
@@ -997,6 +1080,9 @@ class SwingPredictor:
             "confidence":      round(confidence, 4),
             "meta_confidence": 1.0,
             "tradeable":       abs(expected_return) > COST_THRESHOLD,
+            "xgb_return":      round(xgb_ret, 6),
+            "tft_return":      round(tft_ret, 6) if tft_ret is not None else None,
+            "tft_weight":      round(self._tft_weight, 4),
         }
 
 
@@ -1019,6 +1105,11 @@ def main() -> None:
                         help="Daily bars to fetch (default: 1000)")
     parser.add_argument("--lr",       type=float, default=5e-4,
                         help="Ignored for XGBoost (kept for CLI compat)")
+    parser.add_argument("--train-end", default=None,
+                        help="Hard cutoff date YYYY-MM-DD — data on/after this date excluded from training. "
+                             "Use to create a clean OOS boundary (e.g. --train-end 2023-08-01).")
+    parser.add_argument("--save-dir", default=DEFAULT_MODEL_DIR,
+                        help=f"Directory to save model files (default: {DEFAULT_MODEL_DIR})")
     args = parser.parse_args()
 
     adapter  = build_adapter(args.provider)
@@ -1031,6 +1122,8 @@ def main() -> None:
             adapter=adapter,
             fred_key=fred_key,
             lookback=args.lookback,
+            train_end=args.train_end,
+            save_dir=args.save_dir,
         )
 
 

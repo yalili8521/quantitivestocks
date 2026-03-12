@@ -1,0 +1,19 @@
+{
+  "symbol": "MCHI",
+  "total_trades": 13,
+  "wins": 9,
+  "win_rate": 69.2,
+  "total_pnl": 170.0,
+  "total_return_pct": 0.17,
+  "sharpe_ratio": 0.934,
+  "max_drawdown_pct": -0.13,
+  "profit_factor": 2.01,
+  "avg_hold_days": 11.2,
+  "avg_credit": 0.59,
+  "exit_reasons": {
+    "profit_target": 8,
+    "time_stop": 3,
+    "stop_loss": 1,
+    "data_end": 1
+  }
+}

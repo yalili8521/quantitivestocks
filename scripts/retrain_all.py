@@ -27,7 +27,8 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(PROJECT_ROOT, "src"))
 sys.path.insert(0, PROJECT_ROOT)
 
-from ml_model import train_model, train_meta_model, DEFAULT_MODEL_DIR
+from ml_model import train_model, train_meta_model  # LSTM training (deprecated)
+from utils import DEFAULT_MODEL_DIR, CRYPTO_MODEL_DIR
 from signals_engine import build_adapter
 
 # ---------------------------------------------------------------------------
@@ -44,6 +45,8 @@ DAILY_SYMBOLS = [
 
 INTRADAY_SYMBOLS = ["SPY", "QQQ", "IWM", "SOXX"]
 SWING_SYMBOLS = ["EWT", "GLD", "EEM", "SLV"]
+# Crypto symbols in yfinance format (Alpaca BTC/USD → yfinance BTC-USD)
+CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD", "SOL-USD"]
 EPOCHS = 60
 LOOKBACK = 1000
 
@@ -173,6 +176,32 @@ def train_all_swing() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Crypto swing models (separate model dir: models/crypto/)
+# ---------------------------------------------------------------------------
+def train_all_crypto() -> None:
+    """Train swing XGBoost+TFT models for crypto symbols, saved to models/crypto/."""
+    print(f"\n{'='*65}")
+    print(f"  Crypto Swing Training ({len(CRYPTO_SYMBOLS)} symbols → {CRYPTO_MODEL_DIR})")
+    print(f"{'='*65}\n")
+
+    t0 = time.time()
+    cmd = [
+        PYTHON, os.path.join(PROJECT_ROOT, "main.py"),
+        "train-swing",
+        "--symbols", ",".join(CRYPTO_SYMBOLS),
+        "--provider", "yahoo",
+        "--save-dir", CRYPTO_MODEL_DIR,
+    ]
+    print(f"  Running: {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT)
+    elapsed = time.time() - t0
+
+    status = "OK" if result.returncode == 0 else "FAIL"
+    print(f"\n  [{status}] Crypto swing — {elapsed:.0f}s")
+    print(f"{'='*65}\n")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main() -> None:
@@ -181,11 +210,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--step",
-        choices=["lstm", "meta", "both", "new", "all"],
+        choices=["lstm", "meta", "both", "new", "crypto", "all"],
         default="all",
         help=(
             "lstm=LSTM only, meta=meta RF only (DEPRECATED), both=lstm+meta, "
-            "new=intraday+swing, all=everything (default; skips meta RF)"
+            "new=intraday+swing, crypto=crypto swing only, all=everything (default; skips meta RF)"
         ),
     )
     parser.add_argument("--mode", choices=["daily", "intraday", "both"], default="both",
@@ -220,6 +249,10 @@ def main() -> None:
     # Step 4: TFT+XGBoost swing
     if args.step in ("new", "all"):
         train_all_swing()
+
+    # Step 5: Crypto swing (separate model dir)
+    if args.step in ("crypto", "all"):
+        train_all_crypto()
 
     total = time.time() - t_start
     print(f"\n{'='*65}")

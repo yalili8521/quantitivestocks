@@ -1,0 +1,19 @@
+{
+  "symbol": "NEAR-USD",
+  "mode": "daily",
+  "intraday_interval": "5min",
+  "start_date": "2024-02-28",
+  "end_date": "2026-03-12",
+  "initial_capital": 100000.0,
+  "final_equity": 121316.37,
+  "total_return_pct": 21.32,
+  "annualized_return_pct": 6.75,
+  "sharpe_ratio": 0.427,
+  "max_drawdown_pct": -26.38,
+  "total_trades": 2,
+  "win_rate": 0.5,
+  "avg_win_pct": 80.71,
+  "avg_loss_pct": -38.92,
+  "profit_factor": 2.561,
+  "avg_trade_duration_days": 338.0
+}

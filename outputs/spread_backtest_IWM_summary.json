@@ -1,0 +1,18 @@
+{
+  "symbol": "IWM",
+  "total_trades": 15,
+  "wins": 11,
+  "win_rate": 73.3,
+  "total_pnl": 276.0,
+  "total_return_pct": 0.28,
+  "sharpe_ratio": 1.013,
+  "max_drawdown_pct": -0.19,
+  "profit_factor": 1.99,
+  "avg_hold_days": 16.0,
+  "avg_credit": 1.18,
+  "exit_reasons": {
+    "time_stop": 9,
+    "profit_target": 5,
+    "data_end": 1
+  }
+}

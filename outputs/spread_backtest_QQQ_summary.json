@@ -1,0 +1,18 @@
+{
+  "symbol": "QQQ",
+  "total_trades": 13,
+  "wins": 9,
+  "win_rate": 69.2,
+  "total_pnl": 266.0,
+  "total_return_pct": 0.27,
+  "sharpe_ratio": 1.345,
+  "max_drawdown_pct": -0.13,
+  "profit_factor": 2.37,
+  "avg_hold_days": 15.5,
+  "avg_credit": 1.31,
+  "exit_reasons": {
+    "time_stop": 7,
+    "profit_target": 5,
+    "data_end": 1
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "symbol": "RENDER-USD",
+  "mode": "daily",
+  "intraday_interval": "5min",
+  "start_date": "2024-02-28",
+  "end_date": "2026-03-12",
+  "initial_capital": 100000.0,
+  "final_equity": 254748.2,
+  "total_return_pct": 154.75,
+  "annualized_return_pct": 37.2,
+  "sharpe_ratio": 1.15,
+  "max_drawdown_pct": -26.31,
+  "total_trades": 10,
+  "win_rate": 0.7,
+  "avg_win_pct": 28.0,
+  "avg_loss_pct": -21.31,
+  "profit_factor": 7.737,
+  "avg_trade_duration_days": 56.9
+}

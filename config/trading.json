@@ -1,0 +1,45 @@
+{
+    "_comment": "Production trading parameters. Loaded by paper_trader.py when --config is passed. Both run_paper_trade.ps1 and manual runs should use this file for consistency.",
+
+    "intraday": {
+        "mode": "intraday",
+        "interval": "5min",
+        "cost_threshold": 0.001,
+        "target_return": 0.02,
+        "disaster_stop_mult": 3.0,
+        "loss_cooldown_hours": 0.5,
+        "max_loss_cooldown_hours": 2.0,
+        "post_loss_size_mult": 0.5,
+        "post_loss_size_hours": 4.0,
+        "same_dir_confidence_mult": 1.5,
+        "trend_sma": 50
+    },
+
+    "swing": {
+        "mode": "daily",
+        "interval": "5min",
+        "cost_threshold": 0.001,
+        "target_return": 0.02,
+        "disaster_stop_mult": 3.0,
+        "loss_cooldown_hours": 4.0,
+        "max_loss_cooldown_hours": 4.0,
+        "post_loss_size_mult": 0.5,
+        "post_loss_size_hours": 8.0,
+        "same_dir_confidence_mult": 1.5,
+        "trend_sma": 50
+    },
+
+    "crypto": {
+        "mode": "daily",
+        "interval": "5min",
+        "cost_threshold": 0.001,
+        "target_return": 0.02,
+        "disaster_stop_mult": 3.0,
+        "loss_cooldown_hours": 4.0,
+        "max_loss_cooldown_hours": 4.0,
+        "post_loss_size_mult": 0.5,
+        "post_loss_size_hours": 8.0,
+        "same_dir_confidence_mult": 1.5,
+        "trend_sma": 50
+    }
+}

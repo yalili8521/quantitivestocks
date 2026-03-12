@@ -72,32 +72,33 @@ function Test-AfterMarketClose {
 $LogDir = Get-WritableLogDir -ProjectRoot $ProjectRoot
 
 $EnvCandidates = @( (Join-Path $ProjectRoot 'secrets\alpaca.env') )
-if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
-    foreach ($candidate in $EnvCandidates) {
-        if (Test-Path -LiteralPath $candidate) {
-            Import-DotEnvFile -Path $candidate
-            if ($env:ALPACA_API_KEY -and $env:ALPACA_API_SECRET) { break }
-        }
+# Always load the .env file so group-specific keys (ALPACA_SWING_KEY, etc.) are available
+# even if ALPACA_API_KEY is already set in the system environment.
+foreach ($candidate in $EnvCandidates) {
+    if (Test-Path -LiteralPath $candidate) {
+        Import-DotEnvFile -Path $candidate
+        break
     }
 }
 
-if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET) {
-    Write-Error "ERROR: Missing ALPACA_API_KEY / ALPACA_API_SECRET."
+if (-not $env:ALPACA_INTRADAY_KEY -and (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_API_SECRET)) {
+    Write-Error "ERROR: Missing ALPACA_API_KEY / ALPACA_API_SECRET (and no ALPACA_INTRADAY_KEY)."
     exit 1
 }
 
 # ---------------------------------------------------------------------------
 # Group configuration
 # ---------------------------------------------------------------------------
+# Config file: production parameters live in config/trading.json
+# CLI args from the config file are loaded automatically by paper_trader.py
+# Only --group, --mode, --interval are passed here; all tuning params come from config
 $Groups = @(
     @{ Name = 'intraday';  EnvPrefix = 'ALPACA_INTRADAY_';  Mode = 'intraday'; Interval = '5min';
-       ExtraArgs = @(); Command = 'trade' },
+       ExtraArgs = @(); Command = 'trade'; AlwaysOn = $false },
     @{ Name = 'swing';     EnvPrefix = 'ALPACA_SWING_';     Mode = 'daily';    Interval = '5min';
-       ExtraArgs = @(); Command = 'trade' },
-    @{ Name = 'expansion'; EnvPrefix = 'ALPACA_EXPANSION_'; Mode = 'daily';    Interval = '5min';
-       ExtraArgs = @(); Command = 'trade' },
-    @{ Name = 'spreads';   EnvPrefix = 'ALPACA_EXPANSION_'; Mode = 'daily';    Interval = '5min';
-       ExtraArgs = @('--vix-threshold', '25.0'); Command = 'spread-trade' }
+       ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true },
+    @{ Name = 'crypto';    EnvPrefix = 'ALPACA_CRYPTO_';    Mode = 'daily';    Interval = '5min';
+       ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true }
 )
 
 $CommonArgs = @('-u', 'main.py')
@@ -120,17 +121,16 @@ function Start-TraderGroup {
     $groupLog    = Join-Path $LogDir ("paper_trader_$($grp.Name)_${ts}.log")
     $groupErrLog = $groupLog -replace '\.log$', '_err.log'
 
-    if ($grp.Command -eq 'spread-trade') {
-        $groupArgs = $CommonArgs + @($grp.Command) + $grp.ExtraArgs
-    } else {
-        $modeArgs  = @('--mode', $grp.Mode, '--interval', $grp.Interval)
-        $groupArgs = $CommonArgs + @($grp.Command) + $modeArgs + @('--group', $grp.Name) + $grp.ExtraArgs
-    }
+    $modeArgs  = @('--mode', $grp.Mode, '--interval', $grp.Interval)
+    $groupArgs = $CommonArgs + @($grp.Command) + $modeArgs + @('--group', $grp.Name) + $grp.ExtraArgs
     $ArgLine   = $groupArgs -join ' '
 
     $keyVar = $grp.EnvPrefix + 'KEY'
     $secVar = $grp.EnvPrefix + 'SECRET'
-    if (-not (Get-Item -Path "Env:$keyVar" -ErrorAction SilentlyContinue)) {
+    $keyItem = Get-Item -Path "Env:$keyVar" -ErrorAction SilentlyContinue
+    $keyVal  = if ($keyItem) { $keyItem.Value } else { $null }
+    if (-not $keyVal) {
+        Write-Warning "  [$($grp.Name)] $keyVar not set - falling back to ALPACA_API_KEY (intraday account!)"
         Set-Item -Path "Env:$keyVar" -Value $env:ALPACA_API_KEY   -ErrorAction SilentlyContinue
         Set-Item -Path "Env:$secVar" -Value $env:ALPACA_API_SECRET -ErrorAction SilentlyContinue
     }
@@ -151,7 +151,7 @@ function Start-TraderGroup {
 # ---------------------------------------------------------------------------
 # Initial launch
 # ---------------------------------------------------------------------------
-Write-Host "[$(Get-Date -Format s)] Starting paper trader groups (intraday/swing/expansion)..."
+Write-Host "[$(Get-Date -Format s)] Starting paper trader groups (intraday/swing/crypto)..."
 Write-Host "Python: $PythonExe"
 foreach ($c in $EnvCandidates) { if (Test-Path -LiteralPath $c) { Write-Host "Env: $c" } }
 
@@ -168,14 +168,24 @@ foreach ($grp in $Groups) {
 Write-Host "[$(Get-Date -Format s)] All groups started. Watchdog active."
 
 # ---------------------------------------------------------------------------
-# Watchdog loop - check every 2 minutes, restart dead processes during market hours
+# Watchdog loop - check every 2 minutes, restart dead processes
+# Equity groups (intraday/swing): only during market hours.
+# AlwaysOn groups (crypto): kept alive 24/7 until the script is killed.
 # ---------------------------------------------------------------------------
-while (-not (Test-AfterMarketClose)) {
+$equityDone = $false
+while ($true) {
     Start-Sleep -Seconds 120
 
-    if (-not (Test-MarketHours)) { continue }
+    $afterClose = Test-AfterMarketClose
+    $inMarket   = Test-MarketHours
 
     foreach ($grp in $Groups) {
+        # Skip equity groups outside market hours (once market closes, stop restarting them)
+        if (-not $grp.AlwaysOn) {
+            if ($afterClose) { continue }
+            if (-not $inMarket) { continue }
+        }
+
         $proc = $GroupProcs[$grp.Name]
         if (-not $proc) { continue }
         $alive = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
@@ -189,6 +199,11 @@ while (-not (Test-AfterMarketClose)) {
             }
         }
     }
-}
 
-Write-Host "[$(Get-Date -Format s)] Market closed - watchdog exiting."
+    # Log once when equity market closes
+    if ($afterClose -and -not $equityDone) {
+        $equityDone = $true
+        Write-Host "[$(Get-Date -Format s)] Market closed - intraday will not be restarted (market-hours only)."
+        Write-Host "[$(Get-Date -Format s)] Swing and crypto watchdogs continue 24/7."
+    }
+}

@@ -45,7 +45,7 @@ from signals_engine import build_adapter
 SYMBOLS_DAILY = [
     "SPY", "QQQ", "IWM", "SOXX",          # intraday account (also have daily models)
     "EWT", "GLD", "EEM", "SLV", "TLT",    # swing account
-    "EWJ", "EWS", "IGV", "XLE",            # expansion account
+    "EWJ", "EWS", "IGV", "XLE",            # options account
 ]
 SYMBOLS_INTRADAY = [
     "SPY", "QQQ", "IWM", "SOXX",          # intraday account only

@@ -1,0 +1,16 @@
+{
+  "symbol": "SLV",
+  "total_trades": 1,
+  "wins": 1,
+  "win_rate": 100.0,
+  "total_pnl": 14.0,
+  "total_return_pct": 0.01,
+  "sharpe_ratio": 0,
+  "max_drawdown_pct": 0,
+  "profit_factor": Infinity,
+  "avg_hold_days": 7.0,
+  "avg_credit": 0.21,
+  "exit_reasons": {
+    "profit_target": 1
+  }
+}
