@@ -634,10 +634,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
     <h2 class="sec-title" style="margin-bottom:20px">Live Performance</h2>
 
     <!-- Account tabs -->
-    <div class="acct-tabs">
-      <button class="acct-tab active" data-group="intraday">Intraday</button>
-      <button class="acct-tab" data-group="swing">Swing</button>
-      <button class="acct-tab" data-group="crypto">Crypto</button>
+    <div class="acct-tabs" id="acct-tabs-container">
       <span class="acct-combined">All accounts: <span id="live-combined-equity">--</span></span>
     </div>
 
@@ -1029,57 +1026,7 @@ function setTVSymbol(sym, btn) {
       </div>
     </div>
 
-    <!-- Options Group KPIs -->
-    <div style="font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#a855f7;margin:24px 0 10px">Options Group &mdash; Credit Spreads &amp; Directional &middot; SPY, QQQ, IWM, GLD, SOXX &middot; Jan 2024&ndash;Feb 2026</div>
-    <div class="kpi-grid">
-      <div class="kpi glass">
-        <div class="kpi-label">Portfolio Return</div>
-        <div class="kpi-val pos">+18.3%</div>
-        <div class="kpi-sub">$500K combined</div>
-      </div>
-      <div class="kpi glass">
-        <div class="kpi-label">Avg Sharpe</div>
-        <div class="kpi-val">2.82</div>
-        <div class="kpi-sub">Across 5 symbols</div>
-      </div>
-      <div class="kpi glass">
-        <div class="kpi-label">Best Max DD</div>
-        <div class="kpi-val neg">-1.16%</div>
-        <div class="kpi-sub">SOXX (worst: -1.95%)</div>
-      </div>
-      <div class="kpi glass">
-        <div class="kpi-label">Best Win Rate</div>
-        <div class="kpi-val">90.5%</div>
-        <div class="kpi-sub">QQQ spreads</div>
-      </div>
-      <div class="kpi glass">
-        <div class="kpi-label">Total P&amp;L</div>
-        <div class="kpi-val pos">+$91,520</div>
-        <div class="kpi-sub">$100K per symbol</div>
-      </div>
-      <div class="kpi glass">
-        <div class="kpi-label">Best Symbol</div>
-        <div class="kpi-val" style="color:#a855f7">SOXX</div>
-        <div class="kpi-sub">+37.1%, Sharpe 4.43</div>
-      </div>
-    </div>
-    <div style="overflow-x:auto;margin-top:8px">
-      <table class="metrics-table">
-        <thead>
-          <tr><th>Symbol</th><th>Return</th><th>Sharpe</th><th>Max DD</th><th>Spread Trades</th><th>Win Rate</th><th>Total P&amp;L</th></tr>
-        </thead>
-        <tbody>
-          <tr><td colspan="7" style="background:rgba(168,85,247,.08);color:#a855f7;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:6px 16px">Options Group — Credit Spreads + Directional · Jan 2024–Feb 2026 (backtest)</td></tr>
-          <tr><td style="font-weight:700;color:var(--text)">SPY</td><td class="pos">+9.08%</td><td>1.47</td><td class="neg">-1.95%</td><td>22</td><td>72.7%</td><td class="pos">+$9,080</td></tr>
-          <tr><td style="font-weight:700;color:var(--text)">QQQ</td><td class="pos">+21.14%</td><td>3.24</td><td class="neg">-1.51%</td><td>21</td><td>90.5%</td><td class="pos">+$21,140</td></tr>
-          <tr><td style="font-weight:700;color:var(--text)">IWM</td><td class="pos">+9.14%</td><td>1.86</td><td class="neg">-1.38%</td><td>41</td><td>61.0%</td><td class="pos">+$9,140</td></tr>
-          <tr><td style="font-weight:700;color:var(--text)">GLD</td><td class="pos">+15.11%</td><td>3.10</td><td class="neg">-1.18%</td><td>35</td><td>77.1%</td><td class="pos">+$15,110</td></tr>
-          <tr><td style="font-weight:700;color:var(--text)">SOXX</td><td class="pos">+37.05%</td><td>4.43</td><td class="neg">-1.16%</td><td>71</td><td>83.1%</td><td class="pos">+$37,050</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <p class="kpi-disclaimer">Swing: Aug 2023–Mar 2026 OOS backtest · Intraday: Dec 2022–Dec 2023 OOS validation · Options: Jan 2024–Feb 2026 backtest · $100K per symbol · VIX &ge; 25 gate for options · Past performance does not guarantee future results.</p>
+    <p class="kpi-disclaimer">Swing: Aug 2023–Mar 2026 OOS backtest · Intraday: Dec 2022–Dec 2023 OOS validation · $100K per symbol · Past performance does not guarantee future results.</p>
   </div>
 </section>
 
@@ -1509,135 +1456,7 @@ function setTVSymbol(sym, btn) {
       </div>
     </div><!-- /swing strat-grid -->
 
-    <!-- OPTIONS GROUP -->
-    <div style="margin-top:64px">
-    <div class="sec-label" style="margin-bottom:8px">OPTIONS GROUP &mdash; CREDIT SPREADS &amp; DIRECTIONAL</div>
-    <p style="color:var(--text-sec);font-size:13px;margin-bottom:24px">Backtest 2024-01-01 &ndash; 2026-02-27 &bull; $100K initial capital per symbol &bull; VIX &ge; 25 gate &bull; Combined P&amp;L: <strong style="color:var(--accent)">+$91,520</strong> (+18.3%)</p>
-    <div class="strat-grid">
-
-      <!-- SPY -->
-      <div class="strat glass">
-        <div class="strat-head">
-          <span class="strat-sym">SPY</span>
-          <span class="strat-badge" style="background:rgba(168,85,247,.15);color:#a855f7;border-color:rgba(168,85,247,.3)">OPT</span>
-        </div>
-        <div class="strat-stats">
-          <div class="strat-s"><span class="strat-s-label">Return</span><span class="strat-s-val pos">+9.08%</span></div>
-          <div class="strat-s"><span class="strat-s-label">Sharpe</span><span class="strat-s-val">1.47</span></div>
-          <div class="strat-s"><span class="strat-s-label">Win Rate</span><span class="strat-s-val">72.7%</span></div>
-          <div class="strat-s"><span class="strat-s-label">Max DD</span><span class="strat-s-val neg">-1.95%</span></div>
-        </div>
-        <div style="display:flex;gap:12px;margin:8px 0 10px;padding:8px 0;border-top:1px solid var(--border-muted);border-bottom:1px solid var(--border-muted)">
-          <div style="flex:1;text-align:center"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Spread Trades</div><div style="font-size:13px;font-weight:700;color:var(--text)">22</div></div>
-          <div style="flex:1;text-align:center"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">P&amp;L</div><div style="font-size:13px;font-weight:700;color:var(--accent)">+$8,707</div></div>
-        </div>
-        <div class="strat-recent-label">STRATEGIES</div>
-        <div style="font-size:11px;color:var(--text-sec);line-height:1.8">
-          <div>&#9679; Bull Put Spread (&#916; 0.25 / 0.10)</div>
-          <div>&#9679; Bear Call Spread (&#916; 0.25 / 0.10)</div>
-          <div>&#9679; Directional ITM Options (&#916; ~0.68)</div>
-        </div>
-      </div>
-
-      <!-- QQQ -->
-      <div class="strat glass">
-        <div class="strat-head">
-          <span class="strat-sym">QQQ</span>
-          <span class="strat-badge" style="background:rgba(168,85,247,.15);color:#a855f7;border-color:rgba(168,85,247,.3)">OPT</span>
-        </div>
-        <div class="strat-stats">
-          <div class="strat-s"><span class="strat-s-label">Return</span><span class="strat-s-val pos">+21.14%</span></div>
-          <div class="strat-s"><span class="strat-s-label">Sharpe</span><span class="strat-s-val">3.24</span></div>
-          <div class="strat-s"><span class="strat-s-label">Win Rate</span><span class="strat-s-val">90.5%</span></div>
-          <div class="strat-s"><span class="strat-s-label">Max DD</span><span class="strat-s-val neg">-1.51%</span></div>
-        </div>
-        <div style="display:flex;gap:12px;margin:8px 0 10px;padding:8px 0;border-top:1px solid var(--border-muted);border-bottom:1px solid var(--border-muted)">
-          <div style="flex:1;text-align:center"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Spread Trades</div><div style="font-size:13px;font-weight:700;color:var(--text)">21</div></div>
-          <div style="flex:1;text-align:center"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">P&amp;L</div><div style="font-size:13px;font-weight:700;color:var(--accent)">+$21,977</div></div>
-        </div>
-        <div class="strat-recent-label">STRATEGIES</div>
-        <div style="font-size:11px;color:var(--text-sec);line-height:1.8">
-          <div>&#9679; Bull Put Spread (&#916; 0.25 / 0.10)</div>
-          <div>&#9679; Bear Call Spread (&#916; 0.25 / 0.10)</div>
-          <div>&#9679; Directional ITM Options (&#916; ~0.68)</div>
-        </div>
-      </div>
-
-      <!-- IWM -->
-      <div class="strat glass">
-        <div class="strat-head">
-          <span class="strat-sym">IWM</span>
-          <span class="strat-badge" style="background:rgba(168,85,247,.15);color:#a855f7;border-color:rgba(168,85,247,.3)">OPT</span>
-        </div>
-        <div class="strat-stats">
-          <div class="strat-s"><span class="strat-s-label">Return</span><span class="strat-s-val pos">+9.14%</span></div>
-          <div class="strat-s"><span class="strat-s-label">Sharpe</span><span class="strat-s-val">1.86</span></div>
-          <div class="strat-s"><span class="strat-s-label">Win Rate</span><span class="strat-s-val">61.0%</span></div>
-          <div class="strat-s"><span class="strat-s-label">Max DD</span><span class="strat-s-val neg">-1.38%</span></div>
-        </div>
-        <div style="display:flex;gap:12px;margin:8px 0 10px;padding:8px 0;border-top:1px solid var(--border-muted);border-bottom:1px solid var(--border-muted)">
-          <div style="flex:1;text-align:center"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Spread Trades</div><div style="font-size:13px;font-weight:700;color:var(--text)">41</div></div>
-          <div style="flex:1;text-align:center"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">P&amp;L</div><div style="font-size:13px;font-weight:700;color:var(--accent)">+$7,675</div></div>
-        </div>
-        <div class="strat-recent-label">STRATEGIES</div>
-        <div style="font-size:11px;color:var(--text-sec);line-height:1.8">
-          <div>&#9679; Bull Put Spread (&#916; 0.25 / 0.10)</div>
-          <div>&#9679; Bear Call Spread (&#916; 0.25 / 0.10)</div>
-          <div>&#9679; Directional ITM Options (&#916; ~0.68)</div>
-        </div>
-      </div>
-
-      <!-- GLD -->
-      <div class="strat glass">
-        <div class="strat-head">
-          <span class="strat-sym">GLD</span>
-          <span class="strat-badge" style="background:rgba(168,85,247,.15);color:#a855f7;border-color:rgba(168,85,247,.3)">OPT</span>
-        </div>
-        <div class="strat-stats">
-          <div class="strat-s"><span class="strat-s-label">Return</span><span class="strat-s-val pos">+15.11%</span></div>
-          <div class="strat-s"><span class="strat-s-label">Sharpe</span><span class="strat-s-val">3.10</span></div>
-          <div class="strat-s"><span class="strat-s-label">Win Rate</span><span class="strat-s-val">77.1%</span></div>
-          <div class="strat-s"><span class="strat-s-label">Max DD</span><span class="strat-s-val neg">-1.18%</span></div>
-        </div>
-        <div style="display:flex;gap:12px;margin:8px 0 10px;padding:8px 0;border-top:1px solid var(--border-muted);border-bottom:1px solid var(--border-muted)">
-          <div style="flex:1;text-align:center"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Spread Trades</div><div style="font-size:13px;font-weight:700;color:var(--text)">35</div></div>
-          <div style="flex:1;text-align:center"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">P&amp;L</div><div style="font-size:13px;font-weight:700;color:var(--accent)">+$12,033</div></div>
-        </div>
-        <div class="strat-recent-label">STRATEGIES</div>
-        <div style="font-size:11px;color:var(--text-sec);line-height:1.8">
-          <div>&#9679; Bull Put Spread (&#916; 0.25 / 0.10)</div>
-          <div>&#9679; Bear Call Spread (&#916; 0.25 / 0.10)</div>
-          <div>&#9679; Directional ITM Options (&#916; ~0.68)</div>
-        </div>
-      </div>
-
-      <!-- SOXX -->
-      <div class="strat glass">
-        <div class="strat-head">
-          <span class="strat-sym">SOXX</span>
-          <span class="strat-badge" style="background:rgba(168,85,247,.15);color:#a855f7;border-color:rgba(168,85,247,.3)">OPT</span>
-        </div>
-        <div class="strat-stats">
-          <div class="strat-s"><span class="strat-s-label">Return</span><span class="strat-s-val pos">+37.05%</span></div>
-          <div class="strat-s"><span class="strat-s-label">Sharpe</span><span class="strat-s-val">4.43</span></div>
-          <div class="strat-s"><span class="strat-s-label">Win Rate</span><span class="strat-s-val">83.1%</span></div>
-          <div class="strat-s"><span class="strat-s-label">Max DD</span><span class="strat-s-val neg">-1.16%</span></div>
-        </div>
-        <div style="display:flex;gap:12px;margin:8px 0 10px;padding:8px 0;border-top:1px solid var(--border-muted);border-bottom:1px solid var(--border-muted)">
-          <div style="flex:1;text-align:center"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Spread Trades</div><div style="font-size:13px;font-weight:700;color:var(--text)">71</div></div>
-          <div style="flex:1;text-align:center"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">P&amp;L</div><div style="font-size:13px;font-weight:700;color:var(--accent)">+$35,457</div></div>
-        </div>
-        <div class="strat-recent-label">STRATEGIES</div>
-        <div style="font-size:11px;color:var(--text-sec);line-height:1.8">
-          <div>&#9679; Bull Put Spread (&#916; 0.25 / 0.10)</div>
-          <div>&#9679; Bear Call Spread (&#916; 0.25 / 0.10)</div>
-          <div>&#9679; Directional ITM Options (&#916; ~0.68)</div>
-        </div>
-      </div>
-
-    </div>
-    </div><!-- /options group -->
-
+    <!-- INTRADAY GROUP -->
     <!-- INTRADAY GROUP -->
     <div style="margin-top:64px">
     <div class="sec-label" style="margin-bottom:8px">INTRADAY GROUP &mdash; LightGBM &middot; 5-MIN BARS</div>
@@ -3129,6 +2948,33 @@ document.addEventListener('DOMContentLoaded', function() {
         var posData = await results[0].json();
         _posAccounts = posData.accounts || [];
 
+        // Build tabs dynamically from API response
+        var tabContainer = document.getElementById('acct-tabs-container');
+        if (tabContainer && _posAccounts.length > 0) {
+          // Remove old tab buttons (keep the combined-equity span)
+          tabContainer.querySelectorAll('.acct-tab[data-group]').forEach(function(b) { b.remove(); });
+          var combSpan = tabContainer.querySelector('.acct-combined');
+          _posAccounts.forEach(function(a, i) {
+            var btn = document.createElement('button');
+            btn.className = 'acct-tab' + (a.group === currentGroup ? ' active' : '');
+            btn.dataset.group = a.group;
+            btn.textContent = a.name || a.group;
+            btn.addEventListener('click', function() {
+              tabContainer.querySelectorAll('.acct-tab[data-group]').forEach(function(b) { b.classList.remove('active'); });
+              btn.classList.add('active');
+              currentGroup = btn.dataset.group;
+              renderAccount(currentGroup);
+            });
+            tabContainer.insertBefore(btn, combSpan);
+          });
+          // If currentGroup not in returned accounts, default to first
+          if (!_posAccounts.find(function(a) { return a.group === currentGroup; })) {
+            currentGroup = _posAccounts[0].group;
+            var firstBtn = tabContainer.querySelector('.acct-tab[data-group]');
+            if (firstBtn) firstBtn.classList.add('active');
+          }
+        }
+
         var combined = 0;
         _posAccounts.forEach(function(a) { combined += parseFloat((a.account || {}).equity) || 0; });
         var combEl = document.getElementById('live-combined-equity');
@@ -3166,16 +3012,6 @@ document.addEventListener('DOMContentLoaded', function() {
       console.error('Live data fetch failed:', e);
     }
   }
-
-  // Tab click handlers
-  document.querySelectorAll('.acct-tab').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      document.querySelectorAll('.acct-tab').forEach(function(b) { b.classList.remove('active'); });
-      btn.classList.add('active');
-      currentGroup = btn.dataset.group;
-      renderAccount(currentGroup);
-    });
-  });
 
   loadLiveData();
   setInterval(loadLiveData, 60000);

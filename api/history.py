@@ -13,10 +13,10 @@ ALPACA_BASE = "https://paper-api.alpaca.markets/v2"
 
 ACCOUNTS = [
     {
-        "name": "Options / Intraday",
+        "name": "Intraday",
         "group": "intraday",
-        "key_env": "ALPACA_API_KEY",
-        "secret_env": "ALPACA_API_SECRET",
+        "key_env": "ALPACA_INTRADAY_KEY",
+        "secret_env": "ALPACA_INTRADAY_SECRET",
     },
     {
         "name": "Swing",
