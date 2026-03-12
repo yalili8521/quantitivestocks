@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $PythonExe = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
@@ -130,7 +130,7 @@ function Start-TraderGroup {
     $keyItem = Get-Item -Path "Env:$keyVar" -ErrorAction SilentlyContinue
     $keyVal  = if ($keyItem) { $keyItem.Value } else { $null }
     if (-not $keyVal) {
-        Write-Warning "  [$($grp.Name)] $keyVar not set — SKIPPING group (set it in secrets/alpaca.env)"
+        Write-Warning "  [$($grp.Name)] $keyVar not set - SKIPPING group (set it in secrets/alpaca.env)"
         return $null
     }
 
