@@ -51,6 +51,7 @@ class AlertType(Enum):
     PC_RATIO_EXTREME = "pc_ratio_extreme"
     CONSECUTIVE_LOSSES = "consecutive_losses"
     EQUITY_DRAWDOWN = "equity_drawdown"
+    POSITION_OPENED = "position_opened"
 
 
 class Severity(Enum):
@@ -141,21 +142,40 @@ class WebhookNotifier:
             return False
 
         color = self.SEVERITY_COLORS.get(alert.severity, 0x95A5A6)
+        emoji = self.SEVERITY_EMOJI.get(alert.severity, "bell")
 
-        # Discord-compatible embed format (also works with many Slack webhooks)
-        payload = {
-            "embeds": [{
-                "title": f"[{alert.severity.value}] {alert.alert_type.value.upper()}",
-                "description": alert.message,
-                "color": color,
-                "fields": [
-                    {"name": "Symbol", "value": alert.symbol, "inline": True},
-                    {"name": "Value", "value": f"{alert.value:.4f}", "inline": True},
-                ],
-                "timestamp": alert.timestamp.isoformat(),
-                "footer": {"text": "QuantStocks Alert Engine"},
-            }]
-        }
+        is_slack = "hooks.slack.com" in self._url
+
+        if is_slack:
+            color_hex = f"#{color:06x}"
+            payload = {
+                "attachments": [{
+                    "color": color_hex,
+                    "title": f":{emoji}: [{alert.severity.value}] {alert.alert_type.value.upper()}",
+                    "text": alert.message,
+                    "fields": [
+                        {"title": "Symbol", "value": alert.symbol, "short": True},
+                        {"title": "Value", "value": f"{alert.value:.4f}", "short": True},
+                    ],
+                    "footer": "QuantStocks Alert Engine",
+                    "ts": int(alert.timestamp.timestamp()),
+                }]
+            }
+        else:
+            # Discord-compatible embed format
+            payload = {
+                "embeds": [{
+                    "title": f"[{alert.severity.value}] {alert.alert_type.value.upper()}",
+                    "description": alert.message,
+                    "color": color,
+                    "fields": [
+                        {"name": "Symbol", "value": alert.symbol, "inline": True},
+                        {"name": "Value", "value": f"{alert.value:.4f}", "inline": True},
+                    ],
+                    "timestamp": alert.timestamp.isoformat(),
+                    "footer": {"text": "QuantStocks Alert Engine"},
+                }]
+            }
 
         try:
             resp = requests.post(
@@ -371,6 +391,27 @@ class AlertEngine:
         )
         self._dedup.mark_fired(AlertType.EQUITY_DRAWDOWN, "PORTFOLIO")
         return [alert]
+
+    def notify_entry(self, symbol: str, direction: str, qty,
+                     price: float, notional: float,
+                     group: str = "", expected_return: float = 0.0) -> None:
+        """Fire an alert when a new position is opened."""
+        qty_str = f"{qty:.6f}" if isinstance(qty, float) else str(qty)
+        msg = (f"{direction} {symbol} — {qty_str} shares @ ${price:.2f} "
+               f"(${notional:,.0f})")
+        if group:
+            msg += f" [{group}]"
+        if expected_return:
+            msg += f" E[r]={expected_return:+.4f}"
+
+        alert = Alert(
+            alert_type=AlertType.POSITION_OPENED,
+            symbol=symbol,
+            message=msg,
+            severity=Severity.INFO,
+            value=price,
+        )
+        self._deliver(alert)
 
     def _deliver(self, alert: Alert) -> None:
         """Deliver alert via console logging and webhook."""

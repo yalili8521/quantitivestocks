@@ -1002,6 +1002,12 @@ class AlpacaPaperTrader:
             self._peak_prices[symbol] = current_price
             self._entry_atrs[symbol] = bar_atr
 
+            notional = qty * current_price
+            self._alert_engine.notify_entry(
+                symbol, enter_dir, qty, current_price, notional,
+                group=self.group or "", expected_return=expected_return,
+            )
+
             qty_display = f"{qty:.6f}" if is_crypto else str(qty)
             self._log_daily_trade(symbol, enter_dir, qty, current_price,
                                   f"entry ({enter_dir})", 0.0)
