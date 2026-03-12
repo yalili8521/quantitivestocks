@@ -1,8 +1,9 @@
 # Quantitative Stocks
 
-An ML-driven quantitative trading system for ETFs. Combines 21 technical indicators
-with a 2-layer LSTM + temporal attention network to generate directional signals,
-backtest strategies, and execute paper trades automatically via Alpaca Markets.
+An ML-driven quantitative trading system for ETFs and crypto. Uses a **return-regression
+LSTM** (predicts 10-day forward expected return, not direction probability), XGBoost swing
+models, and LightGBM intraday models to generate trading signals, backtest strategies,
+and execute paper trades automatically via Alpaca Markets.
 
 > **Paper trading only.** `paper=True` is hardcoded throughout. No real capital is at risk.
 
@@ -10,47 +11,15 @@ Live dashboard: **[quantitative-stocks.vercel.app](https://quantitative-stocks.v
 
 ---
 
-## Trading Universe (15 ETFs — each with its own independent LSTM model)
+## Trading Groups (3 separate Alpaca paper accounts)
 
-Each symbol has two independent models: daily (swing) and intraday (5-min).
+| Group | Model | Symbols | Schedule |
+|-------|-------|---------|----------|
+| **Intraday** | LightGBM 5-min | SMH, IWM, IGV, QQQ, EWT, SOXX | Market hours only |
+| **Swing** | XGBoost + LSTM daily | GDX, SLV, IGV, QQQ, GLD, SMH, XLK, IBIT | 24/7 |
+| **Crypto** | XGBoost daily | 14 crypto pairs (BTC, ETH, SOL, …) | 24/7 |
 
-| Status | Symbol | Name | Backtest Return | Extended Hours |
-|--------|--------|------|----------------|----------------|
-| Active | SPY | S&P 500 | +35.0% | Yes |
-| Active | QQQ | Nasdaq 100 | +29.6% | Yes |
-| Active | IWM | Russell 2000 Small-Cap | +15.3% | Yes |
-| Active | IGV | iShares Expanded Tech-Software | 0% (0 trades) | Yes |
-| Active | XLE | Energy Select Sector | +7.6% | Yes |
-| Active | SOXX | iShares Semiconductor | +38.4% | Yes |
-| Active | GLD | SPDR Gold Shares | +147.7% | Yes |
-| Active | SLV | iShares Silver Trust | +129.4% | Yes |
-| Active | EWJ | iShares MSCI Japan | +14.1% | No |
-| Active | EWT | iShares MSCI Taiwan | +23.8% | No |
-| Active | EEM | iShares MSCI Emerging Markets | +14.5% | No |
-| Benched | XLF | Financial Select Sector | 0 trades — macro/rate driven | Yes |
-| Benched | XLV | Health Care Select Sector | 0 trades — event/earnings driven | Yes |
-| Benched | INDA | iShares MSCI India | 0 trades — low signal confidence | No |
-| Benched | FXI | iShares China Large-Cap | 0 trades — regulatory jumps | No |
-
-**Benched symbols** have trained models (kept in `models/`) but are excluded from the live trading run script because backtests produced 0 trades — their ML signals never reached the confidence threshold. Root causes: XLF/XLV move on macro/earnings events not captured by technical indicators; INDA/FXI overfit quickly with poor validation loss. They remain in `DEFAULT_UNIVERSE` for signal monitoring and can be re-activated after retraining with more data.
-
-**TLT (20yr Treasuries) fully excluded:** Bond ETFs move on Fed policy, CPI, and yield-curve dynamics — none of which appear in the 21 technical/microstructure features. Val_loss stalled at ≈0.69 (essentially random). Excluded from both trading and `DEFAULT_UNIVERSE`.
-
-**Asian ETFs are regular-hours only:** During US extended hours the underlying markets are closed — spreads widen to 0.5–2% with near-zero volume. Extended-hours trading is limited to the 8 liquid US ETFs marked "Yes" above.
-
-## Backtest Performance — Original 7 Symbols (Jan 2024 – Feb 2026)
-
-| Symbol | Return | Sharpe | Max DD | Trades | Win Rate |
-|--------|--------|--------|--------|--------|----------|
-| GLD | +147.7% | 2.41 | −12.2% | 14 | 86% |
-| SLV | +129.4% | 1.24 | −35.6% | 32 | 56% |
-| SPY | +35.0% | 1.20 | −14.6% | 6 | 67% |
-| QQQ | +29.6% | 0.83 | −24.2% | 9 | 56% |
-| IWM | +15.3% | 0.88 | −7.3% | 2 | 100% |
-| XLE | +7.6% | 0.36 | −7.5% | 5 | 60% |
-| IGV | 0.0% | — | — | 0 | — |
-
-*Backtest results for new symbols (SOXX, XLF, XLV, EWJ, EWT, INDA, FXI, EEM) pending — run `python main.py backtest --symbol SOXX --start 2024-01-01` after training.*
+**Asian ETFs are regular-hours only:** During US extended hours the underlying markets are closed — spreads widen to 0.5–2% with near-zero volume.
 
 ---
 
@@ -61,16 +30,19 @@ quantitivestocks/
 │
 │── Core Python
 ├── main.py                  # Unified CLI — train / predict / backtest / trade
-├── signals_engine.py        # Data adapters, all technical indicators, Hurst exponent
-├── ml_model.py              # LSTM model, triple-barrier training, Predictor class
-├── paper_trader.py          # Live intraday paper trading loop (Alpaca)
-├── options_trader.py        # Long ATM straddle options trader (VIX-spike entry)
-├── backtester.py            # Walk-forward backtesting engine
-├── streamlit_app.py         # Local web dashboard (train / backtest / compare)
+├── src/
+│   ├── signals_engine.py    # Data adapters, all technical indicators, Hurst exponent
+│   ├── ml_model.py          # ReturnLSTM model (regression), Predictor class
+│   ├── backtester.py        # Walk-forward backtesting engine
+│   ├── paper_trader.py      # Live paper trading loop (Alpaca, 3 groups)
+│   ├── swing_model.py       # XGBoost swing model (commodities, EM ETFs)
+│   ├── intraday_model.py    # LightGBM intraday momentum model
+│   ├── alerts.py            # Slack webhook alerts on position entry
+│   └── utils.py             # Shared constants, helpers
 │
 │── Web Dashboard (Vercel)
-├── index.html               # Public dashboard — live signals, P&L, equity curves
-├── favicon.svg
+├── web/
+│   └── index.html           # Public dashboard — live signals, P&L, equity curves
 ├── vercel.json              # Vercel routing config
 ├── api/
 │   ├── signals.py           # GET /api/signals  — live VIX data
@@ -78,77 +50,81 @@ quantitivestocks/
 │   ├── history.py           # GET /api/history  — portfolio equity + filled orders
 │   └── requirements.txt
 │
-│── Models & Outputs (git-ignored)
-├── models/
+│── Models & Outputs
+├── models/                      # Trained weights (git-ignored)
 │   ├── {SYMBOL}_lstm.pt         # Daily LSTM weights
 │   ├── {SYMBOL}_lstm_5min.pt    # Intraday LSTM weights
-│   ├── {SYMBOL}_scaler.json     # Daily feature scaler
-│   └── {SYMBOL}_scaler_5min.json
+│   ├── {SYMBOL}_xgb_swing.*     # XGBoost swing model + config + scaler
+│   ├── {SYMBOL}_lgb_intraday.*  # LightGBM intraday model + config
+│   └── {SYMBOL}_scaler*.json    # Feature scalers
 ├── outputs/
-│   ├── backtest_{SYMBOL}.csv        # Equity curve per backtest run
-│   ├── trades_{SYMBOL}.csv          # Trade-by-trade log
-│   ├── run_paper_trade.ps1          # Launch script for Windows Task Scheduler
-│   └── run_options_trade.ps1
+│   ├── run_paper_trade.ps1      # Watchdog launcher for Windows Task Scheduler
+│   ├── backtest_{SYMBOL}.csv    # Equity curve per backtest run
+│   ├── trades_{SYMBOL}.csv      # Trade-by-trade log
+│   └── signals.json             # Latest signal output
 ├── logs/
-│   ├── paper_trader_{DATE}.log      # Daily paper trader output
-│   └── options_trader_{DATE}.log    # Daily options trader output
+│   └── paper_trader_{DATE}.log  # Daily paper trader output
 │
 │── Automation (Windows Task Scheduler)
 ├── run_paper_trade.cmd       # Double-click launcher → calls outputs/run_paper_trade.ps1
-├── run_options_trade.cmd     # Double-click launcher → calls outputs/run_options_trade.ps1
-├── setup_paper_task.ps1      # Register paper trader as a scheduled task (run once)
-├── setup_options_task.ps1    # Register options trader as a scheduled task (run once)
-├── setup_both_tasks.ps1      # Register both tasks at once
 │
 │── Configuration
-├── settings/
-│   ├── alpaca.env            # API keys (git-ignored)
-│   └── settings.py           # Central config (symbols, thresholds, paths)
+├── config/
+│   └── trading.json          # Production trading parameters
+├── secrets/
+│   └── alpaca.env            # API keys (git-ignored)
 ├── requirements.txt          # Python dependencies
-├── .gitignore
-│
-│── Deployment
-├── deploy/                   # Mirror of root for Vercel (auto-synced by pre-commit hook)
-└── scripts/                  # Debug / task inspection scripts (dev use only)
+└── .gitignore
 ```
 
 ---
 
 ## ML Architecture
 
+### ReturnLSTM (regression — predicts expected return, not direction probability)
+
 ```
-Input (batch, 20 bars, 21 features)
+Input (batch, 20 bars, 12–13 features)
     ↓  LayerNorm
 2-layer LSTM  (hidden=96, dropout=0.25)
     ↓  Temporal Attention  (soft attention over all 20 time steps)
-Fully Connected  96 → 48 → ReLU → Dropout → 1 → Sigmoid
+Fully Connected  96 → 48 → ReLU → Dropout → 1 (linear, no sigmoid)
     ↓
-Probability (0–1) → Direction (UP/DOWN) + Confidence (|p − 0.5| × 2)
+Expected Return (continuous, e.g. +0.015 = +1.5%)
+    ↓
+Direction: UP if E[r] > +COST_THRESHOLD, DOWN if < −COST_THRESHOLD, else FLAT
+Confidence: min(1.0, |E[r]| / TARGET_RETURN)
 ```
 
-### 21 Input Features
+`COST_THRESHOLD = 0.001` (0.1% — minimum expected return to justify a trade)
+`TARGET_RETURN  = 0.02`  (2% — maps to full position size; confidence = 1.0)
 
-| Category | Features |
-|----------|----------|
-| Returns | RSI-14, 5d return, 10d return, weekly return, monthly return |
-| Volatility | 20d realized vol, vol regime (short/long ratio), ATR % |
-| Volume/Flow | Log dollar vol, vol imbalance (buy fraction), DV acceleration |
-| Microstructure | VWAP ratio, spread proxy |
-| Macro | VIX level, VIX daily change |
-| Trend | MACD histogram, Bollinger %B, BB bandwidth, ADX, trend strength (EMA cross), momentum quality |
+> **Note:** The old `abs(probability − 0.5) × 2` confidence formula from the classification era is no longer used. The model now directly outputs expected return, and confidence scales linearly with `|E[r]|`.
+
+### Meta-labeling (deprecated)
+
+RandomForest meta-gating (`{symbol}_meta_rf.joblib`) was trained in v1 to filter low-quality signals. In the v2 regression model it is **not used** — both `backtester.py` and `paper_trader.py` gate purely on `expected_return` vs `cost_threshold`. The `train-meta` CLI command still exists for backward compatibility but has no effect on live trading.
+
+### Per-Group Models
+
+| Group | Model | Features |
+|-------|-------|----------|
+| **Intraday** | LightGBM (`{SYMBOL}_lgb_intraday.joblib`) | 13 features (trend_strength, adx, log_dollar_vol, …) |
+| **Swing** | XGBoost (`{SYMBOL}_xgb_swing.joblib`) | 40–50 features + per-symbol supplements |
+| **Daily LSTM** | ReturnLSTM (`{SYMBOL}_lstm.pt`) | 12 features (bb_bandwidth, vol20, ret5, …) |
 
 ### Training Method
 
-| Parameter | Value | Source |
-|-----------|-------|--------|
-| Labels | **Triple-barrier** (PT +1.5% / SL −1.0% / 5-bar horizon) | De Prado *AFML* Ch.3 |
-| Train/Val split | 80% train → **20-bar embargo** → val | De Prado *AFML* Ch.7 |
-| Loss | BCE with label smoothing (0.05) | — |
-| Optimizer | AdamW + weight decay 1e-4 | — |
-| LR schedule | Cosine annealing with warm restarts | — |
-| Early stopping | Patience = 10 epochs | — |
-| Gradient clipping | 1.0 | — |
-| Parameters | ~130,000 per model (~513 KB) | — |
+| Parameter | Value |
+|-----------|-------|
+| Labels | **10-day forward return** (continuous regression) |
+| Train/Val split | 80% train → **20-bar embargo** → val |
+| Loss | MSE (regression) |
+| Optimizer | AdamW + weight decay 1e-4 |
+| LR schedule | Cosine annealing with warm restarts |
+| Early stopping | Patience = 10 epochs |
+| Gradient clipping | 1.0 |
+| Parameters | ~130,000 per LSTM model (~513 KB) |
 
 ---
 
@@ -167,15 +143,14 @@ During extended hours the system automatically submits limit orders at last\_pri
 
 ### Entry — all conditions must pass in order
 
-| # | Rule | Source |
-|---|------|--------|
+| # | Rule | Notes |
+|---|------|-------|
 | 1 | Session is `regular` or `extended` (not closed overnight / weekend) | — |
-| 2 | ADX ≥ 20 (trend strong enough) | — |
-| 3 | VIX daily move ≤ 2σ of 20-day rolling σ | Aldridge *HFT* |
-| 4 | Hurst exponent H > 0.55 (trending regime) | Chan *Algorithmic Trading* Ch.2 |
-| 5 | ML confidence ≥ 0.20 (LONG) or ≥ 0.15 (SHORT) | — |
-| 6 | +DI/−DI confirms ML direction | — |
-| 7 | Sufficient allocation | — |
+| 2 | VIX < 30 (swing/crypto only; intraday skips — LightGBM handles vol) | Regime filter |
+| 3 | SPY above 200-day SMA (bull market check) | Regime filter |
+| 4 | Rolling 20-trade win rate ≥ 50% (else 7-day cooldown) | Drawdown guard |
+| 5 | `abs(expected_return) > COST_THRESHOLD` (0.1%) | Signal strength |
+| 6 | Sufficient allocation per Kelly sizing | — |
 
 ### Position Sizing
 
@@ -199,21 +174,6 @@ kelly             = 0.5  ← half-Kelly, reduces drawdown ~75% vs full Kelly
 
 ---
 
-## Options Strategy (Long ATM Straddle)
-
-**Entry:** VIX daily change ≥ threshold (dynamic 8–20% based on IV rank)
-**Position:** Buy ATM call + ATM put with ~30 DTE (delta-neutral, profits from big moves in either direction)
-
-**Exit rules:**
-| Rule | Trigger |
-|------|---------|
-| Profit target | Either leg reaches 1.8× entry cost (+80%) |
-| Stop loss | Total position value ≤ 0.6× total cost (−40%) |
-| ML signal exit | ML confidence ≥ 0.30 in one direction → close losing leg, ride winner |
-| Expiry guard | DTE ≤ 5 days → close everything |
-
----
-
 ## Quick Start
 
 ### 1. Install dependencies
@@ -224,11 +184,16 @@ pip install -r requirements.txt
 
 ### 2. Set environment variables
 
-Create `settings/alpaca.env`:
+Create `secrets/alpaca.env`:
 ```
-ALPACA_API_KEY=your_key_here
-ALPACA_API_SECRET=your_secret_here
+ALPACA_INTRADAY_KEY=your_key_here
+ALPACA_INTRADAY_SECRET=your_secret_here
+ALPACA_SWING_KEY=your_key_here
+ALPACA_SWING_SECRET=your_secret_here
+ALPACA_CRYPTO_KEY=your_key_here
+ALPACA_CRYPTO_SECRET=your_secret_here
 FRED_API_KEY=your_fred_key_here
+ALERT_WEBHOOK_URL=https://hooks.slack.com/services/...  # optional
 ```
 
 ### 3. Train models
@@ -255,11 +220,14 @@ python main.py backtest --symbol SPY --start 2024-01-01 --end 2026-01-01
 ### 5. Start paper trading
 
 ```bash
-# Intraday stock trading (checks every 1 min during market hours)
-python main.py trade --symbols SPY,QQQ,IWM,IGV,SLV,GLD,XLE --mode intraday
+# Intraday group (5-min bars, market hours only)
+python main.py trade --group intraday --mode intraday --interval 5min
 
-# Options straddle trading (checks every 15 min)
-python main.py trade-options --symbols SPY,QQQ,IWM --vix-spike-threshold 15
+# Swing group (daily bars, 24/7)
+python main.py trade --group swing
+
+# Or launch all 3 groups via the watchdog script
+run_paper_trade.cmd
 ```
 
 ### 6. HTML report (backtest + live log viewer)
@@ -269,36 +237,37 @@ python main.py report        # writes outputs/report.html
 python main.py report --open # writes + opens in browser
 ```
 
-The report has four tabs:
-- **Summary** — color-coded performance table (Return, Sharpe, Max DD, Win %, Profit Factor)
-- **Equity Curves** — all symbols overlaid + per-symbol drawdown chart
-- **Trades** — P&L bar chart + full trade-by-trade table (newest first)
-- **Live Log** — latest paper-trader session parsed with pandas: account equity chart, current position status, action counts
-
-### 7. Local Streamlit dashboard (train / backtest controls)
-
-```bash
-streamlit run streamlit_app.py
-# Open http://localhost:8501
-```
-
 ---
 
 ## Automated Scheduling (Windows)
 
-Both traders run automatically at **6:25 AM Mon–Fri** via Windows Task Scheduler as SYSTEM (no login required).
+The watchdog launcher runs all 3 trading groups via a single Windows Task Scheduler task.
 
-```powershell
-# One-time setup (run as Administrator)
-powershell -ExecutionPolicy Bypass -File setup_both_tasks.ps1
+**Task name:** `QuantStocks-PaperTrader`
+
+| Setting | Value |
+|---------|-------|
+| Triggers | Boot (30 s delay), Daily 6:15 AM, Logon (10 s delay) |
+| Logon type | S4U (runs whether user is logged in or not, no password) |
+| Multiple instances | Ignore new (prevents duplicates) |
+| Action | `powershell.exe -ExecutionPolicy Bypass -File outputs\run_paper_trade.ps1` |
+
+The task can also be started manually:
+```cmd
+run_paper_trade.cmd
 ```
 
-The tasks:
-- Run as **SYSTEM** — no user login needed
-- Run on **battery or AC power**
-- **Start if missed** — catches up after sleep
-- Load API keys from `settings/alpaca.env`
-- Write logs to `logs/` with daily timestamps
+To export the current task definition for version control:
+```powershell
+schtasks /Query /TN "QuantStocks-PaperTrader" /XML > outputs/QuantStocks-PaperTrader.xml
+```
+
+The watchdog (`outputs/run_paper_trade.ps1`):
+- Loads API keys from `secrets/alpaca.env` (per-group: `ALPACA_INTRADAY_KEY`, `ALPACA_SWING_KEY`, `ALPACA_CRYPTO_KEY`)
+- Kills stale trader processes before restart
+- Checks every 120 s; auto-restarts crashed groups
+- Intraday group sleeps outside market hours; swing and crypto run 24/7
+- Rotates daily logs to `logs/`
 
 ---
 
@@ -316,14 +285,14 @@ The tasks:
 
 | Decision | Rationale |
 |----------|-----------|
+| Return regression over classification | Direct expected-return output enables natural position sizing (confidence ∝ |E[r]|) |
 | LSTM + attention over plain LSTM | Attention lets the model focus on the most informative bars in the 20-bar window |
-| Triple-barrier labels (De Prado) | Economically meaningful labels — ignores 1-bar noise, requires ±1.5%/1.0% moves |
 | Purge + embargo in train/val (De Prado) | Prevents feature-window overlap from inflating validation accuracy |
-| Half-Kelly sizing (Chan) | ~75% of optimal growth rate with significantly lower drawdown vs full Kelly |
-| Hurst exponent filter (Chan) | Only trade momentum when H > 0.55 — avoids entering when market is mean-reverting |
-| VIX halt rule (Aldridge) | Stops new entries during structural regime breaks (VIX spike > 2σ) |
-| ADX + DI confirmation | ADX confirms trend strength; +DI/−DI confirms direction agrees with ML signal |
+| Dynamic Kelly sizing (Chan) | Rolling 60-trade window, min 20 trades; adapts bet size to recent edge |
+| VIX < 30 regime gate (swing only) | Blocks entries during extreme volatility; intraday LightGBM handles vol internally |
+| SPY SMA(200) bull-market filter | Avoids long entries in bear markets |
 | ATR adaptive stops | Stop distance widens in volatile markets — avoids being stopped out by normal noise |
+| Meta-labeling deprecated | RF meta-gate added no lift in v2 regression model; kept for backward compat only |
 
 ---
 
@@ -331,9 +300,14 @@ The tasks:
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `ALPACA_API_KEY` | Yes | Alpaca paper trading API key |
-| `ALPACA_API_SECRET` | Yes | Alpaca paper trading API secret |
+| `ALPACA_INTRADAY_KEY` | Yes | Alpaca paper trading API key (intraday account) |
+| `ALPACA_INTRADAY_SECRET` | Yes | Alpaca paper trading API secret (intraday account) |
+| `ALPACA_SWING_KEY` | Yes | Alpaca paper trading API key (swing account) |
+| `ALPACA_SWING_SECRET` | Yes | Alpaca paper trading API secret (swing account) |
+| `ALPACA_CRYPTO_KEY` | Yes | Alpaca paper trading API key (crypto account) |
+| `ALPACA_CRYPTO_SECRET` | Yes | Alpaca paper trading API secret (crypto account) |
 | `FRED_API_KEY` | Recommended | FRED VIX history (falls back to yfinance if missing) |
+| `ALERT_WEBHOOK_URL` | Optional | Slack webhook for position-entry alerts |
 
 ---
 
