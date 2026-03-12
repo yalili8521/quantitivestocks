@@ -130,9 +130,8 @@ function Start-TraderGroup {
     $keyItem = Get-Item -Path "Env:$keyVar" -ErrorAction SilentlyContinue
     $keyVal  = if ($keyItem) { $keyItem.Value } else { $null }
     if (-not $keyVal) {
-        Write-Warning "  [$($grp.Name)] $keyVar not set - falling back to ALPACA_API_KEY (intraday account!)"
-        Set-Item -Path "Env:$keyVar" -Value $env:ALPACA_API_KEY   -ErrorAction SilentlyContinue
-        Set-Item -Path "Env:$secVar" -Value $env:ALPACA_API_SECRET -ErrorAction SilentlyContinue
+        Write-Warning "  [$($grp.Name)] $keyVar not set — SKIPPING group (set it in secrets/alpaca.env)"
+        return $null
     }
 
     $proc = Start-Process `
@@ -159,7 +158,7 @@ $GroupProcs = @{}
 foreach ($grp in $Groups) {
     try {
         $proc = Start-TraderGroup $grp
-        $GroupProcs[$grp.Name] = $proc
+        if ($proc) { $GroupProcs[$grp.Name] = $proc }
     } catch {
         Write-Host "  [$($grp.Name)] FAILED to start: $_"
     }
