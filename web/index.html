@@ -2808,18 +2808,23 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     html += '</tr></thead><tbody>';
 
-    // Build set of symbols with actual live open positions
+    // Build set of symbols with actual live open positions (normalize slashes for crypto e.g. DOT/USD -> DOTUSD)
     var liveOpenSymbols = {};
-    (positions || []).forEach(function(p) { liveOpenSymbols[(p.symbol||'').toUpperCase()] = true; });
-    var nowMs = Date.now();
+    (positions || []).forEach(function(p) { liveOpenSymbols[(p.symbol||'').replace(/\//g,'').toUpperCase()] = true; });
+
+    // Sort pairs newest-first by the most recent fill date in each pair
+    pairs.sort(function(a, b) {
+      var da = (a.close || a.open).filled_at || '';
+      var db = (b.close || b.open).filled_at || '';
+      return db < da ? -1 : db > da ? 1 : 0;
+    });
 
     pairs.forEach(function(pair, idx) {
       var op = pair.open, cl = pair.close;
-      // Skip unmatched opens if: (a) no live position for that symbol, OR (b) order is >24h old (intraday EOD rule)
+      // Skip unmatched opens if no live position for that symbol
       if (op && !cl) {
-        var sym = (op.symbol||'').toUpperCase();
-        var ageHrs = op.filled_at ? (nowMs - new Date(op.filled_at).getTime()) / 3600000 : 999;
-        if (!liveOpenSymbols[sym] || ageHrs > 24) return;
+        var sym = (op.symbol||'').replace(/\//g,'').toUpperCase();
+        if (!liveOpenSymbols[sym]) return;
       }
       var rowBg = idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)';
       var refOrder = op || cl;
