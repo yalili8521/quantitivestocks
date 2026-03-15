@@ -1,0 +1,11 @@
+direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,exit_reason
+SHORT,2025-01-08,0.86,2025-01-17,1.05,34985.42,-6633.24,-22.11,disaster_stop
+SHORT,2025-01-18,0.92,2025-01-30,0.79,30578.63,3929.35,14.03,profit_lock_trail
+SHORT,2025-01-31,0.78,2025-03-18,0.45,37460.0,12241.93,41.94,profit_lock_trail
+SHORT,2025-03-30,0.47,2025-04-11,0.61,70351.99,-9877.42,-30.06,disaster_stop
+SHORT,2025-05-30,0.66,2025-07-10,0.6,45218.07,2695.0,9.01,profit_lock_trail
+SHORT,2025-08-19,0.82,2025-10-01,0.73,37515.81,3147.58,10.25,profit_lock_trail
+SHORT,2025-10-02,0.74,2025-10-12,0.56,42656.28,7575.76,23.94,profit_lock_trail
+SHORT,2025-10-14,0.59,2026-01-03,0.42,57322.89,9603.3,28.31,profit_lock_trail
+SHORT,2026-01-12,0.39,2026-02-06,0.26,94419.39,12397.27,33.68,profit_lock_trail
+SHORT,2026-02-07,0.26,2026-03-15,0.24,157680.38,3437.43,8.48,end_of_backtest

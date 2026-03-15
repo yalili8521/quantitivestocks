@@ -1,0 +1,12 @@
+{
+  "symbol": "MCHI",
+  "model_type": "tft_swing",
+  "n_features": 61,
+  "seq_len": 20,
+  "hidden": 32,
+  "n_heads": 4,
+  "val_mse": 0.01069444,
+  "val_direction_accuracy": 0.5496,
+  "n_train": 1044,
+  "n_val": 262
+}

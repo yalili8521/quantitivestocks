@@ -1,0 +1,21 @@
+{
+  "cash": 100000.0,
+  "initial_balance": 100000.0,
+  "positions": {
+    "CRV/USD": {
+      "symbol": "CRV/USD",
+      "qty": 1811.025607,
+      "side": "SHORT",
+      "entry_price": 0.2417,
+      "entry_time": "2026-03-15T20:09:32.866718+00:00"
+    },
+    "ADA/USD": {
+      "symbol": "ADA/USD",
+      "qty": 569.433069,
+      "side": "SHORT",
+      "entry_price": 0.263167,
+      "entry_time": "2026-03-15T20:09:39.689109+00:00"
+    }
+  },
+  "last_updated": "2026-03-15T20:09:39.689109+00:00"
+}

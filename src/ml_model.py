@@ -547,29 +547,35 @@ def prepare_sequences_regression(
             continue
 
         forward_return = (future_price - entry_price) / entry_price
-        # Winsorize at +/- 10%
-        forward_return = max(-0.10, min(0.10, forward_return))
-
         X_list.append(feature_values[i: i + seq_len])
         y_list.append(forward_return)
 
-    return np.array(X_list, dtype=np.float32), np.array(y_list, dtype=np.float32)
+    y_arr = np.array(y_list, dtype=np.float32)
+
+    # Percentile-based Winsorization (1st/99th) — more robust than fixed ±10%
+    if len(y_arr) > 20:
+        p1, p99 = np.percentile(y_arr, [1, 99])
+        y_arr = np.clip(y_arr, p1, p99)
+        log.info("Label Winsorization: clipped to [%.4f, %.4f] (1st/99th pctile)", p1, p99)
+
+    return np.array(X_list, dtype=np.float32), y_arr
 
 
 # ===================================================================
 # VIX history helper (longer lookback for training)
 # ===================================================================
-def _fetch_vix_for_training(fred_key: Optional[str], lookback_days: int) -> pd.DataFrame:
+def _fetch_vix_for_training(fred_key: Optional[str], lookback_days: int,
+                            include_live: bool = True) -> pd.DataFrame:
     """Fetch VIX history. Try FRED first, fall back to yfinance ^VIX.
 
-    After getting daily history, always try to append today's live intraday
-    VIX price so vix_change_pct() reflects the real intraday spike, not just
-    yesterday's close vs the day before.
+    Args:
+        include_live: If True (default), append today's live VIX price for
+            real-time trading. Set False during model training to prevent
+            future VIX data from leaking into historical feature rows.
     """
     fetcher = FREDVixFetcher(api_key=fred_key)
     vix_df = fetcher.fetch(lookback_days=lookback_days)
     if len(vix_df) < 20:
-        # FRED free tier only returns ~10 recent observations; fall back to yfinance
         log.info("FRED VIX data sparse (%d rows); falling back to yfinance ^VIX.", len(vix_df))
         try:
             import yfinance as yf
@@ -589,27 +595,25 @@ def _fetch_vix_for_training(fred_key: Optional[str], lookback_days: int) -> pd.D
         except Exception as exc:
             log.warning("yfinance ^VIX fallback failed: %s", exc)
 
-    # Always append today's live VIX price so intraday spikes are captured.
-    # FRED only updates after market close, so during market hours the last
-    # row is yesterday's close — this override fixes that.
-    try:
-        import yfinance as yf
-        _vix_ticker = yf.Ticker("^VIX")
-        live_vix = float(_vix_ticker.fast_info.last_price)
-        if live_vix > 0:
-            today = pd.Timestamp.now().normalize()
-            last_date = vix_df["date"].iloc[-1].normalize() if not vix_df.empty else pd.Timestamp("1900-01-01")
-            if last_date < today:
-                # Today not yet in history — append new row
-                today_row = pd.DataFrame({"date": [today], "vix": [live_vix]})
-                vix_df = pd.concat([vix_df, today_row], ignore_index=True)
-                log.info("Appended live intraday VIX=%.1f for today.", live_vix)
-            else:
-                # Today's row exists (FRED already updated) — overwrite with live value
-                vix_df.loc[vix_df.index[-1], "vix"] = live_vix
-                log.info("Updated today's VIX row to live value=%.1f.", live_vix)
-    except Exception as exc:
-        log.debug("Live VIX fetch failed (using daily close): %s", exc)
+    # Append today's live VIX price so intraday spikes are captured.
+    # IMPORTANT: Only for live trading. During training, this leaks future data.
+    if include_live:
+        try:
+            import yfinance as yf
+            _vix_ticker = yf.Ticker("^VIX")
+            live_vix = float(_vix_ticker.fast_info.last_price)
+            if live_vix > 0:
+                today = pd.Timestamp.now().normalize()
+                last_date = vix_df["date"].iloc[-1].normalize() if not vix_df.empty else pd.Timestamp("1900-01-01")
+                if last_date < today:
+                    today_row = pd.DataFrame({"date": [today], "vix": [live_vix]})
+                    vix_df = pd.concat([vix_df, today_row], ignore_index=True)
+                    log.info("Appended live intraday VIX=%.1f for today.", live_vix)
+                else:
+                    vix_df.loc[vix_df.index[-1], "vix"] = live_vix
+                    log.info("Updated today's VIX row to live value=%.1f.", live_vix)
+        except Exception as exc:
+            log.debug("Live VIX fetch failed (using daily close): %s", exc)
 
     return vix_df
 
@@ -651,7 +655,8 @@ def train_model(
                                       lookback_days=lookback)
     log.info("Got %d bars for %s.", len(bars), symbol)
 
-    vix_df = _fetch_vix_for_training(fred_key, lookback_days=max(lookback, 500))
+    vix_df = _fetch_vix_for_training(fred_key, lookback_days=max(lookback, 500),
+                                     include_live=False)
     log.info("Got %d VIX rows.", len(vix_df))
 
     # 2. Build features
@@ -765,18 +770,41 @@ def train_model(
                 log.info("Early stopping at epoch %d.", epoch + 1)
                 break
 
+    # --- Build calibration map on TRAINING set (not validation, to avoid leakage) ---
+    cal_map = None
+    try:
+        from model_monitor import CalibrationMap
+        model.eval()
+        with torch.no_grad():
+            train_preds = model(torch.FloatTensor(X_train)).numpy().flatten()
+        cal_map = CalibrationMap(n_bins=10)
+        cal_map.fit(train_preds, y_train)
+        cal_path = os.path.join(save_dir, f"{symbol}_calibration{suffix}.json")
+        cal_map.save(cal_path)
+        log.info("Calibration map saved to %s (bins=%d, fit on training data)",
+                 cal_path, cal_map.n_bins)
+    except Exception as exc:
+        log.warning("Calibration map build failed: %s", exc)
+
+    # --- Horizon metadata (enforce model-mode separation) ---
+    horizon = f"{fwd_days}d"
+
     metrics_path = os.path.join(save_dir, f"{symbol}_lstm{suffix}_metrics.json")
     with open(metrics_path, "w") as f:
         json.dump({
             "symbol": symbol, "mode": mode,
+            "horizon": horizon,
+            "model_type": "lstm",
             "model_version": "v2_regression",
             "target": f"forward_{fwd_days}d_return",
             "best_val_loss_mse": round(best_val_loss, 8),
             "best_direction_accuracy": round(best_val_acc, 4),
             "epochs_run": epochs_run,
+            "n_features": n_features,
+            "has_calibration": cal_map is not None and cal_map.bin_edges is not None,
         }, f, indent=2)
-    log.info("Training complete for %s (%s). Best val_MSE=%.6f  dir_acc=%.3f",
-             symbol, mode, best_val_loss, best_val_acc)
+    log.info("Training complete for %s (%s, horizon=%s). Best val_MSE=%.6f  dir_acc=%.3f",
+             symbol, mode, horizon, best_val_loss, best_val_acc)
     return model, engine
 
 
@@ -834,7 +862,8 @@ def train_meta_model(
         bars = adapter.fetch_intraday(symbol, intraday_interval, lookback_days=lookback)
     log.info("Got %d bars for meta-training.", len(bars))
 
-    vix_df = _fetch_vix_for_training(fred_key, lookback_days=max(lookback, 500))
+    vix_df = _fetch_vix_for_training(fred_key, lookback_days=max(lookback, 500),
+                                     include_live=False)
     features = engine.build_features(bars, vix_df, mode=mode, symbol=symbol)
     features_norm = engine.transform(features)
 
@@ -964,10 +993,12 @@ class Predictor:
         self.symbol = symbol
         self.model_dir = model_dir
         self.mode = mode
+        self.model_type = "lstm"
         self.intraday_interval = intraday_interval
         self.engine = FeatureEngine()
         self.model: Optional[ReturnLSTM] = None
         self.meta_model = None   # Deprecated in v2 — kept for file compat
+        self._calibration_map = None
         self._load()
 
     def _load(self) -> None:
@@ -1005,6 +1036,33 @@ class Predictor:
         else:
             self.meta_model = None
             self.meta_threshold = META_THRESHOLD
+
+        # Load calibration map (optional — built during training)
+        cal_path = os.path.join(self.model_dir, f"{self.symbol}_calibration{suffix}.json")
+        if os.path.exists(cal_path):
+            try:
+                from model_monitor import CalibrationMap
+                self._calibration_map = CalibrationMap.load(cal_path)
+                log.info("Loaded calibration map for %s from %s", self.symbol, cal_path)
+            except Exception as exc:
+                log.debug("Calibration map load failed for %s: %s", self.symbol, exc)
+
+        # Validate horizon: LSTM is daily-only (10d horizon)
+        metrics_path = os.path.join(self.model_dir, f"{self.symbol}_lstm{suffix}_metrics.json")
+        if os.path.exists(metrics_path):
+            try:
+                with open(metrics_path) as f:
+                    metrics = json.load(f)
+                model_horizon = metrics.get("horizon", "10d")
+                model_mode = metrics.get("mode", "daily")
+                if self.mode == "intraday" and model_mode == "daily":
+                    log.warning(
+                        "LSTM model for %s was trained on daily data (horizon=%s) "
+                        "but is being loaded in intraday mode. Use LightGBM for intraday.",
+                        self.symbol, model_horizon,
+                    )
+            except Exception:
+                pass
 
     def predict(self, bars_df: pd.DataFrame, vix_df: pd.DataFrame,
                 seq_len: int = SEQ_LEN) -> dict:
@@ -1045,12 +1103,22 @@ class Predictor:
         else:
             direction = "FLAT"
 
-        confidence = min(1.0, abs(expected_return) / TARGET_RETURN)
+        # Use calibrated confidence if calibration map is available
+        if self._calibration_map is not None and self._calibration_map.bin_edges is not None:
+            confidence = self._calibration_map.calibrated_confidence(
+                expected_return, TARGET_RETURN
+            )
+            calibrated_return = self._calibration_map.calibrated_return(expected_return)
+        else:
+            confidence = min(1.0, abs(expected_return) / TARGET_RETURN)
+            calibrated_return = expected_return
+
         # Legacy probability compat for options_trader and other consumers
         probability = max(0.05, min(0.95, 0.5 + expected_return * 10))
 
         return {
             "expected_return": round(expected_return, 6),
+            "calibrated_return": round(calibrated_return, 6),
             "direction": direction,
             "probability": round(probability, 4),
             "confidence": round(confidence, 4),

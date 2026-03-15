@@ -1,0 +1,19 @@
+{
+  "symbol": "IGV",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2025-12-16",
+  "end_date": "2026-03-13",
+  "initial_capital": 100000.0,
+  "final_equity": 102842.03,
+  "total_return_pct": 2.84,
+  "annualized_return_pct": 12.49,
+  "sharpe_ratio": 1.436,
+  "max_drawdown_pct": -2.19,
+  "total_trades": 43,
+  "win_rate": 0.581,
+  "avg_win_pct": 0.97,
+  "avg_loss_pct": -1.03,
+  "profit_factor": 1.301,
+  "avg_trade_duration_days": 0.0
+}

@@ -48,7 +48,7 @@ from signals_engine import (
     compute_rsi, compute_atr, compute_macd, compute_bollinger_bands,
     compute_adx, compute_momentum_quality, RSI_PERIOD,
 )
-from utils import _fetch_vix_for_training, DEFAULT_MODEL_DIR, COST_THRESHOLD, TARGET_RETURN
+from utils import _fetch_vix_for_training, DEFAULT_MODEL_DIR, SWING_MODEL_DIR, CRYPTO_MODEL_DIR, COST_THRESHOLD, TARGET_RETURN
 from cross_asset_signals import CrossAssetFeatureBuilder, get_cross_asset_features
 OPTIONS_FLOW_FEATURES = ["pc_volume_ratio", "pc_oi_ratio", "vix_term_ratio", "vix_term_inverted"]
 from alpha_signals import AlphaFeatureBuilder, get_alpha_features
@@ -85,6 +85,25 @@ SWING_BASE_FEATURES = [
     "vol_regime",
     "vix_pctrank",
     "dv_accel",
+]
+
+# Regime context features — baked into model so it learns regime-dependent behavior
+# instead of relying solely on inference-time regime filters
+REGIME_FEATURES = [
+    "spy_above_sma200",       # 1 if SPY > 200-day MA, else 0 (bull/bear flag)
+    "spy_trend_strength",     # SPY distance from SMA(200) as % (how bullish/bearish)
+    "vix_regime",             # VIX level (raw, normalized by scaler)
+    "vix_zscore",             # VIX z-score vs 60-day rolling mean/std
+    "sector_etf_rel_spy_21",  # sector ETF 21d return minus SPY 21d return
+]
+
+# Crypto-specific regime features — only included for *-USD symbols
+# BTC acts as the "SPY of crypto" — its trend dictates alt-coin regimes.
+CRYPTO_REGIME_FEATURES = [
+    "btc_sma200_flag",       # 1 if BTC > 200-day SMA (bull/bear market for all crypto)
+    "btc_realized_vol_30",   # BTC 30-day realized volatility (annualized)
+    "btc_drawdown",          # BTC drawdown from 90-day high (0 to -1 range)
+    "eth_btc_ratio_zscore",  # ETH/BTC ratio z-score vs 60-day rolling mean/std
 ]
 
 # Per-symbol supplement features (fetched from proxy ETFs)
@@ -133,6 +152,17 @@ _TFT_WEIGHT  = 0.60  # TFT contribution in ensemble (XGBoost = 1 - this)
 
 
 # ---------------------------------------------------------------------------
+# Crypto detection helper
+# ---------------------------------------------------------------------------
+
+def _is_crypto_swing(symbol: str | None) -> bool:
+    """True if symbol is a crypto pair in yahoo format (e.g. BTC-USD, ETH-USD)."""
+    if symbol is None:
+        return False
+    return symbol.upper().endswith("-USD") and len(symbol) >= 6
+
+
+# ---------------------------------------------------------------------------
 # Feature column registry
 # ---------------------------------------------------------------------------
 
@@ -144,6 +174,13 @@ def get_swing_feature_cols(symbol: str | None = None) -> list:
         + alpha + factor + market (from existing builders)
     """
     cols: list = list(SWING_BASE_FEATURES)
+
+    # Regime context features (SPY trend, VIX regime — baked into model, not just inference-time)
+    cols.extend(REGIME_FEATURES)
+
+    # Crypto regime features (BTC trend, vol, drawdown, ETH/BTC ratio)
+    if _is_crypto_swing(symbol):
+        cols.extend(CRYPTO_REGIME_FEATURES)
 
     # Symbol-specific supplement features
     if symbol and symbol in SWING_SUPPLEMENT_FEATURES:
@@ -189,6 +226,7 @@ class SwingFeatureEngine:
         self._factor_builder: Optional[FactorFeatureBuilder] = None
         self._market_builder: Optional[MarketSignalBuilder] = None
         self._supplement_cache: dict = {}
+        self._crypto_cache: dict = {}  # cache BTC-USD / ETH-USD close series
 
     def build_features(
         self,
@@ -278,6 +316,47 @@ class SwingFeatureEngine:
         df["vix_pctrank"] = vix_series.rolling(252, min_periods=60).apply(
             lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=False
         )
+
+        # --- Regime context features (SPY trend, VIX regime, sector relative) ---
+        if spy_bars is not None and not spy_bars.empty:
+            spy_close_s = spy_bars["close"].astype(float)
+            spy_sma200 = spy_close_s.rolling(200, min_periods=100).mean()
+            # Build SPY regime as a time series, then align to symbol's dates
+            spy_regime_raw = (spy_close_s > spy_sma200).astype(float)
+            spy_strength_raw = (spy_close_s - spy_sma200) / spy_sma200.replace(0, np.nan)
+            spy_ret21_raw = spy_close_s.pct_change(21)
+
+            spy_dates_for_regime = pd.to_datetime(spy_bars["ts"]).dt.date
+            regime_map = dict(zip(spy_dates_for_regime.values, spy_regime_raw.values))
+            strength_map = dict(zip(spy_dates_for_regime.values, spy_strength_raw.values))
+            spy_ret21_map = dict(zip(spy_dates_for_regime.values, spy_ret21_raw.values))
+
+            df["spy_above_sma200"] = bar_dates_d.map(lambda d: regime_map.get(d, np.nan))
+            df["spy_trend_strength"] = bar_dates_d.map(lambda d: strength_map.get(d, np.nan))
+            # Sector relative strength: symbol's 21d return minus SPY's 21d return
+            sym_ret21 = close.pct_change(21)
+            spy_ret21_aligned = bar_dates_d.map(lambda d: spy_ret21_map.get(d, np.nan))
+            spy_ret21_series = pd.Series(spy_ret21_aligned.values, index=bars_df.index).astype(float).ffill()
+            df["sector_etf_rel_spy_21"] = sym_ret21 - spy_ret21_series
+        else:
+            df["spy_above_sma200"] = 0.0
+            df["spy_trend_strength"] = 0.0
+            df["sector_etf_rel_spy_21"] = 0.0
+
+        # VIX regime features
+        df["vix_regime"] = vix_series
+        vix_mean60 = vix_series.rolling(60, min_periods=20).mean()
+        vix_std60 = vix_series.rolling(60, min_periods=20).std().replace(0, 1)
+        df["vix_zscore"] = (vix_series - vix_mean60) / vix_std60
+
+        # Forward-fill regime features
+        for col in REGIME_FEATURES:
+            if col in df.columns:
+                df[col] = df[col].ffill().fillna(0.0)
+
+        # --- Crypto regime features (BTC trend, vol, drawdown, ETH/BTC ratio) ---
+        if _is_crypto_swing(symbol):
+            self._build_crypto_regime(df, bars_df)
 
         # --- Supplement features (copper / SOX) ---
         if symbol and symbol in SWING_SUPPLEMENT_FEATURES:
@@ -401,6 +480,85 @@ class SwingFeatureEngine:
 
         return df
 
+    # ------------------------------------------------------------------
+    # Crypto regime helpers
+    # ------------------------------------------------------------------
+
+    def _fetch_crypto_close(self, ticker: str) -> pd.Series:
+        """Fetch daily close for a crypto ticker (e.g. BTC-USD), cached."""
+        if ticker in self._crypto_cache:
+            return self._crypto_cache[ticker]
+        import yfinance as yf
+        try:
+            data = yf.download(ticker, period="5y", progress=False, auto_adjust=True)
+            if data.empty:
+                self._crypto_cache[ticker] = pd.Series(dtype=float)
+            else:
+                close = data["Close"]
+                if hasattr(close, "squeeze"):
+                    close = close.squeeze()
+                self._crypto_cache[ticker] = close
+        except Exception as exc:
+            log.warning("Failed to fetch %s for crypto regime: %s", ticker, exc)
+            self._crypto_cache[ticker] = pd.Series(dtype=float)
+        return self._crypto_cache[ticker]
+
+    def _build_crypto_regime(self, df: pd.DataFrame, bars_df: pd.DataFrame) -> None:
+        """Add CRYPTO_REGIME_FEATURES columns in-place.
+
+        Fetches BTC-USD and ETH-USD daily close, aligns to bars_df dates,
+        and computes the four crypto regime features.
+        """
+        bar_dates = pd.to_datetime(bars_df["ts"]).dt.date
+        annualize = np.sqrt(365)  # crypto trades 365 days/year
+
+        btc_close = self._fetch_crypto_close("BTC-USD")
+        eth_close = self._fetch_crypto_close("ETH-USD")
+
+        if btc_close.empty:
+            for col in CRYPTO_REGIME_FEATURES:
+                df[col] = 0.0
+            return
+
+        # Align BTC close to symbol's bar dates
+        btc_map = dict(zip(btc_close.index.date, btc_close.values))
+        btc_aligned = pd.Series(
+            bar_dates.map(lambda d: btc_map.get(d, np.nan)).values,
+            index=bars_df.index,
+        ).astype(float).ffill()
+
+        # 1. btc_sma200_flag: BTC > 200-day SMA
+        btc_sma200 = btc_aligned.rolling(200, min_periods=100).mean()
+        df["btc_sma200_flag"] = (btc_aligned > btc_sma200).astype(float)
+
+        # 2. btc_realized_vol_30: 30-day realized vol (annualized for crypto = sqrt(365))
+        btc_ret = btc_aligned.pct_change()
+        df["btc_realized_vol_30"] = btc_ret.rolling(30, min_periods=10).std() * annualize
+
+        # 3. btc_drawdown: drawdown from 90-day rolling high (0 to -1 range)
+        btc_high90 = btc_aligned.rolling(90, min_periods=30).max()
+        df["btc_drawdown"] = (btc_aligned - btc_high90) / btc_high90.replace(0, np.nan)
+
+        # 4. eth_btc_ratio_zscore: ETH/BTC ratio z-score vs 60-day rolling stats
+        if not eth_close.empty:
+            eth_map = dict(zip(eth_close.index.date, eth_close.values))
+            eth_aligned = pd.Series(
+                bar_dates.map(lambda d: eth_map.get(d, np.nan)).values,
+                index=bars_df.index,
+            ).astype(float).ffill()
+
+            eth_btc = eth_aligned / btc_aligned.replace(0, np.nan)
+            eb_mean = eth_btc.rolling(60, min_periods=20).mean()
+            eb_std = eth_btc.rolling(60, min_periods=20).std().replace(0, 1)
+            df["eth_btc_ratio_zscore"] = (eth_btc - eb_mean) / eb_std
+        else:
+            df["eth_btc_ratio_zscore"] = 0.0
+
+        # Forward-fill and fill NaN warmup
+        for col in CRYPTO_REGIME_FEATURES:
+            if col in df.columns:
+                df[col] = df[col].ffill().fillna(0.0)
+
     def fit_scaler(self, features_df: pd.DataFrame) -> None:
         self._scaler_params = {
             "mean": features_df.mean(),
@@ -455,11 +613,18 @@ def _prepare_tabular_regression(
         if entry_price <= 0:
             continue
         fwd_ret = (full_close[bar_pos + forward_days] - entry_price) / entry_price
-        fwd_ret = max(-0.10, min(0.10, fwd_ret))  # winsorize at ±10%
         X_list.append(feature_values[i])
         y_list.append(fwd_ret)
 
-    return np.array(X_list, dtype=np.float32), np.array(y_list, dtype=np.float32)
+    y_arr = np.array(y_list, dtype=np.float32)
+
+    # Percentile-based Winsorization (1st/99th) — more robust than fixed ±10%
+    if len(y_arr) > 20:
+        p1, p99 = np.percentile(y_arr, [1, 99])
+        y_arr = np.clip(y_arr, p1, p99)
+        log.info("Label Winsorization: clipped to [%.4f, %.4f] (1st/99th pctile)", p1, p99)
+
+    return np.array(X_list, dtype=np.float32), y_arr
 
 
 # ---------------------------------------------------------------------------
@@ -773,17 +938,22 @@ def train_swing_model(
     spy_bars = adapter.fetch_daily("SPY", lookback)
     log.info("Got %d SPY bars.", len(spy_bars))
 
-    vix_df = _fetch_vix_for_training(fred_key, lookback_days=max(lookback, 500))
+    vix_df = _fetch_vix_for_training(fred_key, lookback_days=max(lookback, 500),
+                                     include_live=False)
     log.info("Got %d VIX rows.", len(vix_df))
 
     # 1b. Apply train_end cutoff — drop any rows on or after the OOS boundary
     if train_end:
         cutoff = pd.Timestamp(train_end)
         # fetch_daily() returns a RangeIndex DataFrame; find the date column by name
-        date_col = next((c for c in bars.columns if c.lower() in ("date", "timestamp", "time")), None)
+        date_col = next((c for c in bars.columns if c.lower() in ("date", "timestamp", "time", "ts")), None)
         cutoff_applied = False
         if date_col:
-            bars_cut = bars[pd.to_datetime(bars[date_col]) < cutoff].copy().reset_index(drop=True)
+            # Handle tz-aware vs tz-naive comparison
+            ts_series = pd.to_datetime(bars[date_col])
+            if ts_series.dt.tz is not None:
+                cutoff = cutoff.tz_localize(ts_series.dt.tz)
+            bars_cut = bars[ts_series < cutoff].copy().reset_index(drop=True)
             if len(bars_cut) == 0:
                 log.warning("train_end cutoff left 0 bars for %s (symbol may have launched after %s). Training on all available data.", symbol, train_end)
             else:
@@ -803,7 +973,8 @@ def train_swing_model(
             log.warning("train_end cutoff: no date column or DatetimeIndex found — cutoff not applied! columns=%s", list(bars.columns[:5]))
         # Only filter vix_df when bars cutoff was actually applied (keeps date ranges consistent)
         if cutoff_applied and "date" in vix_df.columns:
-            vix_df = vix_df[pd.to_datetime(vix_df["date"]) < cutoff].copy()
+            cutoff_naive = pd.Timestamp(train_end)  # VIX dates are tz-naive
+            vix_df = vix_df[pd.to_datetime(vix_df["date"]) < cutoff_naive].copy()
         log.info("After cutoff: %d bars, %d SPY bars, %d VIX rows.", len(bars), len(spy_bars), len(vix_df))
 
     # 2. Build features
@@ -856,6 +1027,46 @@ def train_swing_model(
              ", ".join(f"{feature_cols[i]}={importances[i]:.3f}"
                        for i in top_idx if i < len(feature_cols)))
 
+    # Save feature importances to JSON for stability tracking
+    from datetime import date as _date
+    imp_path = os.path.join(save_dir, f"{symbol}_xgb_swing_importance.json")
+    _all_idx = np.argsort(importances)[::-1]
+    _top10 = [[feature_cols[i], round(float(importances[i]), 6)]
+              for i in _all_idx[:10] if i < len(feature_cols)]
+    imp_data = {
+        "symbol": symbol,
+        "trained_at": str(_date.today()),
+        "feature_cols": list(feature_cols),
+        "importances": [round(float(v), 6) for v in importances],
+        "top_10": _top10,
+    }
+    # Append to history for stability tracking
+    imp_history_path = os.path.join(save_dir, f"{symbol}_xgb_swing_importance_history.json")
+    try:
+        with open(imp_history_path, "r", encoding="utf-8") as _fh:
+            history = json.load(_fh)
+    except (FileNotFoundError, json.JSONDecodeError):
+        history = []
+    history.append(imp_data)
+    with open(imp_history_path, "w", encoding="utf-8") as _fh:
+        json.dump(history, _fh, indent=2)
+    with open(imp_path, "w", encoding="utf-8") as _fh:
+        json.dump(imp_data, _fh, indent=2)
+    log.info("Feature importances saved → %s", imp_path)
+
+    # Check stability against previous run
+    if len(history) >= 2:
+        try:
+            from model_monitor import check_feature_stability
+            stable, warnings = check_feature_stability(imp_data, history[-2])
+            if not stable:
+                for w in warnings:
+                    log.warning("[Feature Stability] %s: %s", symbol, w)
+            else:
+                log.info("[Feature Stability] %s: stable (no large rank shifts).", symbol)
+        except Exception as exc:
+            log.debug("Feature stability check skipped: %s", exc)
+
     # 8. Save
     model_path  = os.path.join(save_dir, f"{symbol}_xgb_swing.joblib")
     scaler_path = os.path.join(save_dir, f"{symbol}_xgb_swing_scaler.json")
@@ -866,8 +1077,9 @@ def train_swing_model(
 
     config = {
         "symbol":               symbol,
-        "model_type":           "xgboost_swing",
-        "model_version":        "v3_regression",
+        "model_type":           "xgb_swing",
+        "horizon":              f"{FORWARD_DAYS}d",
+        "model_version":        "v4_regression_regime",
         "target":               f"forward_{FORWARD_DAYS}d_return",
         "val_rmse":             round(val_rmse, 8),
         "val_direction_accuracy": round(direction_acc, 4),
@@ -1108,8 +1320,8 @@ def main() -> None:
     parser.add_argument("--train-end", default=None,
                         help="Hard cutoff date YYYY-MM-DD — data on/after this date excluded from training. "
                              "Use to create a clean OOS boundary (e.g. --train-end 2023-08-01).")
-    parser.add_argument("--save-dir", default=DEFAULT_MODEL_DIR,
-                        help=f"Directory to save model files (default: {DEFAULT_MODEL_DIR})")
+    parser.add_argument("--save-dir", default=SWING_MODEL_DIR,
+                        help=f"Directory to save model files (default: {SWING_MODEL_DIR})")
     args = parser.parse_args()
 
     adapter  = build_adapter(args.provider)

@@ -1,0 +1,12 @@
+{
+  "symbol": "UNI-USD",
+  "model_type": "tft_swing",
+  "n_features": 70,
+  "seq_len": 20,
+  "hidden": 32,
+  "n_heads": 4,
+  "val_mse": 0.00263653,
+  "val_direction_accuracy": 0.6733,
+  "n_train": 400,
+  "n_val": 101
+}

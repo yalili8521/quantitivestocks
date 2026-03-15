@@ -1,13 +1,14 @@
 {
   "symbol": "BTC-USD",
-  "model_type": "xgboost_swing",
-  "model_version": "v3_regression",
+  "model_type": "xgb_swing",
+  "horizon": "10d",
+  "model_version": "v4_regression_regime",
   "target": "forward_10d_return",
-  "val_rmse": 0.06386292,
-  "val_direction_accuracy": 0.3605,
-  "n_train": 588,
-  "n_val": 147,
-  "n_features": 61,
+  "val_rmse": 0.09128606,
+  "val_direction_accuracy": 0.7333,
+  "n_train": 239,
+  "n_val": 60,
+  "n_features": 70,
   "feature_names": [
     "ret252",
     "ret63",
@@ -26,6 +27,15 @@
     "vol_regime",
     "vix_pctrank",
     "dv_accel",
+    "spy_above_sma200",
+    "spy_trend_strength",
+    "vix_regime",
+    "vix_zscore",
+    "sector_etf_rel_spy_21",
+    "btc_sma200_flag",
+    "btc_realized_vol_30",
+    "btc_drawdown",
+    "eth_btc_ratio_zscore",
     "treasury_slope",
     "pc_volume_ratio",
     "pc_oi_ratio",
@@ -71,5 +81,5 @@
     "breadth_momentum",
     "correlation_regime"
   ],
-  "train_end": "all_data"
+  "train_end": "2025-01-01"
 }

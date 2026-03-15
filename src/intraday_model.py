@@ -42,7 +42,7 @@ import numpy as np
 import pandas as pd
 
 from signals_engine import PROJECT_ROOT, build_adapter
-from utils import _fetch_vix_for_training, DEFAULT_MODEL_DIR
+from utils import _fetch_vix_for_training, DEFAULT_MODEL_DIR, INTRADAY_MODEL_DIR
 OPTIONS_FLOW_FEATURES = ["pc_volume_ratio", "pc_oi_ratio", "vix_term_ratio", "vix_term_inverted"]
 
 logging.basicConfig(
@@ -186,11 +186,21 @@ class IntradayFeatureEngine:
             eod_close = float(day_bars["close"].iloc[-1])
             rest_ret = (eod_close - first_close) / first_close if first_close > 0 else 0
 
-            # Label: did following first_30m direction produce profit by EOD?
+            # Label: did following first_30m direction produce profit by EOD (net of costs)?
             if abs(first_30m_ret) < 1e-6:
                 continue  # near-zero signal, skip
-            label = 1 if (first_30m_ret > 0 and rest_ret > 0) or \
-                         (first_30m_ret < 0 and rest_ret < 0) else 0
+            # Cost-adjusted label: subtract estimated round-trip cost before checking profitability
+            try:
+                from cost_model import get_symbol_costs
+                symbol_name = str(intraday_bars.get("symbol", pd.Series(["UNKNOWN"])).iloc[0])
+                rt_cost = get_symbol_costs(symbol_name).round_trip_pct
+            except (ImportError, Exception):
+                rt_cost = 0.0007  # ~7bps default for mid-liquidity ETFs
+            net_rest_ret = abs(rest_ret) - rt_cost
+            label = 1 if net_rest_ret > 0 and (
+                (first_30m_ret > 0 and rest_ret > 0) or
+                (first_30m_ret < 0 and rest_ret < 0)
+            ) else 0
 
             # Build features
             features = self._compute_day_features(
@@ -486,7 +496,7 @@ def train_intraday_model(
     adapter,
     fred_key: Optional[str] = None,
     lookback: int = 500,
-    save_dir: str = DEFAULT_MODEL_DIR,
+    save_dir: str = INTRADAY_MODEL_DIR,
 ) -> Optional[lgb.LGBMClassifier]:
     """Train LightGBM model for intraday momentum filtering.
 
@@ -504,7 +514,8 @@ def train_intraday_model(
     bars = adapter.fetch_intraday(symbol, "5min", lookback_days=lookback)
     log.info("Got %d bars for %s.", len(bars), symbol)
 
-    vix_df = _fetch_vix_for_training(fred_key, lookback_days=max(lookback, 500))
+    vix_df = _fetch_vix_for_training(fred_key, lookback_days=max(lookback, 500),
+                                     include_live=False)
     log.info("Got %d VIX rows.", len(vix_df))
 
     # 2. Build training data
@@ -520,7 +531,32 @@ def train_intraday_model(
     X = data[FEATURE_NAMES].values.astype(np.float32)
     y = data["label"].values.astype(np.int32)
 
-    # Walk-forward split: first 80% train, last 20% validate
+    # Expanding-window walk-forward CV: estimate OOS performance across multiple folds
+    n_folds = min(5, max(2, len(X) // 60))  # at least 60 samples per fold
+    fold_size = len(X) // (n_folds + 1)     # reserve 1 fold-worth for initial train
+    cv_accs = []
+    for fold in range(n_folds):
+        cv_train_end = fold_size * (fold + 1)
+        cv_val_end = min(cv_train_end + fold_size, len(X))
+        if cv_val_end <= cv_train_end:
+            break
+        cv_model = lgb.LGBMClassifier(
+            n_estimators=200, max_depth=4, num_leaves=15,
+            min_child_samples=15, learning_rate=0.04,
+            reg_lambda=2.0, reg_alpha=0.2, subsample=0.8,
+            colsample_bytree=0.7, random_state=42, verbose=-1,
+        )
+        cv_model.fit(X[:cv_train_end], y[:cv_train_end],
+                     eval_set=[(X[cv_train_end:cv_val_end], y[cv_train_end:cv_val_end])],
+                     callbacks=[lgb.early_stopping(stopping_rounds=20)])
+        cv_preds = cv_model.predict(X[cv_train_end:cv_val_end])
+        cv_acc = float(np.mean(cv_preds == y[cv_train_end:cv_val_end]))
+        cv_accs.append(cv_acc)
+    if cv_accs:
+        log.info("Expanding-window CV (%d folds): acc=%.3f ± %.3f",
+                 len(cv_accs), np.mean(cv_accs), np.std(cv_accs))
+
+    # Final model: first 80% train, last 20% validate
     split_idx = int(len(X) * 0.8)
     X_train, y_train = X[:split_idx], y[:split_idx]
     X_val, y_val = X[split_idx:], y[split_idx:]
@@ -583,13 +619,15 @@ def train_intraday_model(
     joblib.dump(model, model_path)
     config = {
         "symbol": symbol,
-        "model_type": "intraday_momentum",
+        "model_type": "lgb_intraday",
+        "horizon": "1d",
         "threshold": best_t,
         "val_accuracy": round(val_acc, 4),
         "val_base_rate": round(base_rate, 4),
         "n_train": len(X_train),
         "n_val": len(X_val),
         "feature_names": FEATURE_NAMES,
+        "cost_adjusted_labels": True,
     }
     with open(config_path, "w") as f:
         json.dump(config, f, indent=2)

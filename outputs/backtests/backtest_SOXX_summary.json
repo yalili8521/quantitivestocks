@@ -1,0 +1,19 @@
+{
+  "symbol": "SOXX",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2025-12-16",
+  "end_date": "2026-03-13",
+  "initial_capital": 100000.0,
+  "final_equity": 102602.35,
+  "total_return_pct": 2.6,
+  "annualized_return_pct": 11.39,
+  "sharpe_ratio": 2.24,
+  "max_drawdown_pct": -1.51,
+  "total_trades": 13,
+  "win_rate": 0.615,
+  "avg_win_pct": 1.06,
+  "avg_loss_pct": -0.66,
+  "profit_factor": 2.528,
+  "avg_trade_duration_days": 0.0
+}

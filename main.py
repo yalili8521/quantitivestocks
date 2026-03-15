@@ -51,8 +51,13 @@ def main() -> None:
     train-swing      Train TFT+XGBoost swing model
     train-crypto     Train swing models for crypto (BTC, ETH, SOL) → models/crypto/
     training-tables Generate CSV/HTML tables of training & backtest metrics
+    backtest-portfolio Portfolio-level multi-symbol backtest with shared capital
+    divergence-report Compare backtest vs live paper-trading results; flag divergences
     check-positions Check paper account positions; recommend and run legacy handling for existing positions
     stop-paper-trader Stop the running paper trader for a group (e.g. intraday) so you can restart with different flags
+    select-symbols   Screen candidate symbols: train, backtest, classify (core/secondary/disabled), update config
+    train-selector   Train cross-sectional coin selector (Layer 1 of crypto pipeline)
+    rank-coins       Rank coins using trained selector and show today's top-K
     lock-status      Show whether intraday (or other group) paper trader lock is present; tells you if it's safe to start
 
   Examples:
@@ -74,6 +79,8 @@ def main() -> None:
     python main.py train-intraday       --symbols SPY,QQQ,IWM,SOXX --provider alpaca
     python main.py train-swing          --symbols EWT,GLD,EEM,SLV --provider yahoo
     python main.py train-crypto                                    # BTC, ETH, SOL → models/crypto/
+    python main.py backtest-portfolio --group swing --start 2024-01-01
+    python main.py backtest-portfolio --symbols SPY,QQQ,IWM --start 2024-01-01 --stress-cost-mult 2.0
 
   Run `python main.py <command> --help` for command-specific options.
 """)
@@ -141,17 +148,64 @@ def main() -> None:
 
     elif command == "train-crypto":
         # Convenience: trains swing models for crypto symbols into models/crypto/
+        # Use --train-end to set OOS boundary (data after this date is not used for training)
         from utils import CRYPTO_MODEL_DIR
+        # Default OOS cutoff: 2024-01-01 (backtests start 2024-02-28)
         sys.argv = [sys.argv[0],
-                     "--symbols", "BTC-USD,ETH-USD,SOL-USD,AVAX-USD,LINK-USD,DOGE-USD,SHIB-USD,DOT-USD,NEAR-USD,SUSHI-USD,ADA-USD,CRV-USD,AAVE-USD,RENDER-USD",
+                     "--symbols", "BTC-USD,ETH-USD,SOL-USD,AVAX-USD,LINK-USD,DOGE-USD,DOT-USD,SUSHI-USD,ADA-USD,CRV-USD,AAVE-USD,RENDER-USD",
                      "--provider", "yahoo",
-                     "--save-dir", CRYPTO_MODEL_DIR] + sys.argv[1:]
+                     "--save-dir", CRYPTO_MODEL_DIR,
+                     "--train-end", "2024-01-01"] + sys.argv[1:]
         from swing_model import main as swing_main
         swing_main()
 
+    elif command == "backtest-portfolio":
+        from portfolio_backtester import main as portfolio_bt_main
+        portfolio_bt_main()
+
+    elif command == "divergence-report":
+        from divergence_report import main as divergence_main
+        divergence_main()
+
+    elif command == "select-symbols":
+        import scripts.select_symbols as sel_sym
+        sel_sym.main()
+
+    elif command == "train-selector":
+        # Train cross-sectional coin selector (Layer 1 of crypto pipeline)
+        sys.argv = [sys.argv[0], "train"] + sys.argv[1:]
+        from coin_selector import main as selector_main
+        selector_main()
+
+    elif command == "rank-coins":
+        # Rank coins using trained selector (Layer 1 inference)
+        sys.argv = [sys.argv[0], "rank"] + sys.argv[1:]
+        from coin_selector import main as selector_main
+        selector_main()
+
+    elif command == "model-health":
+        from model_monitor import ModelMonitor
+        monitor = ModelMonitor()
+        print(monitor.generate_report())
+
+    elif command == "validate-risk":
+        from risk_config import get_risk_config
+        for group in ("intraday", "swing", "crypto"):
+            risk = get_risk_config(group)
+            print(f"\n  {group.upper()} risk config:")
+            print(f"    position_pct:       {risk.position_pct:.0%}")
+            print(f"    max_position_pct:   {risk.max_position_pct:.0%}")
+            print(f"    max_sector_pct:     {risk.max_sector_pct:.0%}")
+            print(f"    max_total_exposure: {risk.max_total_exposure:.0%}")
+            print(f"    max_positions:      {risk.max_positions}")
+            print(f"    kelly_cap:          {risk.kelly_cap:.0%}")
+
     else:
         print(f"\n  Unknown command: {command!r}")
-        print("  Available commands: signals, train, train-meta, train-intraday, train-swing, train-crypto, predict, backtest, trade, report, training-tables, check-positions, stop-paper-trader, lock-status")
+        print("  Available commands: signals, train, train-meta, train-intraday, train-swing, train-crypto,")
+        print("                      predict, backtest, backtest-portfolio, trade, report, training-tables,")
+        print("                      divergence-report, select-symbols, check-positions, stop-paper-trader,")
+        print("                      lock-status, model-health, validate-risk, train-selector, rank-coins")
         print("  Run `python main.py --help` for usage.\n")
         sys.exit(1)
 

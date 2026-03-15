@@ -1,0 +1,19 @@
+{
+  "symbol": "XLE",
+  "mode": "daily",
+  "intraday_interval": "5min",
+  "start_date": "2022-12-01",
+  "end_date": "2023-12-29",
+  "initial_capital": 100000.0,
+  "final_equity": 100822.81,
+  "total_return_pct": 0.82,
+  "annualized_return_pct": 0.77,
+  "sharpe_ratio": 0.146,
+  "max_drawdown_pct": -8.85,
+  "total_trades": 59,
+  "win_rate": 0.441,
+  "avg_win_pct": 0.9,
+  "avg_loss_pct": -0.68,
+  "profit_factor": 1.037,
+  "avg_trade_duration_days": 0.0
+}

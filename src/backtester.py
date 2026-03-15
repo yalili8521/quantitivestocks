@@ -36,7 +36,11 @@ from signals_engine import (
     compute_atr,
 )
 from ml_model import FeatureEngine, DirectionLSTM, get_feature_cols, SEQ_LEN  # LSTM path (deprecated)
-from utils import DEFAULT_MODEL_DIR, _fetch_vix_for_training, COST_THRESHOLD, TARGET_RETURN
+from utils import (
+    DEFAULT_MODEL_DIR, SWING_MODEL_DIR, INTRADAY_MODEL_DIR, CRYPTO_MODEL_DIR,
+    BACKTEST_DIR, TRADES_DIR, OUTPUT_DIR as _OUTPUT_DIR,
+    _fetch_vix_for_training, COST_THRESHOLD, TARGET_RETURN, get_model_dir,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,7 +49,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("backtester")
 
-OUTPUT_DIR = os.path.join(PROJECT_ROOT, "outputs")
+OUTPUT_DIR = _OUTPUT_DIR  # backward compat
 
 
 # ===================================================================
@@ -124,7 +128,7 @@ class Backtester:
         fred_key: Optional[str] = None,
         model_dir: str = DEFAULT_MODEL_DIR,
         initial_capital: float = 100_000.0,
-        position_pct: float = 0.95,
+        position_pct: float = 0.50,          # was 0.95, now conservative
         mode: str = "daily",
         intraday_interval: str = "5min",
         model_type: str = "lstm",
@@ -133,6 +137,13 @@ class Backtester:
         cost_threshold: float = COST_THRESHOLD,
         target_return: float = TARGET_RETURN,
         disaster_stop_atr_mult: float = 3.0,
+        disaster_stop_max_pct: float = 0.20,
+        profit_lock_atr_mult: float = 2.0,
+        profit_lock_trail_atr_mult: float = 1.5,
+        max_underwater_days: int = 90,
+        # Cost model / stress test
+        stress_cost_mult: float = 1.0,
+        use_cost_model: bool = True,
     ):
         self.symbol = symbol
         self.adapter = adapter
@@ -147,6 +158,28 @@ class Backtester:
         self.cost_threshold = cost_threshold
         self.target_return = target_return
         self.disaster_stop_atr_mult = disaster_stop_atr_mult
+        self.disaster_stop_max_pct = disaster_stop_max_pct
+        self.profit_lock_atr_mult = profit_lock_atr_mult
+        self.profit_lock_trail_atr_mult = profit_lock_trail_atr_mult
+        self.max_underwater_days = max_underwater_days
+        self.stress_cost_mult = stress_cost_mult
+        self.use_cost_model = use_cost_model
+
+        # Validate cost threshold against estimated costs
+        if use_cost_model:
+            try:
+                from cost_model import validate_cost_threshold
+                ok, msg, rt_cost = validate_cost_threshold(
+                    symbol, cost_threshold, safety_margin=1.5
+                )
+                if not ok:
+                    log.warning("Cost threshold validation: %s", msg)
+                    # Auto-adjust to safe level
+                    self.cost_threshold = rt_cost * 1.5
+                    log.info("Auto-adjusted cost_threshold to %.4f for %s",
+                             self.cost_threshold, symbol)
+            except ImportError:
+                pass
 
     # ------------------------------------------------------------------
     def _compute_trend_signal(self, close_series: pd.Series) -> pd.Series:
@@ -468,6 +501,7 @@ class Backtester:
         for idx_pos in range(effective_seq_len, len(feature_indices)):
             feat_idx = feature_indices[idx_pos]
             bar_date = bar_dates.iloc[feat_idx]
+            bar_time = bar_timestamps.iloc[feat_idx] if self.mode != "daily" else None
 
             if bar_date < start_dt:
                 continue
@@ -502,16 +536,36 @@ class Backtester:
                 else:
                     unrealized_pct = (pos.entry_price - bar_close) / pos.entry_price
 
-                # Disaster stop: safety net at N×ATR
-                disaster_stop_pct = self.disaster_stop_atr_mult * pos.atr_at_entry / pos.entry_price if pos.atr_at_entry > 0 else 0.10
+                # Track peak price for trailing stop
+                if pos.direction == "LONG":
+                    pos.peak_price = max(pos.peak_price, bar_close)
+                    drawdown_from_peak = (pos.peak_price - bar_close) / pos.peak_price if pos.peak_price > 0 else 0
+                else:
+                    pos.peak_price = min(pos.peak_price, bar_close) if pos.peak_price > 0 else bar_close
+                    drawdown_from_peak = (bar_close - pos.peak_price) / pos.peak_price if pos.peak_price > 0 else 0
+
+                # Disaster stop: safety net at N×ATR (capped at max_pct)
+                disaster_stop_pct = min(self.disaster_stop_max_pct,
+                                       self.disaster_stop_atr_mult * pos.atr_at_entry / pos.entry_price) if pos.atr_at_entry > 0 else 0.10
                 if unrealized_pct <= -disaster_stop_pct:
-                    self._close_position(portfolio, bar_date, bar_close, "disaster_stop")
+                    self._close_position(portfolio, bar_date, bar_close, "disaster_stop", bar_time=bar_time)
                     self._record_equity(portfolio, bar_date, bar_close)
                     continue
 
+                # Profit-lock trailing stop: activate after 2×ATR profit
+                if pos.atr_at_entry > 0:
+                    profit_lock_threshold = self.profit_lock_atr_mult * pos.atr_at_entry / pos.entry_price
+                    profit_lock_trail = self.profit_lock_trail_atr_mult * pos.atr_at_entry / pos.entry_price
+                    if unrealized_pct >= profit_lock_threshold:
+                        pos.tp_activated = True
+                    if pos.tp_activated and drawdown_from_peak >= profit_lock_trail:
+                        self._close_position(portfolio, bar_date, bar_close, "profit_lock_trail", bar_time=bar_time)
+                        self._record_equity(portfolio, bar_date, bar_close)
+                        continue
+
                 # Signal-decay: exit when expected return reverses
                 if pos.direction == "LONG" and expected_return <= 0:
-                    self._close_position(portfolio, bar_date, bar_close, "signal_decay")
+                    self._close_position(portfolio, bar_date, bar_close, "signal_decay", bar_time=bar_time)
                     if portfolio.closed_trades:
                         swing_recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
                         if len(swing_recent_wins) == 20 and swing_cooldown_until is None:
@@ -520,7 +574,7 @@ class Backtester:
                                 swing_cooldown_until = bar_date + _td(days=7)
                                 log.info("Swing rolling WR %.0f%% < 50%% → cooldown until %s", wr * 100, swing_cooldown_until)
                 elif pos.direction == "SHORT" and expected_return >= 0:
-                    self._close_position(portfolio, bar_date, bar_close, "signal_decay")
+                    self._close_position(portfolio, bar_date, bar_close, "signal_decay", bar_time=bar_time)
                     if portfolio.closed_trades:
                         swing_recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
                         if len(swing_recent_wins) == 20 and swing_cooldown_until is None:
@@ -528,6 +582,25 @@ class Backtester:
                             if wr < 0.5:
                                 swing_cooldown_until = bar_date + _td(days=7)
                                 log.info("Swing rolling WR %.0f%% < 50%% → cooldown until %s", wr * 100, swing_cooldown_until)
+
+                # Max underwater duration: exit if held > N days and still losing
+                if portfolio.position is not None and self.max_underwater_days > 0:
+                    pos = portfolio.position
+                    if pos.direction == "LONG":
+                        uw_pct = (bar_close - pos.entry_price) / pos.entry_price
+                    else:
+                        uw_pct = (pos.entry_price - bar_close) / pos.entry_price
+                    if uw_pct < 0:
+                        try:
+                            days_held = (bar_date - pos.entry_date).days
+                        except TypeError:
+                            days_held = 0
+                        if days_held >= self.max_underwater_days:
+                            self._close_position(portfolio, bar_date, bar_close,
+                                                 f"max_underwater_{self.max_underwater_days}d",
+                                                 bar_time=bar_time)
+                            self._record_equity(portfolio, bar_date, bar_close)
+                            continue
 
             # --- Entry logic (v2: trend filter + regime gate + signal-proportional sizing) ---
             if portfolio.position is None and not is_last_bar:
@@ -557,6 +630,7 @@ class Backtester:
                     self._open_position(
                         portfolio, bar_date, bar_close, enter_dir,
                         expected_return=expected_return, bar_atr=bar_atr,
+                        bar_time=bar_time,
                     )
 
             self._record_equity(portfolio, bar_date, bar_close)
@@ -569,7 +643,9 @@ class Backtester:
             last_idx = feature_indices[-1]
             last_close = float(close_s.iloc[last_idx])
             last_date = bar_dates.iloc[last_idx]
-            self._close_position(portfolio, last_date, last_close, "end_of_backtest")
+            last_time = bar_timestamps.iloc[last_idx] if self.mode != "daily" else None
+            self._close_position(portfolio, last_date, last_close, "end_of_backtest",
+                                 bar_time=last_time)
             self._record_equity(portfolio, last_date, last_close)
 
         # Build price series for charts
@@ -589,12 +665,58 @@ class Backtester:
 
         return self._compute_results(portfolio, price_df)
 
+    def _determine_session(self, bar_time) -> str:
+        """Determine trading session from bar timestamp.
+
+        Returns 'regular' for 9:30-16:00 ET, 'extended' for 4:00-9:30 and
+        16:00-20:00 ET.  Daily-mode bars always return 'regular'.
+        """
+        if self.mode == "daily" or bar_time is None:
+            return "regular"
+        try:
+            from zoneinfo import ZoneInfo
+            et = ZoneInfo("America/New_York")
+            if hasattr(bar_time, 'tzinfo') and bar_time.tzinfo is not None:
+                bar_et = bar_time.astimezone(et)
+            else:
+                bar_et = bar_time.replace(tzinfo=et)
+            t = bar_et.time()
+            from datetime import time as _time
+            if _time(9, 30) <= t < _time(16, 0):
+                return "regular"
+            return "extended"
+        except Exception:
+            return "regular"
+
+    def _apply_fill_cost(self, price: float, side: str,
+                         bar_time=None) -> tuple[float, bool]:
+        """Apply spread + slippage cost model to a price.
+
+        Returns (fill_price, filled).  When the cost model is disabled or
+        unavailable, filled is always True.
+        """
+        if not self.use_cost_model:
+            return price, True
+        try:
+            from cost_model import simulate_fill
+            session = self._determine_session(bar_time)
+            fill_price, filled = simulate_fill(
+                self.symbol, price, side,
+                session=session,
+                stress_mult=self.stress_cost_mult,
+            )
+            return fill_price, filled
+        except ImportError:
+            return price, True
+
     def _open_position(self, portfolio: Portfolio, date, price: float,
                        direction: str = "LONG", expected_return: float = 0.0,
-                       bar_atr: float = 0.0) -> None:
+                       bar_atr: float = 0.0, bar_time=None) -> bool:
         """Signal-proportional position sizing (v2).
 
         Size = clip(abs(E[r]) / target_return, 0.1, 1.0) * base_allocation
+        Applies cost model for realistic fill prices.
+        Returns True if position was opened, False if fill failed.
         """
         equity = self._current_equity(portfolio, price)
 
@@ -603,26 +725,47 @@ class Backtester:
         base_pct = self.position_pct * signal_pct
         base_pct = min(base_pct, 0.98)
 
+        # Apply per-position cap (max 15% of equity per position)
+        try:
+            from risk_config import get_risk_config
+            group = "intraday" if self.mode == "intraday" else "swing"
+            risk = get_risk_config(group)
+            base_pct = min(base_pct, risk.max_position_pct / self.position_pct)
+        except ImportError:
+            pass
+
         invest = equity * base_pct
-        shares = invest / price
+        # Apply cost model to entry price
+        fill_price, filled = self._apply_fill_cost(price, direction,
+                                                   bar_time=bar_time)
+        if not filled:
+            log.debug("Fill failed for %s %s at %s — skipping entry",
+                      direction, self.symbol, date)
+            return False
+        shares = invest / fill_price
         portfolio.cash -= invest
         portfolio.position = Trade(
-            entry_date=date, entry_price=price,
+            entry_date=date, entry_price=fill_price,
             direction=direction, size=shares,
-            peak_price=price, atr_at_entry=bar_atr,
+            peak_price=fill_price, atr_at_entry=bar_atr,
         )
+        return True
 
     def _close_position(self, portfolio: Portfolio, date, price: float,
-                        reason: str) -> None:
+                        reason: str, bar_time=None) -> None:
         trade = portfolio.position
         trade.exit_date = date
-        trade.exit_price = price
+        # Apply cost model to exit price
+        exit_side = "SELL" if trade.direction == "LONG" else "BUY"
+        fill_price, _filled = self._apply_fill_cost(price, exit_side,
+                                                    bar_time=bar_time)
+        trade.exit_price = fill_price
         trade.exit_reason = reason
         if trade.direction == "LONG":
-            trade.pnl = trade.size * (price - trade.entry_price)
-            proceeds = trade.size * price
+            trade.pnl = trade.size * (fill_price - trade.entry_price)
+            proceeds = trade.size * fill_price
         else:  # SHORT
-            trade.pnl = trade.size * (trade.entry_price - price)
+            trade.pnl = trade.size * (trade.entry_price - fill_price)
             proceeds = trade.size * trade.entry_price + trade.pnl
         portfolio.cash += proceeds
         portfolio.closed_trades.append(trade)
@@ -931,8 +1074,8 @@ def generate_charts(result: BacktestResult) -> Optional[str]:
     fig.update_xaxes(title_text="Date", row=3, col=1)
 
     # Save and open
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    chart_path = os.path.join(OUTPUT_DIR, f"backtest_{result.symbol}_chart.html")
+    os.makedirs(BACKTEST_DIR, exist_ok=True)
+    chart_path = os.path.join(BACKTEST_DIR, f"backtest_{result.symbol}_chart.html")
     fig.write_html(chart_path)
     log.info("Chart saved to %s", chart_path)
 
@@ -999,12 +1142,16 @@ def print_report(result: BacktestResult) -> None:
         print("-" * 110)
 
     # Save equity curve and summary (for training tables)
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    csv_path = os.path.join(OUTPUT_DIR, f"backtest_{result.symbol}.csv")
+    os.makedirs(BACKTEST_DIR, exist_ok=True)
+    mode = getattr(result, "mode", "daily")
+    mode_suffix = f"_{mode}" if mode != "daily" else ""
+    csv_path = os.path.join(BACKTEST_DIR, f"backtest_{result.symbol}{mode_suffix}.csv")
     result.equity_curve.to_csv(csv_path, index=False)
     print(f"\n  Equity curve saved to {csv_path}")
 
-    summary_path = os.path.join(OUTPUT_DIR, f"backtest_{result.symbol}_summary.json")
+    summary_path = os.path.join(BACKTEST_DIR, f"backtest_{result.symbol}{mode_suffix}_summary.json")
+    # Also write the non-suffixed version for backwards compat
+    summary_path_compat = os.path.join(BACKTEST_DIR, f"backtest_{result.symbol}_summary.json")
     summary = {
         "symbol": result.symbol,
         "mode": getattr(result, "mode", "daily"),
@@ -1026,10 +1173,13 @@ def print_report(result: BacktestResult) -> None:
     }
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
+    with open(summary_path_compat, "w") as f:
+        json.dump(summary, f, indent=2)
 
     # Save trade history
     if result.trades:
-        trades_csv = os.path.join(OUTPUT_DIR, f"trades_{result.symbol}.csv")
+        os.makedirs(TRADES_DIR, exist_ok=True)
+        trades_csv = os.path.join(TRADES_DIR, f"trades_{result.symbol}{mode_suffix}.csv")
         rows = []
         for t in result.trades:
             pnl = t.pnl or 0.0
@@ -1046,10 +1196,99 @@ def print_report(result: BacktestResult) -> None:
     else:
         print()
 
+    # Intraday diagnostics (day-of-week, month breakdown)
+    if result.trades and getattr(result, "mode", "daily") in ("intraday",) or (
+        result.trades and all(
+            t.entry_date == t.exit_date for t in result.trades if t.exit_date
+        )
+    ):
+        _print_intraday_diagnostics(result)
+
     # Generate interactive chart
     chart_path = generate_charts(result)
     if chart_path:
         print(f"  Interactive chart opened in browser: {chart_path}\n")
+
+
+def _print_intraday_diagnostics(result: BacktestResult) -> None:
+    """Print per-day-of-week and per-month P&L breakdown for intraday trades."""
+    if not result.trades:
+        return
+
+    trades_data = []
+    for t in result.trades:
+        pnl = t.pnl or 0.0
+        ret_pct = (pnl / (t.size * t.entry_price)) if t.size and t.entry_price else 0.0
+        entry = pd.Timestamp(t.entry_date)
+        trades_data.append({
+            "date": entry,
+            "dow": entry.day_name(),
+            "dow_num": entry.dayofweek,
+            "month": entry.strftime("%Y-%m"),
+            "pnl": pnl,
+            "return_pct": ret_pct * 100,
+            "win": 1 if pnl > 0 else 0,
+        })
+
+    df = pd.DataFrame(trades_data)
+
+    # --- Day of week breakdown ---
+    print("\n  INTRADAY DIAGNOSTICS: Day-of-Week")
+    print("-" * 75)
+    print(f"  {'Day':>10}  {'Trades':>7}  {'WinRate':>8}  {'AvgRet':>8}  {'TotalP&L':>12}  {'Sharpe':>7}")
+    print("-" * 75)
+
+    for dow_num in range(5):
+        day_df = df[df["dow_num"] == dow_num]
+        if day_df.empty:
+            continue
+        n = len(day_df)
+        wr = day_df["win"].mean()
+        avg_ret = day_df["return_pct"].mean()
+        total_pnl = day_df["pnl"].sum()
+        std = day_df["return_pct"].std()
+        sharpe = avg_ret / std if std > 0 else 0.0
+        day_name = day_df["dow"].iloc[0]
+        flag = " !" if wr < 0.45 or avg_ret < 0 else ""
+        print(f"  {day_name:>10}  {n:>7}  {wr:>7.0%}  {avg_ret:>+7.2f}%  "
+              f"{'${:>+,.0f}'.format(total_pnl):>12}  {sharpe:>+6.2f}{flag}")
+    print("-" * 75)
+
+    # --- Monthly breakdown ---
+    months = sorted(df["month"].unique())
+    if len(months) > 1:
+        print("\n  INTRADAY DIAGNOSTICS: Monthly")
+        print("-" * 75)
+        print(f"  {'Month':>10}  {'Trades':>7}  {'WinRate':>8}  {'AvgRet':>8}  {'TotalP&L':>12}  {'Sharpe':>7}")
+        print("-" * 75)
+
+        for month in months:
+            mo_df = df[df["month"] == month]
+            n = len(mo_df)
+            wr = mo_df["win"].mean()
+            avg_ret = mo_df["return_pct"].mean()
+            total_pnl = mo_df["pnl"].sum()
+            std = mo_df["return_pct"].std()
+            sharpe = avg_ret / std if std > 0 else 0.0
+            flag = " !" if wr < 0.45 or avg_ret < 0 else ""
+            print(f"  {month:>10}  {n:>7}  {wr:>7.0%}  {avg_ret:>+7.2f}%  "
+                  f"{'${:>+,.0f}'.format(total_pnl):>12}  {sharpe:>+6.2f}{flag}")
+        print("-" * 75)
+
+    # --- Worst/best days ---
+    if len(df) >= 5:
+        print("\n  Top 5 best trades:")
+        best = df.nlargest(5, "pnl")
+        for _, row in best.iterrows():
+            print(f"    {str(row['date'].date()):>12}  {row['dow']:>9}  "
+                  f"P&L: {'${:>+,.0f}'.format(row['pnl'])}  ({row['return_pct']:>+.2f}%)")
+
+        print("  Top 5 worst trades:")
+        worst = df.nsmallest(5, "pnl")
+        for _, row in worst.iterrows():
+            print(f"    {str(row['date'].date()):>12}  {row['dow']:>9}  "
+                  f"P&L: {'${:>+,.0f}'.format(row['pnl'])}  ({row['return_pct']:>+.2f}%)")
+    print()
 
 
 # ===================================================================
@@ -1073,6 +1312,8 @@ def main() -> None:
     parser.add_argument("--model", default="lstm",
                         choices=["lstm", "swing", "options", "intraday"],
                         help="Model type: lstm (default), swing (PatchTST), options (XGBoost), pairs (cointegration)")
+    parser.add_argument("--model-dir", type=str, default=None,
+                        help="Directory for model files (default: models/ or models/crypto/ for crypto)")
     # v2 regression parameters
     parser.add_argument("--trend-sma", type=int, default=50,
                         help="SMA period for trend filter (default: 50)")
@@ -1082,17 +1323,52 @@ def main() -> None:
                         help="Expected return for full position size (default: 0.02 = 2%%)")
     parser.add_argument("--disaster-stop-mult", type=float, default=3.0,
                         help="ATR multiplier for disaster stop (default: 3.0)")
+    parser.add_argument("--disaster-stop-max-pct", type=float, default=0.20,
+                        help="Hard cap on disaster stop percentage (default: 0.20 = 20%%)")
+    parser.add_argument("--profit-lock-atr-mult", type=float, default=2.0,
+                        help="ATR multiplier for profit-lock activation (default: 2.0)")
+    parser.add_argument("--profit-lock-trail-atr-mult", type=float, default=1.5,
+                        help="ATR multiplier for profit-lock trailing stop (default: 1.5)")
+    parser.add_argument("--max-underwater-days", type=int, default=90,
+                        help="Max days to hold an underwater position (default: 90; 0=off)")
+    parser.add_argument("--position-pct", type=float, default=0.50,
+                        help="Base capital fraction for position sizing (default: 0.50, was 0.95)")
+    # Cost model / stress test
+    parser.add_argument("--stress-cost-mult", type=float, default=1.0,
+                        help="Cost multiplier for stress testing (default: 1.0; use 2.0 or 3.0 for stress)")
+    parser.add_argument("--no-cost-model", action="store_true",
+                        help="Disable cost model (use raw prices, no slippage)")
 
     args = parser.parse_args()
 
     adapter = build_adapter(args.provider)
     fred_key = os.environ.get("FRED_API_KEY")
 
+    # Determine model_dir: check group-specific dirs, then fall back
+    if args.model_dir:
+        model_dir = args.model_dir
+    else:
+        sym_upper = args.symbol.upper()
+        if args.model == "swing":
+            # Check swing dir, then crypto dir, then legacy root
+            for candidate in [SWING_MODEL_DIR, CRYPTO_MODEL_DIR, DEFAULT_MODEL_DIR]:
+                if os.path.exists(os.path.join(candidate, f"{sym_upper}_xgb_swing.joblib")):
+                    model_dir = candidate
+                    break
+            else:
+                model_dir = SWING_MODEL_DIR
+        elif args.model == "intraday":
+            model_dir = INTRADAY_MODEL_DIR
+        else:
+            model_dir = DEFAULT_MODEL_DIR
+
     bt = Backtester(
         symbol=args.symbol.upper(),
         adapter=adapter,
         fred_key=fred_key,
+        model_dir=model_dir,
         initial_capital=args.capital,
+        position_pct=args.position_pct,
         mode=args.mode,
         intraday_interval=args.interval,
         model_type=args.model,
@@ -1100,6 +1376,12 @@ def main() -> None:
         cost_threshold=args.cost_threshold,
         target_return=args.target_return,
         disaster_stop_atr_mult=args.disaster_stop_mult,
+        disaster_stop_max_pct=args.disaster_stop_max_pct,
+        profit_lock_atr_mult=args.profit_lock_atr_mult,
+        profit_lock_trail_atr_mult=args.profit_lock_trail_atr_mult,
+        max_underwater_days=args.max_underwater_days,
+        stress_cost_mult=args.stress_cost_mult,
+        use_cost_model=not args.no_cost_model,
     )
 
     result = bt.run(start_date=args.start, end_date=args.end)

@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.join(PROJECT_ROOT, "src"))
 sys.path.insert(0, PROJECT_ROOT)
 
 from ml_model import train_model, train_meta_model  # LSTM training (deprecated)
-from utils import DEFAULT_MODEL_DIR, CRYPTO_MODEL_DIR
+from utils import DEFAULT_MODEL_DIR, SWING_MODEL_DIR, INTRADAY_MODEL_DIR, CRYPTO_MODEL_DIR
 from signals_engine import build_adapter
 
 # ---------------------------------------------------------------------------

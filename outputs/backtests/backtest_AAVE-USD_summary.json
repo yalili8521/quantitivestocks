@@ -1,0 +1,19 @@
+{
+  "symbol": "AAVE-USD",
+  "mode": "daily",
+  "intraday_interval": "5min",
+  "start_date": "2025-01-01",
+  "end_date": "2026-03-15",
+  "initial_capital": 100000.0,
+  "final_equity": 92979.3,
+  "total_return_pct": -7.02,
+  "annualized_return_pct": -4.1,
+  "sharpe_ratio": -0.178,
+  "max_drawdown_pct": -20.69,
+  "total_trades": 9,
+  "win_rate": 0.556,
+  "avg_win_pct": 13.73,
+  "avg_loss_pct": -21.69,
+  "profit_factor": 0.742,
+  "avg_trade_duration_days": 24.8
+}

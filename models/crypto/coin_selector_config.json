@@ -1,0 +1,40 @@
+{
+  "train_rows": 22443,
+  "val_rows": 5984,
+  "train_dates": "2020-02-19 \u2192 2024-12-31",
+  "val_dates": "2025-01-01 \u2192 2026-03-09",
+  "coins": [
+    "AAVE-USD",
+    "ADA-USD",
+    "AVAX-USD",
+    "BTC-USD",
+    "CRV-USD",
+    "DOGE-USD",
+    "DOT-USD",
+    "ETH-USD",
+    "FIL-USD",
+    "LINK-USD",
+    "LTC-USD",
+    "RENDER-USD",
+    "SOL-USD",
+    "SUSHI-USD"
+  ],
+  "n_coins": 14,
+  "top_k": 6,
+  "mean_ndcg": 0.6888,
+  "topk_hit_rate": 0.5689,
+  "best_iteration": 57,
+  "feature_importance": {
+    "rsi14_rank": 6344.376843214035,
+    "momentum_7d": 2994.881343126297,
+    "reversal_1d": 1478.0895442962646,
+    "volume_zscore": 1387.0537848472595,
+    "vol_ratio": 1125.1015825271606,
+    "momentum_30d": 1043.7575788497925,
+    "btc_beta_resid": 937.1378445625305,
+    "ret63": 913.9632306098938,
+    "drawdown_from_ath": 890.7784190177917,
+    "spread_proxy": 886.3183417320251,
+    "adx": 854.1249899864197
+  }
+}

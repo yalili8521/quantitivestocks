@@ -1,45 +1,165 @@
 {
-    "_comment": "Production trading parameters. Loaded by paper_trader.py when --config is passed. Both run_paper_trade.ps1 and manual runs should use this file for consistency.",
+    "_comment": "Production trading parameters v3.0 — OOS-validated sizing, per-symbol caps, auto de-risking.",
+    "_version": "3.0",
+
+    "sleeve_budgets": {
+        "_comment": "Max % of total portfolio equity allocated to each sleeve",
+        "swing":    0.50,
+        "intraday": 0.35,
+        "crypto":   0.15
+    },
 
     "intraday": {
         "mode": "intraday",
+        "horizon": "1d",
+        "allowed_models": ["lgb_intraday"],
         "interval": "5min",
-        "cost_threshold": 0.001,
-        "target_return": 0.02,
+        "cost_threshold": 0.0015,
+        "target_return": 0.015,
         "disaster_stop_mult": 3.0,
+        "disaster_stop_max_pct": 0.15,
+        "profit_lock_atr_mult": 2.0,
+        "profit_lock_trail_atr_mult": 1.5,
+        "max_underwater_days": 1,
         "loss_cooldown_hours": 0.5,
         "max_loss_cooldown_hours": 2.0,
         "post_loss_size_mult": 0.5,
         "post_loss_size_hours": 4.0,
         "same_dir_confidence_mult": 1.5,
-        "trend_sma": 50
+        "trend_sma": 50,
+        "position_pct": 0.35,
+        "max_position_pct": 0.15,
+        "max_sector_pct": 0.45,
+        "max_total_exposure": 0.65,
+        "max_positions": 5,
+        "kelly_cap": 0.20,
+        "kelly_floor": 0.05,
+        "blocked_windows": ["09:30-10:00", "15:30-16:00"],
+        "half_size_windows": ["11:30-14:00"]
     },
 
     "swing": {
         "mode": "daily",
+        "horizon": "10d",
+        "allowed_models": ["lstm", "xgb_swing", "tft_swing"],
         "interval": "5min",
-        "cost_threshold": 0.001,
+        "cost_threshold": 0.002,
         "target_return": 0.02,
         "disaster_stop_mult": 3.0,
+        "disaster_stop_max_pct": 0.20,
+        "profit_lock_atr_mult": 2.0,
+        "profit_lock_trail_atr_mult": 1.5,
+        "max_underwater_days": 90,
         "loss_cooldown_hours": 4.0,
         "max_loss_cooldown_hours": 4.0,
         "post_loss_size_mult": 0.5,
         "post_loss_size_hours": 8.0,
         "same_dir_confidence_mult": 1.5,
-        "trend_sma": 50
+        "trend_sma": 50,
+        "position_pct": 0.45,
+        "max_position_pct": 0.12,
+        "max_sector_pct": 0.35,
+        "max_total_exposure": 0.75,
+        "max_positions": 6,
+        "kelly_cap": 0.25,
+        "kelly_floor": 0.05
     },
 
     "crypto": {
         "mode": "daily",
+        "horizon": "10d",
+        "allowed_models": ["xgb_swing", "tft_swing"],
         "interval": "5min",
-        "cost_threshold": 0.001,
-        "target_return": 0.02,
-        "disaster_stop_mult": 3.0,
-        "loss_cooldown_hours": 4.0,
-        "max_loss_cooldown_hours": 4.0,
-        "post_loss_size_mult": 0.5,
-        "post_loss_size_hours": 8.0,
+        "cost_threshold": 0.005,
+        "target_return": 0.04,
+        "disaster_stop_mult": 4.0,
+        "disaster_stop_max_pct": 0.20,
+        "profit_lock_atr_mult": 2.5,
+        "profit_lock_trail_atr_mult": 2.0,
+        "max_underwater_days": 60,
+        "loss_cooldown_hours": 6.0,
+        "max_loss_cooldown_hours": 6.0,
+        "post_loss_size_mult": 0.4,
+        "post_loss_size_hours": 12.0,
         "same_dir_confidence_mult": 1.5,
-        "trend_sma": 50
+        "trend_sma": 50,
+        "position_pct": 0.15,
+        "max_position_pct": 0.05,
+        "max_sector_pct": 0.15,
+        "max_total_exposure": 0.15,
+        "max_positions": 6,
+        "max_btc_beta": 2.0,
+        "kelly_cap": 0.10,
+        "kelly_floor": 0.02,
+        "min_signal_threshold": 0.0,
+        "use_ic_weighting": true,
+        "use_correlation": true,
+        "risk_parity": true,
+        "selector": {
+            "_comment": "Layer 1 cross-sectional coin selector params",
+            "enabled": true,
+            "top_k": 6,
+            "min_dollar_volume": 5000000,
+            "label_horizon": 5
+        }
+    },
+
+    "symbol_caps": {
+        "_comment": "Per-symbol max % equity, based on OOS Sharpe tiers. Overrides sleeve-level max_position_pct.",
+        "swing": {
+            "GLD":  0.12, "IBIT": 0.10, "SLV":  0.10,
+            "SMH":  0.07, "QQQ":  0.07, "GDX":  0.05,
+            "IGV":  0.03, "XLK":  0.00
+        },
+        "intraday": {
+            "SMH":  0.15, "SOXX": 0.12, "IWM":  0.12,
+            "QQQ":  0.12, "IGV":  0.09, "EWT":  0.00
+        },
+        "crypto": {
+            "CRV-USD":    0.05, "ADA-USD":    0.03,
+            "AVAX-USD":   0.03, "LINK-USD":   0.03,
+            "DOT-USD":    0.00, "ETH-USD":    0.00,
+            "BTC-USD":    0.00, "SOL-USD":    0.00,
+            "DOGE-USD":   0.00, "SUSHI-USD":  0.00,
+            "AAVE-USD":   0.00, "RENDER-USD": 0.00
+        }
+    },
+
+    "theme_caps": {
+        "_comment": "Max total exposure per theme across all sleeves",
+        "tech":         0.30,
+        "commodities":  0.25,
+        "crypto":       0.15,
+        "emerging":     0.10,
+        "broad":        0.20
+    },
+
+    "confidence_multipliers": {
+        "_comment": "Scale effective confidence (and thus size) by OOS Sharpe tier",
+        "sharpe_tiers": [
+            {"min_sharpe": 1.5,  "multiplier": 1.0,  "label": "core"},
+            {"min_sharpe": 0.7,  "multiplier": 0.75, "label": "secondary"},
+            {"min_sharpe": 0.3,  "multiplier": 0.50, "label": "on_watch"},
+            {"min_sharpe": 0.0,  "multiplier": 0.25, "label": "probe"},
+            {"min_sharpe": -999, "multiplier": 0.00, "label": "disabled"}
+        ]
+    },
+
+    "auto_derisk": {
+        "_comment": "Rolling performance monitoring — auto-cut or disable underperformers",
+        "rolling_window": 50,
+        "sharpe_warning": 0.0,
+        "sharpe_disable": -0.30,
+        "drawdown_halfsize_pct": 0.10,
+        "drawdown_disable_pct": 0.20,
+        "winrate_warning": 0.40,
+        "recovery_trades": 20,
+        "recovery_min_sharpe": 0.20
+    },
+
+    "stress_test": {
+        "_comment": "Multipliers applied during stress backtests",
+        "cost_mult": 2.0,
+        "spread_mult": 3.0
     }
 }

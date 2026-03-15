@@ -1,0 +1,19 @@
+{
+  "symbol": "CRV-USD",
+  "mode": "daily",
+  "intraday_interval": "5min",
+  "start_date": "2025-01-01",
+  "end_date": "2026-03-15",
+  "initial_capital": 100000.0,
+  "final_equity": 138516.96,
+  "total_return_pct": 38.52,
+  "annualized_return_pct": 20.57,
+  "sharpe_ratio": 1.068,
+  "max_drawdown_pct": -14.66,
+  "total_trades": 10,
+  "win_rate": 0.8,
+  "avg_win_pct": 21.21,
+  "avg_loss_pct": -26.08,
+  "profit_factor": 3.333,
+  "avg_trade_duration_days": 31.5
+}

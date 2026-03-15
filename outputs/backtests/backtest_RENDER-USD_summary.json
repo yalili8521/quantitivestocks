@@ -1,0 +1,19 @@
+{
+  "symbol": "RENDER-USD",
+  "mode": "daily",
+  "intraday_interval": "5min",
+  "start_date": "2025-01-01",
+  "end_date": "2026-03-15",
+  "initial_capital": 100000.0,
+  "final_equity": 79917.88,
+  "total_return_pct": -20.08,
+  "annualized_return_pct": -12.07,
+  "sharpe_ratio": -0.962,
+  "max_drawdown_pct": -27.02,
+  "total_trades": 26,
+  "win_rate": 0.577,
+  "avg_win_pct": 6.71,
+  "avg_loss_pct": -15.06,
+  "profit_factor": 0.568,
+  "avg_trade_duration_days": 5.7
+}
