@@ -174,13 +174,16 @@ class ModelMonitor:
         reals = np.array([r.realized_return for r in filled])
 
         # Rolling IC (Spearman rank correlation)
-        try:
-            from scipy.stats import spearmanr
-            ic, _ = spearmanr(preds, reals)
-            health.rolling_ic = float(ic) if not np.isnan(ic) else 0.0
-        except ImportError:
-            # Fallback: Pearson
-            if preds.std() > 0 and reals.std() > 0:
+        has_pred_variation = preds.std() > 0
+        has_real_variation = reals.std() > 0
+        if has_pred_variation and has_real_variation:
+            try:
+                from scipy.stats import spearmanr
+
+                ic, _ = spearmanr(preds, reals)
+                health.rolling_ic = float(ic) if not np.isnan(ic) else 0.0
+            except ImportError:
+                # Fallback: Pearson
                 health.rolling_ic = float(np.corrcoef(preds, reals)[0, 1])
 
         # Hit rate (directional accuracy)
