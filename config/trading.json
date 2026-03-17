@@ -1,18 +1,18 @@
 {
-    "_comment": "Production trading parameters v3.0 — OOS-validated sizing, per-symbol caps, auto de-risking.",
+    "_comment": "Production trading parameters v3.0 \u00e2\u20ac\u201d OOS-validated sizing, per-symbol caps, auto de-risking.",
     "_version": "3.0",
-
     "sleeve_budgets": {
         "_comment": "Max % of total portfolio equity allocated to each sleeve",
-        "swing":    0.50,
+        "swing": 0.5,
         "intraday": 0.35,
-        "crypto":   0.15
+        "crypto": 0.15
     },
-
     "intraday": {
         "mode": "intraday",
         "horizon": "1d",
-        "allowed_models": ["lgb_intraday"],
+        "allowed_models": [
+            "lgb_intraday"
+        ],
         "interval": "5min",
         "cost_threshold": 0.0015,
         "target_return": 0.015,
@@ -32,21 +32,29 @@
         "max_sector_pct": 0.45,
         "max_total_exposure": 0.65,
         "max_positions": 5,
-        "kelly_cap": 0.20,
+        "kelly_cap": 0.2,
         "kelly_floor": 0.05,
-        "blocked_windows": ["09:30-10:00", "15:30-16:00"],
-        "half_size_windows": ["11:30-14:00"]
+        "blocked_windows": [
+            "09:30-10:00",
+            "15:30-16:00"
+        ],
+        "half_size_windows": [
+            "11:30-14:00"
+        ]
     },
-
     "swing": {
         "mode": "daily",
         "horizon": "10d",
-        "allowed_models": ["lstm", "xgb_swing", "tft_swing"],
+        "allowed_models": [
+            "lstm",
+            "xgb_swing",
+            "tft_swing"
+        ],
         "interval": "5min",
         "cost_threshold": 0.002,
         "target_return": 0.02,
         "disaster_stop_mult": 3.0,
-        "disaster_stop_max_pct": 0.20,
+        "disaster_stop_max_pct": 0.2,
         "profit_lock_atr_mult": 2.0,
         "profit_lock_trail_atr_mult": 1.5,
         "max_underwater_days": 90,
@@ -64,16 +72,18 @@
         "kelly_cap": 0.25,
         "kelly_floor": 0.05
     },
-
     "crypto": {
         "mode": "daily",
         "horizon": "10d",
-        "allowed_models": ["xgb_swing", "tft_swing"],
+        "allowed_models": [
+            "xgb_swing",
+            "tft_swing"
+        ],
         "interval": "5min",
         "cost_threshold": 0.005,
         "target_return": 0.04,
         "disaster_stop_mult": 4.0,
-        "disaster_stop_max_pct": 0.20,
+        "disaster_stop_max_pct": 0.2,
         "profit_lock_atr_mult": 2.5,
         "profit_lock_trail_atr_mult": 2.0,
         "max_underwater_days": 60,
@@ -89,7 +99,7 @@
         "max_total_exposure": 0.15,
         "max_positions": 6,
         "max_btc_beta": 2.0,
-        "kelly_cap": 0.10,
+        "kelly_cap": 0.1,
         "kelly_floor": 0.02,
         "min_signal_threshold": 0.0,
         "use_ic_weighting": true,
@@ -103,63 +113,605 @@
             "label_horizon": 5
         }
     },
-
+    "crypto_intraday": {
+        "_comment": "Crypto intraday LGB+GRU 5-min models, 1-hour horizon, 4h max hold",
+        "mode": "daily",
+        "horizon": "1h",
+        "allowed_models": [
+            "lgb_intraday_crypto"
+        ],
+        "interval": "5min",
+        "cost_threshold": 0.003,
+        "target_return": 0.01,
+        "disaster_stop_mult": 3.0,
+        "disaster_stop_max_pct": 0.02,
+        "profit_lock_atr_mult": 2.0,
+        "profit_lock_trail_atr_mult": 1.5,
+        "max_underwater_days": 0,
+        "loss_cooldown_hours": 0.5,
+        "max_loss_cooldown_hours": 1.0,
+        "post_loss_size_mult": 0.5,
+        "post_loss_size_hours": 1.0,
+        "same_dir_confidence_mult": 1.5,
+        "trend_sma": 50,
+        "position_pct": 0.12,
+        "max_position_pct": 0.04,
+        "max_sector_pct": 0.12,
+        "max_total_exposure": 0.12,
+        "max_positions": 6,
+        "max_btc_beta": 2.0,
+        "kelly_cap": 0.10,
+        "kelly_floor": 0.02,
+        "selector": {
+            "_comment": "Reuse swing coin selector for universe filtering",
+            "enabled": true,
+            "top_k": 6,
+            "min_dollar_volume": 5000000,
+            "label_horizon": 5
+        }
+    },
     "symbol_caps": {
         "_comment": "Per-symbol max % equity, based on OOS Sharpe tiers. Overrides sleeve-level max_position_pct.",
         "swing": {
-            "GLD":  0.12, "IBIT": 0.10, "SLV":  0.10,
-            "SMH":  0.07, "QQQ":  0.07, "GDX":  0.05,
-            "IGV":  0.03, "XLK":  0.00
+            "GLD": 0.12,
+            "IBIT": 0.1,
+            "SLV": 0.1,
+            "SMH": 0.07,
+            "QQQ": 0.07,
+            "GDX": 0.05,
+            "IGV": 0.03,
+            "XLK": 0.0
         },
         "intraday": {
-            "SMH":  0.15, "SOXX": 0.12, "IWM":  0.12,
-            "QQQ":  0.12, "IGV":  0.09, "EWT":  0.00
+            "SMH": 0.15,
+            "SOXX": 0.12,
+            "IWM": 0.12,
+            "QQQ": 0.12,
+            "IGV": 0.09,
+            "EWT": 0.0
         },
         "crypto": {
-            "CRV-USD":    0.05, "ADA-USD":    0.03,
-            "AVAX-USD":   0.03, "LINK-USD":   0.03,
-            "DOT-USD":    0.00, "ETH-USD":    0.00,
-            "BTC-USD":    0.00, "SOL-USD":    0.00,
-            "DOGE-USD":   0.00, "SUSHI-USD":  0.00,
-            "AAVE-USD":   0.00, "RENDER-USD": 0.00
+            "CRV-USD": 0.05,
+            "AVAX-USD": 0.03,
+            "ADA-USD": 0.02,
+            "LINK-USD": 0.02,
+            "SHIB-USD": 0.0,
+            "DOT-USD": 0.0,
+            "ETH-USD": 0.0,
+            "SUSHI-USD": 0.0,
+            "AAVE-USD": 0.0,
+            "NEAR-USD": 0.0,
+            "SOL-USD": 0.0,
+            "BTC-USD": 0.0,
+            "DOGE-USD": 0.0,
+            "RENDER-USD": 0.0
         }
     },
-
     "theme_caps": {
         "_comment": "Max total exposure per theme across all sleeves",
-        "tech":         0.30,
-        "commodities":  0.25,
-        "crypto":       0.15,
-        "emerging":     0.10,
-        "broad":        0.20
+        "tech": 0.3,
+        "commodities": 0.25,
+        "crypto": 0.15,
+        "emerging": 0.1,
+        "broad": 0.2
     },
-
     "confidence_multipliers": {
         "_comment": "Scale effective confidence (and thus size) by OOS Sharpe tier",
         "sharpe_tiers": [
-            {"min_sharpe": 1.5,  "multiplier": 1.0,  "label": "core"},
-            {"min_sharpe": 0.7,  "multiplier": 0.75, "label": "secondary"},
-            {"min_sharpe": 0.3,  "multiplier": 0.50, "label": "on_watch"},
-            {"min_sharpe": 0.0,  "multiplier": 0.25, "label": "probe"},
-            {"min_sharpe": -999, "multiplier": 0.00, "label": "disabled"}
+            {
+                "min_sharpe": 1.5,
+                "multiplier": 1.0,
+                "label": "core"
+            },
+            {
+                "min_sharpe": 0.7,
+                "multiplier": 0.75,
+                "label": "secondary"
+            },
+            {
+                "min_sharpe": 0.3,
+                "multiplier": 0.5,
+                "label": "on_watch"
+            },
+            {
+                "min_sharpe": 0.0,
+                "multiplier": 0.25,
+                "label": "probe"
+            },
+            {
+                "min_sharpe": -999,
+                "multiplier": 0.0,
+                "label": "disabled"
+            }
         ]
     },
-
     "auto_derisk": {
-        "_comment": "Rolling performance monitoring — auto-cut or disable underperformers",
+        "_comment": "Rolling performance monitoring \u00e2\u20ac\u201d auto-cut or disable underperformers",
         "rolling_window": 50,
         "sharpe_warning": 0.0,
-        "sharpe_disable": -0.30,
-        "drawdown_halfsize_pct": 0.10,
-        "drawdown_disable_pct": 0.20,
-        "winrate_warning": 0.40,
+        "sharpe_disable": -0.3,
+        "drawdown_halfsize_pct": 0.1,
+        "drawdown_disable_pct": 0.2,
+        "winrate_warning": 0.4,
         "recovery_trades": 20,
-        "recovery_min_sharpe": 0.20
+        "recovery_min_sharpe": 0.2
     },
-
     "stress_test": {
         "_comment": "Multipliers applied during stress backtests",
         "cost_mult": 2.0,
         "spread_mult": 3.0
+    },
+    "oos_sharpe_registry": {
+        "ATOM-USD": 1.996,
+        "SAND-USD": 1.73,
+        "JTO-USD": 1.728,
+        "EGLD-USD": 1.727,
+        "CAKE-USD": 1.724,
+        "DOT-USD": 1.718,
+        "XTZ-USD": 1.617,
+        "ONDO-USD": 1.415,
+        "FIL-USD": 1.395,
+        "HNT-USD": 1.365,
+        "WLD-USD": 1.315,
+        "ADA-USD": 1.301,
+        "OP-USD": 1.283,
+        "VET-USD": 1.265,
+        "ALGO-USD": 1.262,
+        "SEI-USD": 1.144,
+        "FET-USD": 1.105,
+        "MANA-USD": 1.074,
+        "ETC-USD": 1.062,
+        "INJ-USD": 1.018,
+        "CRV-USD": 1.017,
+        "LDO-USD": 1.004,
+        "AR-USD": 0.848,
+        "1INCH-USD": 0.773,
+        "KAS-USD": 0.725,
+        "AVAX-USD": 0.711,
+        "RENDER-USD": 0.511,
+        "ENS-USD": 0.344,
+        "LTC-USD": 0.331,
+        "CFX-USD": 0.314,
+        "QNT-USD": 0.288,
+        "LPT-USD": 0.215,
+        "GNO-USD": 0.102,
+        "NEAR-USD": 0.083,
+        "ENA-USD": 0.0,
+        "ETHFI-USD": 0.0,
+        "GOMINING-USD": 0.0,
+        "LINK-USD": 0.0,
+        "SHIB-USD": 0.0,
+        "VIRTUAL-USD": 0.0,
+        "HBAR-USD": -0.162,
+        "SUSHI-USD": -0.23,
+        "DOGE-USD": -0.25,
+        "RUNE-USD": -0.31,
+        "AAVE-USD": -0.321,
+        "BNB-USD": -0.345,
+        "PENDLE-USD": -0.351,
+        "ICP-USD": -0.365,
+        "BTC-USD": -0.45,
+        "ETH-USD": -0.528,
+        "CVX-USD": -0.589,
+        "BCH-USD": -0.621,
+        "XDC-USD": -0.679,
+        "XLM-USD": -0.725,
+        "CHZ-USD": -0.911,
+        "XRP-USD": -0.977,
+        "TIA-USD": -1.02,
+        "RAY-USD": -1.115,
+        "SOL-USD": -1.158,
+        "BAT-USD": -1.563,
+        "WIF-USD": -1.692,
+        "AXS-USD": -1.72,
+        "PYTH-USD": -1.971,
+        "TRAC-USD": -2.243
+    },
+    "crypto_blacklist": {
+        "_comment": "Only operational risk \u00e2\u20ac\u201d coins that may become untradeable or have unreliable data. NOT fundamentals.",
+        "_updated": "2026-03-16",
+        "privacy_regulatory": {
+            "_reason": "Exchange delistings (Binance 2024, EU MiCA). Liquidity can vanish overnight \u00e2\u20ac\u201d operational risk.",
+            "symbols": [
+                "XMR",
+                "ZEC",
+                "DASH",
+                "BDX"
+            ]
+        },
+        "manipulation_fraud": {
+            "_reason": "SEC wash trading charges (Justin Sun Dec 2022). Volume data unreliable \u00e2\u20ac\u201d model trains on fake data.",
+            "symbols": [
+                "TRX",
+                "JST",
+                "SUN"
+            ]
+        }
+    },
+    "oos_performance_registry": {
+        "ATOM-USD": {
+            "sharpe": 1.996,
+            "return_pct": 16.79,
+            "trades": 7,
+            "win_rate": 1.0
+        },
+        "SAND-USD": {
+            "sharpe": 1.73,
+            "return_pct": 35.8,
+            "trades": 4,
+            "win_rate": 1.0
+        },
+        "JTO-USD": {
+            "sharpe": 1.728,
+            "return_pct": 21.04,
+            "trades": 1,
+            "win_rate": 1.0
+        },
+        "EGLD-USD": {
+            "sharpe": 1.727,
+            "return_pct": 38.02,
+            "trades": 4,
+            "win_rate": 1.0
+        },
+        "CAKE-USD": {
+            "sharpe": 1.724,
+            "return_pct": 14.84,
+            "trades": 10,
+            "win_rate": 0.8
+        },
+        "DOT-USD": {
+            "sharpe": 1.718,
+            "return_pct": 31.55,
+            "trades": 6,
+            "win_rate": 1.0
+        },
+        "XTZ-USD": {
+            "sharpe": 1.617,
+            "return_pct": 19.46,
+            "trades": 3,
+            "win_rate": 1.0
+        },
+        "ONDO-USD": {
+            "sharpe": 1.415,
+            "return_pct": 7.34,
+            "trades": 2,
+            "win_rate": 0.5
+        },
+        "FIL-USD": {
+            "sharpe": 1.395,
+            "return_pct": 29.09,
+            "trades": 12,
+            "win_rate": 0.583
+        },
+        "HNT-USD": {
+            "sharpe": 1.365,
+            "return_pct": 34.37,
+            "trades": 11,
+            "win_rate": 0.818
+        },
+        "WLD-USD": {
+            "sharpe": 1.315,
+            "return_pct": 18.74,
+            "trades": 8,
+            "win_rate": 0.625
+        },
+        "ADA-USD": {
+            "sharpe": 1.301,
+            "return_pct": 15.83,
+            "trades": 4,
+            "win_rate": 1.0
+        },
+        "OP-USD": {
+            "sharpe": 1.283,
+            "return_pct": 36.77,
+            "trades": 5,
+            "win_rate": 0.8
+        },
+        "VET-USD": {
+            "sharpe": 1.265,
+            "return_pct": 23.34,
+            "trades": 4,
+            "win_rate": 0.75
+        },
+        "ALGO-USD": {
+            "sharpe": 1.262,
+            "return_pct": 15.37,
+            "trades": 5,
+            "win_rate": 0.8
+        },
+        "SEI-USD": {
+            "sharpe": 1.144,
+            "return_pct": 24.04,
+            "trades": 6,
+            "win_rate": 0.667
+        },
+        "FET-USD": {
+            "sharpe": 1.105,
+            "return_pct": 26.75,
+            "trades": 6,
+            "win_rate": 0.667
+        },
+        "MANA-USD": {
+            "sharpe": 1.074,
+            "return_pct": 22.03,
+            "trades": 6,
+            "win_rate": 0.667
+        },
+        "ETC-USD": {
+            "sharpe": 1.062,
+            "return_pct": 17.66,
+            "trades": 5,
+            "win_rate": 0.8
+        },
+        "INJ-USD": {
+            "sharpe": 1.018,
+            "return_pct": 25.03,
+            "trades": 7,
+            "win_rate": 0.714
+        },
+        "CRV-USD": {
+            "sharpe": 1.017,
+            "return_pct": 16.04,
+            "trades": 6,
+            "win_rate": 0.833
+        },
+        "LDO-USD": {
+            "sharpe": 1.004,
+            "return_pct": 24.23,
+            "trades": 8,
+            "win_rate": 0.75
+        },
+        "AR-USD": {
+            "sharpe": 0.848,
+            "return_pct": 17.31,
+            "trades": 7,
+            "win_rate": 0.571
+        },
+        "1INCH-USD": {
+            "sharpe": 0.773,
+            "return_pct": 14.01,
+            "trades": 7,
+            "win_rate": 0.429
+        },
+        "KAS-USD": {
+            "sharpe": 0.725,
+            "return_pct": 11.35,
+            "trades": 3,
+            "win_rate": 0.667
+        },
+        "AVAX-USD": {
+            "sharpe": 0.711,
+            "return_pct": 12.39,
+            "trades": 9,
+            "win_rate": 0.667
+        },
+        "RENDER-USD": {
+            "sharpe": 0.511,
+            "return_pct": 8.44,
+            "trades": 8,
+            "win_rate": 0.625
+        },
+        "ENS-USD": {
+            "sharpe": 0.344,
+            "return_pct": 5.21,
+            "trades": 6,
+            "win_rate": 0.5
+        },
+        "LTC-USD": {
+            "sharpe": 0.331,
+            "return_pct": 2.53,
+            "trades": 3,
+            "win_rate": 0.667
+        },
+        "CFX-USD": {
+            "sharpe": 0.314,
+            "return_pct": 3.84,
+            "trades": 5,
+            "win_rate": 0.4
+        },
+        "QNT-USD": {
+            "sharpe": 0.288,
+            "return_pct": 2.6,
+            "trades": 6,
+            "win_rate": 0.667
+        },
+        "LPT-USD": {
+            "sharpe": 0.215,
+            "return_pct": 2.37,
+            "trades": 8,
+            "win_rate": 0.5
+        },
+        "GNO-USD": {
+            "sharpe": 0.102,
+            "return_pct": 0.33,
+            "trades": 1,
+            "win_rate": 1.0
+        },
+        "NEAR-USD": {
+            "sharpe": 0.083,
+            "return_pct": -0.21,
+            "trades": 9,
+            "win_rate": 0.444
+        },
+        "ENA-USD": {
+            "sharpe": 0.0,
+            "return_pct": 0.0,
+            "trades": 0,
+            "win_rate": 0.0
+        },
+        "ETHFI-USD": {
+            "sharpe": 0.0,
+            "return_pct": 0.0,
+            "trades": 0,
+            "win_rate": 0.0
+        },
+        "GOMINING-USD": {
+            "sharpe": 0.0,
+            "return_pct": 0.0,
+            "trades": 0,
+            "win_rate": 0.0
+        },
+        "LINK-USD": {
+            "sharpe": 0.0,
+            "return_pct": 0.0,
+            "trades": 0,
+            "win_rate": 0.0
+        },
+        "SHIB-USD": {
+            "sharpe": 0.0,
+            "return_pct": 0.0,
+            "trades": 0,
+            "win_rate": 0.0
+        },
+        "VIRTUAL-USD": {
+            "sharpe": 0.0,
+            "return_pct": 0.0,
+            "trades": 0,
+            "win_rate": 0.0
+        },
+        "HBAR-USD": {
+            "sharpe": -0.162,
+            "return_pct": -7.83,
+            "trades": 7,
+            "win_rate": 0.714
+        },
+        "SUSHI-USD": {
+            "sharpe": -0.23,
+            "return_pct": -9.23,
+            "trades": 22,
+            "win_rate": 0.5
+        },
+        "DOGE-USD": {
+            "sharpe": -0.25,
+            "return_pct": -3.51,
+            "trades": 4,
+            "win_rate": 0.5
+        },
+        "RUNE-USD": {
+            "sharpe": -0.31,
+            "return_pct": -4.7,
+            "trades": 7,
+            "win_rate": 0.429
+        },
+        "AAVE-USD": {
+            "sharpe": -0.321,
+            "return_pct": -4.35,
+            "trades": 13,
+            "win_rate": 0.538
+        },
+        "BNB-USD": {
+            "sharpe": -0.345,
+            "return_pct": -1.96,
+            "trades": 21,
+            "win_rate": 0.619
+        },
+        "PENDLE-USD": {
+            "sharpe": -0.351,
+            "return_pct": -6.57,
+            "trades": 7,
+            "win_rate": 0.429
+        },
+        "ICP-USD": {
+            "sharpe": -0.365,
+            "return_pct": -5.44,
+            "trades": 17,
+            "win_rate": 0.471
+        },
+        "BTC-USD": {
+            "sharpe": -0.45,
+            "return_pct": -3.84,
+            "trades": 3,
+            "win_rate": 0.333
+        },
+        "ETH-USD": {
+            "sharpe": -0.528,
+            "return_pct": -4.06,
+            "trades": 8,
+            "win_rate": 0.5
+        },
+        "CVX-USD": {
+            "sharpe": -0.589,
+            "return_pct": -10.88,
+            "trades": 8,
+            "win_rate": 0.375
+        },
+        "BCH-USD": {
+            "sharpe": -0.621,
+            "return_pct": -5.8,
+            "trades": 12,
+            "win_rate": 0.417
+        },
+        "XDC-USD": {
+            "sharpe": -0.679,
+            "return_pct": -7.77,
+            "trades": 5,
+            "win_rate": 0.4
+        },
+        "XLM-USD": {
+            "sharpe": -0.725,
+            "return_pct": -17.17,
+            "trades": 2,
+            "win_rate": 0.5
+        },
+        "CHZ-USD": {
+            "sharpe": -0.911,
+            "return_pct": -14.42,
+            "trades": 7,
+            "win_rate": 0.429
+        },
+        "XRP-USD": {
+            "sharpe": -0.977,
+            "return_pct": -44.41,
+            "trades": 5,
+            "win_rate": 0.6
+        },
+        "TIA-USD": {
+            "sharpe": -1.02,
+            "return_pct": -20659847608.86,
+            "trades": 9,
+            "win_rate": 0.222
+        },
+        "RAY-USD": {
+            "sharpe": -1.115,
+            "return_pct": -17.89,
+            "trades": 3,
+            "win_rate": 0.0
+        },
+        "SOL-USD": {
+            "sharpe": -1.158,
+            "return_pct": -13.94,
+            "trades": 5,
+            "win_rate": 0.2
+        },
+        "BAT-USD": {
+            "sharpe": -1.563,
+            "return_pct": -19.51,
+            "trades": 6,
+            "win_rate": 0.333
+        },
+        "WIF-USD": {
+            "sharpe": -1.692,
+            "return_pct": -6.38,
+            "trades": 1,
+            "win_rate": 0.0
+        },
+        "AXS-USD": {
+            "sharpe": -1.72,
+            "return_pct": -31.07,
+            "trades": 9,
+            "win_rate": 0.333
+        },
+        "PYTH-USD": {
+            "sharpe": -1.971,
+            "return_pct": -10.31,
+            "trades": 2,
+            "win_rate": 0.0
+        },
+        "TRAC-USD": {
+            "sharpe": -2.243,
+            "return_pct": -29.93,
+            "trades": 8,
+            "win_rate": 0.125
+        }
     }
 }

@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import json
 import logging
 import os
 import signal
@@ -70,6 +71,7 @@ from risk_config import (
 from cost_model import validate_cost_threshold
 from model_monitor import ModelMonitor
 from coin_selector import CoinSelector, CRYPTO_UNIVERSE, fetch_universe_data
+from universe_screener import load_universe, get_coin_cost_config
 from kraken_executor import KrakenExecutor
 
 logging.basicConfig(
@@ -95,6 +97,10 @@ SYMBOL_GROUPS: Dict[str, List[str]] = {
     # OOS Sharpe (2025→): CRV 1.07, AVAX 0.54, ADA 0.49, LINK 0.48
     # Disabled (negative Sharpe): BTC, ETH, SOL, DOGE, DOT, SUSHI, AAVE, RENDER
     "crypto": ["CRV/USD", "AVAX/USD", "ADA/USD", "LINK/USD"],
+    # Account 4 — Crypto Intraday LGB+GRU (5-min bars, 1-hour horizon)
+    # OOS Sharpe (45d): ATOM 2.63, BCH 2.13, EIGEN 1.75, SAND 1.30, VET 1.30, ETC 1.29
+    # Uses coin selector (top-6) + CryptoIntradayPredictor
+    "crypto_intraday": ["ATOM/USD", "BCH/USD", "LTC/USD", "VET/USD"],
 }
 
 # Legacy / wrong-algorithm positions: opened by a previous buggy model. Manage them
@@ -245,21 +251,29 @@ def _acquire_single_instance_lock() -> bool:
                         owner_pid = int(f.read().strip())
                     if not _pid_alive(owner_pid):
                         log.warning(
-                            "Stale lock file (PID %d no longer running) — removing and retrying.",
+                            "Stale lock file (PID %d no longer running) — breaking stale lock.",
                             owner_pid,
                         )
+                        # On Windows, can't delete a file with an OS-level lock held
+                        # by a zombie/service process. Try to remove, but if that fails
+                        # just proceed without lock protection (safe since owner is dead).
                         try:
                             os.remove(lock_path)
                         except OSError:
-                            pass
+                            log.warning(
+                                "Cannot delete stale lock file (held by zombie PID %d) — "
+                                "proceeding without single-instance lock.", owner_pid,
+                            )
+                            return True  # safe: owner is confirmed dead
                         time.sleep(0.5)
                         continue  # retry
                 except (ValueError, OSError):
-                    # Can't read PID; remove and retry once
+                    # Can't read PID; try remove and retry once
                     try:
                         os.remove(lock_path)
                     except OSError:
-                        pass
+                        log.warning("Cannot read or remove lock file — proceeding without lock.")
+                        return True
                     time.sleep(0.5)
                     continue
             return False
@@ -416,6 +430,9 @@ class AlpacaPaperTrader:
 
         self._vix_cache: Optional[pd.DataFrame] = None
 
+        # Crypto intraday data source (lazy init)
+        self._crypto_intraday_data = None
+
         # Regime filter state
         from collections import deque
         self._recent_trade_wins: deque = deque(maxlen=20)
@@ -438,35 +455,42 @@ class AlpacaPaperTrader:
 
         # Layer 1 coin selector (crypto group only)
         self._coin_selector: Optional[CoinSelector] = None
-        self._selector_universe = list(CRYPTO_UNIVERSE)  # full candidate universe
+        # Prefer dynamic universe from Layer 0 screener; fall back to hardcoded
+        dynamic_universe = load_universe(CRYPTO_MODEL_DIR)
+        self._selector_universe = dynamic_universe if dynamic_universe else list(CRYPTO_UNIVERSE)
         self._selector_active_symbols: List[str] = []    # dynamically selected coins
         self._selector_rank_scores: Dict[str, float] = {}  # symbol → rank score
-        if group == "crypto":
+        self._selector_last_run: Optional[datetime] = None  # gate selector to once/day
+        if group in ("crypto", "crypto_intraday"):
             try:
                 self._coin_selector = CoinSelector(model_dir=CRYPTO_MODEL_DIR)
                 log.info("Coin selector loaded — dynamic symbol selection enabled")
             except FileNotFoundError:
                 log.info("No trained coin selector found — using static symbol list")
 
-        # Kraken executor for crypto group (supports long + short)
+        # Kraken executor for crypto groups (supports long + short)
         # Paper mode doesn't need real API keys — uses public price API + local state
         self._kraken: Optional[KrakenExecutor] = None
-        if group == "crypto":
+        if group in ("crypto", "crypto_intraday"):
             kraken_key = os.environ.get("KRAKEN_API_KEY", "")
             kraken_secret = os.environ.get("KRAKEN_API_SECRET", "")
             use_kraken = os.environ.get("KRAKEN_EXECUTOR", "1")  # enabled by default for crypto
             if use_kraken != "0":
                 state_dir = PAPER_STATE_DIR
+                # Separate state file for crypto_intraday to avoid conflicts
+                state_file = ("kraken_intraday_paper_state.json" if group == "crypto_intraday"
+                              else "kraken_paper_state.json")
                 self._kraken = KrakenExecutor(
                     api_key=kraken_key,
                     api_secret=kraken_secret,
                     paper=not (kraken_key and kraken_secret),  # live only with real keys
                     leverage=2,
                     state_dir=state_dir,
+                    state_file=state_file,
                     initial_balance=float(os.environ.get("KRAKEN_PAPER_BALANCE", "10000")),
                 )
                 mode_label = "LIVE" if (kraken_key and kraken_secret) else "PAPER"
-                log.info("Kraken executor enabled for crypto group (%s mode)", mode_label)
+                log.info("Kraken executor enabled for %s group (%s mode)", group, mode_label)
             else:
                 log.info("KRAKEN_EXECUTOR=0 — crypto will use Alpaca (long-only)")
 
@@ -532,6 +556,16 @@ class AlpacaPaperTrader:
                 log.warning("No trained model for %s (%s): %s — will skip ML signals.",
                             symbol, yf_sym, exc)
                 return None
+        elif group == "crypto_intraday":
+            # Crypto intraday uses LGB+GRU ensemble on 5-min bars
+            yf_sym = _crypto_to_yfinance(symbol)
+            try:
+                from crypto_intraday_model import CryptoIntradayPredictor
+                return CryptoIntradayPredictor(yf_sym, model_dir=group_model_dir)
+            except (FileNotFoundError, ImportError) as exc:
+                log.warning("No crypto intraday model for %s (%s): %s — will skip.",
+                            symbol, yf_sym, exc)
+                return None
         # Fallback: original LSTM predictor
         try:
             return Predictor(symbol, model_dir=model_dir,
@@ -541,10 +575,99 @@ class AlpacaPaperTrader:
                         symbol, mode, exc)
             return None
 
+    def _get_model_universe(self) -> Set[str]:
+        """Return yfinance-format symbols that have a trained XGBoost model on disk."""
+        import glob as _glob
+        pattern = os.path.join(CRYPTO_MODEL_DIR, "*_xgb_swing_config.json")
+        model_syms: Set[str] = set()
+        for path in _glob.glob(pattern):
+            fname = os.path.basename(path)
+            # e.g. "BTC-USD_xgb_swing_config.json" → "BTC-USD"
+            sym = fname.replace("_xgb_swing_config.json", "")
+            model_syms.add(sym)
+        return model_syms
+
+    def _load_oos_registries(self) -> tuple:
+        """Load OOS Sharpe and performance registries from config/trading.json.
+        Returns (sharpe_dict, performance_dict).
+        """
+        try:
+            config_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "config", "trading.json",
+            )
+            if os.path.isfile(config_path):
+                with open(config_path, encoding="utf-8") as f:
+                    cfg = json.load(f)
+                sharpe_reg = cfg.get("oos_sharpe_registry", {})
+                perf_reg = cfg.get("oos_performance_registry", {})
+                return sharpe_reg, perf_reg
+        except Exception as exc:
+            log.warning("Failed to load OOS registries: %s", exc)
+        return {}, {}
+
+    def _compute_composite_scores(
+        self,
+        rankings: list,
+        oos_sharpe: dict,
+        oos_perf: dict,
+        w_selector: float = 0.3,
+        w_sharpe: float = 0.4,
+        w_return: float = 0.3,
+    ) -> Dict[str, float]:
+        """Compute composite score = w1*selector + w2*sharpe + w3*return (all normalized).
+
+        Only includes coins with OOS Sharpe > 0.
+        Returns {symbol: composite_score} sorted descending.
+        """
+        # Collect raw values for coins with positive OOS Sharpe
+        candidates = []
+        for sym, sel_score in rankings:
+            sharpe = oos_sharpe.get(sym, -999)
+            if sharpe <= 0:
+                continue
+            perf = oos_perf.get(sym, {})
+            ret = perf.get("return_pct", 0.0) if isinstance(perf, dict) else 0.0
+            candidates.append((sym, sel_score, sharpe, ret))
+
+        if not candidates:
+            return {}
+
+        # Normalize each dimension to [0, 1] using rank-percentile (robust to outliers)
+        def _rank_normalize(values):
+            n = len(values)
+            if n <= 1:
+                return [1.0] * n
+            order = sorted(range(n), key=lambda i: values[i])
+            ranks = [0.0] * n
+            for rank_pos, idx in enumerate(order):
+                ranks[idx] = rank_pos / (n - 1)
+            return ranks
+
+        sel_scores = [c[1] for c in candidates]
+        sharpe_vals = [c[2] for c in candidates]
+        return_vals = [c[3] for c in candidates]
+
+        sel_norm = _rank_normalize(sel_scores)
+        sharpe_norm = _rank_normalize(sharpe_vals)
+        return_norm = _rank_normalize(return_vals)
+
+        result = {}
+        for i, (sym, sel, sharpe, ret) in enumerate(candidates):
+            composite = (w_selector * sel_norm[i]
+                         + w_sharpe * sharpe_norm[i]
+                         + w_return * return_norm[i])
+            result[sym] = round(composite, 4)
+
+        # Sort descending
+        result = dict(sorted(result.items(), key=lambda x: -x[1]))
+        return result
+
     # -- Coin selector (Layer 1 → dynamic symbol selection) -------------
     def _run_coin_selector(self) -> List[str]:
         """Run Layer 1 cross-sectional selector to pick today's top-K crypto coins.
 
+        Only selects from model_universe (coins with trained models).
         Returns Alpaca-format symbols (BTC/USD) for selected coins.
         Falls back to static self.symbols if selector unavailable or fails.
         """
@@ -552,8 +675,19 @@ class AlpacaPaperTrader:
             return list(self.symbols)
 
         try:
-            # Fetch data for the full universe
-            data = fetch_universe_data(self._selector_universe, lookback_days=400)
+            # Restrict selector input to coins that have trained models
+            model_universe = self._get_model_universe()
+            selector_input = [s for s in self._selector_universe if s in model_universe]
+            if len(selector_input) < 3:
+                log.warning("Model universe too small (%d coins) — using static list",
+                            len(selector_input))
+                return list(self.symbols)
+
+            log.info("Selector input: %d coins (model_universe) out of %d (screen_universe)",
+                     len(selector_input), len(self._selector_universe))
+
+            # Fetch data for model_universe only
+            data = fetch_universe_data(selector_input, lookback_days=400)
             if len(data) < 3:
                 log.warning("Selector: only %d coins with data — falling back to static list", len(data))
                 return list(self.symbols)
@@ -563,19 +697,40 @@ class AlpacaPaperTrader:
                 log.warning("Selector returned empty selection — using static list")
                 return list(self.symbols)
 
-            # Convert yfinance format (BTC-USD) to Alpaca format (BTC/USD)
-            selected_alpaca = [s.replace("-", "/") for s in result.selected]
+            # Layer 2: composite scoring (selector + OOS Sharpe + OOS return)
+            oos_sharpe, oos_perf = self._load_oos_registries()
+            composite = self._compute_composite_scores(
+                result.rankings, oos_sharpe, oos_perf,
+            )
 
-            # Rank-based sizing info (stored for check_and_trade to use)
-            self._selector_rank_scores = {
-                sym: score for sym, score in result.rankings
-            }
+            if not composite:
+                log.warning("No coins passed composite scoring — using static list")
+                return list(self.symbols)
+
+            # Select top-K by composite score
+            top_k = self._coin_selector.top_k
+            selected = list(composite.keys())[:top_k]
+
+            # Log composite breakdown
+            for sym in selected:
+                sel_score = dict(result.rankings).get(sym, 0)
+                sharpe = oos_sharpe.get(sym, 0)
+                ret = oos_perf.get(sym, {}).get("return_pct", 0) if isinstance(oos_perf.get(sym), dict) else 0
+                log.info("  Composite %s: %.3f (sel=%.2f, sharpe=%.2f, ret=%.1f%%)",
+                         sym, composite[sym], sel_score, sharpe, ret)
+
+            # Convert yfinance format (BTC-USD) to Alpaca format (BTC/USD)
+            selected_alpaca = [s.replace("-", "/") for s in selected]
+
+            # Store composite scores for rank-weighted sizing
+            self._composite_scores = composite
 
             # Ensure predictors exist for newly selected coins
+            _selector_model_dir = get_model_dir(self.group)
             for sym in selected_alpaca:
                 if sym not in self.predictors:
                     predictor = self._create_predictor(
-                        sym, self.group, CRYPTO_MODEL_DIR,
+                        sym, self.group, _selector_model_dir,
                         self.mode, self.intraday_interval,
                     )
                     self.predictors[sym] = predictor
@@ -592,21 +747,31 @@ class AlpacaPaperTrader:
             return list(self.symbols)
 
     def _get_rank_scalar(self, symbol: str) -> float:
-        """Get rank-based sizing scalar for a coin (1.0 for top-1, decays for lower ranks)."""
-        if not hasattr(self, "_selector_rank_scores") or not self._selector_rank_scores:
+        """Get composite-score-based sizing scalar.
+
+        Maps composite score to position weight:
+        - Highest composite → 1.0 (full size)
+        - Lowest in selected set → 0.5 (half size)
+        - Not in set → 0.3 (minimum probe)
+        """
+        if not hasattr(self, "_composite_scores") or not self._composite_scores:
             return 1.0
         yf_sym = _crypto_to_yfinance(symbol)
-        scores = self._selector_rank_scores
+        scores = self._composite_scores
         if yf_sym not in scores:
-            return 0.5  # unknown coin gets minimum scalar
-        # Sort by score descending, find rank
-        sorted_syms = sorted(scores, key=lambda s: -scores[s])
-        try:
-            rank = sorted_syms.index(yf_sym)
-        except ValueError:
-            return 0.5
-        # Linear decay: rank 0 → 1.0, rank 5 → 0.5
-        return max(0.5, 1.0 - 0.1 * rank)
+            return 0.3
+
+        # Normalize within selected set: top → 1.0, bottom → 0.5
+        vals = list(scores.values())
+        max_score = max(vals) if vals else 1.0
+        min_score = min(vals) if vals else 0.0
+        score_range = max_score - min_score
+
+        if score_range < 1e-6:
+            return 0.75  # all equal
+
+        normalized = (scores[yf_sym] - min_score) / score_range  # 0 to 1
+        return 0.5 + 0.5 * normalized  # 0.5 to 1.0
 
     # -- Account info --------------------------------------------------
     def get_account_summary(self) -> dict:
@@ -655,9 +820,19 @@ class AlpacaPaperTrader:
         Alpaca rejects market orders outside regular hours.
 
         Crypto → MarketOrder with GTC time-in-force (24/7 market, fractional qty).
+        Closed → equity orders are deferred (logged but not submitted) to prevent
+                 stuck orders that block future attempts.
         """
         is_crypto = _is_crypto_symbol(symbol)
         session = _get_session()
+
+        # Block equity orders when market is closed (weekends, overnight).
+        # Submitting during closed hours creates orders that sit in ACCEPTED
+        # state, hold the qty, and block all future sell attempts until cancelled.
+        if not is_crypto and session == "closed":
+            log.info("DEFERRED %s %s x%s — market closed, will retry next session",
+                     side.value, symbol, qty)
+            return None
         try:
             if is_crypto:
                 # Crypto: always market order, GTC, fractional qty allowed
@@ -852,6 +1027,10 @@ class AlpacaPaperTrader:
             return {"direction": "UNKNOWN", "confidence": 0.0, "probability": 0.5}
 
         try:
+            # Crypto intraday: fetch 5-min bars from Kraken (not Yahoo)
+            if self.group == "crypto_intraday":
+                return self._get_crypto_intraday_prediction(symbol, predictor)
+
             ds = self._data_symbol(symbol)
             if self.mode == "intraday":
                 # 5 days ensures Friday bars are present so FRED VIX (1-day lag)
@@ -866,6 +1045,33 @@ class AlpacaPaperTrader:
         except Exception as exc:
             log.error("Prediction failed for %s: %s", symbol, exc)
             return {"direction": "UNKNOWN", "confidence": 0.0, "probability": 0.5}
+
+    def _get_crypto_intraday_prediction(self, symbol: str, predictor) -> dict:
+        """Fetch 5-min bars from Kraken and run CryptoIntradayPredictor."""
+        if self._crypto_intraday_data is None:
+            from crypto_intraday_data import CryptoIntradayData
+            self._crypto_intraday_data = CryptoIntradayData()
+
+        # Fetch live bars (200 = ~16h of 5-min bars, enough for features)
+        ccxt_sym = symbol.replace("-", "/").replace("USD", "/USD") if "/" not in symbol else symbol
+        # Normalize: BTC/USD stays BTC/USD
+        if not ccxt_sym.endswith("/USD"):
+            ccxt_sym = ccxt_sym.split("/")[0] + "/USD"
+        bars = self._crypto_intraday_data.fetch_live_bars(ccxt_sym, limit=200)
+        if bars.empty or len(bars) < 60:
+            log.warning("Insufficient live bars for %s (%d)", symbol, len(bars))
+            return {"direction": "UNKNOWN", "confidence": 0.0, "probability": 0.5}
+
+        # Fetch BTC bars for cross-market features (altcoins only)
+        btc_bars = None
+        is_btc = "BTC" in symbol.upper()
+        if not is_btc:
+            btc_bars = self._crypto_intraday_data.fetch_btc_bars(source="kraken", limit=200)
+
+        result = predictor.predict(bars, btc_bars)
+        if result is None:
+            return {"direction": "UNKNOWN", "confidence": 0.0, "probability": 0.5}
+        return result
 
     def _get_current_price(self, symbol: str) -> Optional[float]:
         """Fetch the latest price for a symbol."""
@@ -1000,11 +1206,13 @@ class AlpacaPaperTrader:
                 if drawdown_from_peak >= LEGACY_TRAILING_STOP_PCT:
                     exit_reason = f"legacy_trailing_stop ({drawdown_from_peak:.2%})"
                     if side == "LONG":
-                        self.sell(symbol, qty, reason=exit_reason,
-                                  limit_price=current_price)
+                        oid = self.sell(symbol, qty, reason=exit_reason,
+                                       limit_price=current_price)
                     else:
-                        self.buy_to_cover(symbol, qty, reason=exit_reason,
-                                          limit_price=current_price)
+                        oid = self.buy_to_cover(symbol, qty, reason=exit_reason,
+                                               limit_price=current_price)
+                    if oid is None:
+                        return f"EXIT-DEFERRED  (legacy trailing stop, market closed)"
                     self._record_closed_trade(pnl_pct, symbol)
                     self._log_daily_trade(symbol, side, qty, current_price, exit_reason, pnl_pct)
                     self._clear_symbol_state(symbol)
@@ -1022,11 +1230,13 @@ class AlpacaPaperTrader:
                 if pnl_pct <= -disaster_stop_pct:
                     exit_reason = f"disaster_stop ({pnl_pct:+.2%})"
                     if side == "LONG":
-                        self.sell(symbol, qty, reason=exit_reason,
-                                  limit_price=current_price)
+                        oid = self.sell(symbol, qty, reason=exit_reason,
+                                       limit_price=current_price)
                     else:
-                        self.buy_to_cover(symbol, qty, reason=exit_reason,
-                                          limit_price=current_price)
+                        oid = self.buy_to_cover(symbol, qty, reason=exit_reason,
+                                               limit_price=current_price)
+                    if oid is None:
+                        return f"EXIT-DEFERRED  (disaster stop {pnl_pct:+.2%}, market closed)"
                     self._record_closed_trade(pnl_pct, symbol)
                     self._log_daily_trade(symbol, side, qty, current_price, exit_reason, pnl_pct)
                     self._clear_symbol_state(symbol)
@@ -1057,11 +1267,13 @@ class AlpacaPaperTrader:
                         exit_reason = (f"profit_lock_trail ({drawdown_from_peak:.2%} from peak, "
                                        f"P&L={pnl_pct:+.2%})")
                         if side == "LONG":
-                            self.sell(symbol, qty, reason=exit_reason,
-                                      limit_price=current_price)
+                            oid = self.sell(symbol, qty, reason=exit_reason,
+                                           limit_price=current_price)
                         else:
-                            self.buy_to_cover(symbol, qty, reason=exit_reason,
-                                              limit_price=current_price)
+                            oid = self.buy_to_cover(symbol, qty, reason=exit_reason,
+                                                   limit_price=current_price)
+                        if oid is None:
+                            return f"EXIT-DEFERRED  (profit-lock trail, market closed)"
                         self._record_closed_trade(pnl_pct, symbol)
                         self._log_daily_trade(symbol, side, qty, current_price, exit_reason, pnl_pct)
                         self._clear_symbol_state(symbol)
@@ -1073,7 +1285,10 @@ class AlpacaPaperTrader:
             if not use_legacy_stops:
                 if side == "LONG" and expected_return <= 0:
                     exit_reason = f"signal_decay (E[r]={expected_return:+.4f})"
-                    self.sell(symbol, qty, reason=exit_reason, limit_price=current_price)
+                    oid = self.sell(symbol, qty, reason=exit_reason, limit_price=current_price)
+                    if oid is None:
+                        return (f"EXIT-DEFERRED  (signal decay E[r]={expected_return:+.4f}, "
+                                f"P&L={pnl_pct:+.2%}, market closed)")
                     self._record_closed_trade(pnl_pct, symbol)
                     self._log_daily_trade(symbol, side, qty, current_price, exit_reason, pnl_pct)
                     self._clear_symbol_state(symbol)
@@ -1084,7 +1299,10 @@ class AlpacaPaperTrader:
                             f"P&L={pnl_pct:+.2%}, {qty_display} sh {side})")
                 elif side == "SHORT" and expected_return >= 0:
                     exit_reason = f"signal_decay (E[r]={expected_return:+.4f})"
-                    self.buy_to_cover(symbol, qty, reason=exit_reason, limit_price=current_price)
+                    oid = self.buy_to_cover(symbol, qty, reason=exit_reason, limit_price=current_price)
+                    if oid is None:
+                        return (f"EXIT-DEFERRED  (signal decay E[r]={expected_return:+.4f}, "
+                                f"P&L={pnl_pct:+.2%}, market closed)")
                     self._record_closed_trade(pnl_pct, symbol)
                     self._log_daily_trade(symbol, side, qty, current_price, exit_reason, pnl_pct)
                     self._clear_symbol_state(symbol)
@@ -1103,15 +1321,40 @@ class AlpacaPaperTrader:
                         exit_reason = (f"max_underwater_{self.max_underwater_days}d "
                                        f"(held {days_held}d, P&L={pnl_pct:+.2%})")
                         if side == "LONG":
-                            self.sell(symbol, qty, reason=exit_reason,
-                                      limit_price=current_price)
+                            oid = self.sell(symbol, qty, reason=exit_reason,
+                                           limit_price=current_price)
                         else:
-                            self.buy_to_cover(symbol, qty, reason=exit_reason,
-                                              limit_price=current_price)
+                            oid = self.buy_to_cover(symbol, qty, reason=exit_reason,
+                                                   limit_price=current_price)
+                        if oid is None:
+                            return f"EXIT-DEFERRED  (max underwater {days_held}d, market closed)"
                         self._record_closed_trade(pnl_pct, symbol)
                         self._log_daily_trade(symbol, side, qty, current_price, exit_reason, pnl_pct)
                         self._clear_symbol_state(symbol)
                         return (f"EXIT  (max underwater {days_held}d >= {self.max_underwater_days}d, "
+                                f"P&L={pnl_pct:+.2%}, {qty_display} sh {side})  "
+                                f"ML: {direction} E[r]={expected_return:+.4f}")
+
+            # --- Priority 5: Max hold hours (crypto_intraday: 4h max hold) ---
+            if self.group == "crypto_intraday":
+                entry_time = self._entry_times.get(symbol)
+                max_hold_hours = 4.0
+                if entry_time:
+                    hours_held = (datetime.now(timezone.utc) - entry_time).total_seconds() / 3600
+                    if hours_held >= max_hold_hours:
+                        exit_reason = f"max_hold_{max_hold_hours}h (held {hours_held:.1f}h, P&L={pnl_pct:+.2%})"
+                        if side == "LONG":
+                            oid = self.sell(symbol, qty, reason=exit_reason,
+                                           limit_price=current_price)
+                        else:
+                            oid = self.buy_to_cover(symbol, qty, reason=exit_reason,
+                                                   limit_price=current_price)
+                        if oid is None:
+                            return f"EXIT-DEFERRED  (max hold {hours_held:.1f}h)"
+                        self._record_closed_trade(pnl_pct, symbol)
+                        self._log_daily_trade(symbol, side, qty, current_price, exit_reason, pnl_pct)
+                        self._clear_symbol_state(symbol)
+                        return (f"EXIT  (max hold {hours_held:.1f}h >= {max_hold_hours}h, "
                                 f"P&L={pnl_pct:+.2%}, {qty_display} sh {side})  "
                                 f"ML: {direction} E[r]={expected_return:+.4f}")
 
@@ -1134,6 +1377,7 @@ class AlpacaPaperTrader:
         should_pause, pause_reason = self._monitor.should_pause_model(symbol)
         if should_pause:
             log.warning("Model paused for %s: %s", symbol, pause_reason)
+            self._alert_engine.notify_model_paused(symbol, pause_reason, group=self.group or "")
             return f"MODEL-PAUSED  ({pause_reason})  ML: {direction} E[r]={expected_return:+.4f}"
 
         # Determine entry direction
@@ -1144,6 +1388,22 @@ class AlpacaPaperTrader:
             enter_dir = "SHORT"
 
         if enter_dir is not None:
+            # Pending order check: skip entry if there are unfilled orders for this symbol
+            # (prevents duplicate entries when extended-hours limit orders haven't filled yet)
+            if self._kraken is None:  # Alpaca only (Kraken paper fills instantly)
+                try:
+                    from alpaca.trading.requests import GetOrdersRequest
+                    from alpaca.trading.enums import QueryOrderStatus
+                    open_req = GetOrdersRequest(
+                        status=QueryOrderStatus.OPEN, symbols=[symbol], limit=5,
+                    )
+                    open_orders = self.trading_client.get_orders(open_req)
+                    if open_orders:
+                        return (f"PENDING-ORDER  ({len(open_orders)} unfilled order(s) for {symbol}, "
+                                f"skipping entry)  ML: {direction} E[r]={expected_return:+.4f}")
+                except Exception as exc:
+                    log.debug("Open order check failed for %s: %s", symbol, exc)
+
             # Cooldown check (disaster stop)
             cd_until = self._cooldown_until.get(symbol)
             if cd_until and datetime.now(timezone.utc) < cd_until:
@@ -1379,9 +1639,12 @@ class AlpacaPaperTrader:
             if self.group == "crypto":
                 session = "regular"
                 session_label = "24/7 CRYPTO"
-            elif self.group == "swing":
+            elif self.group == "crypto_intraday":
                 session = "regular"
-                session_label = "24/7 SWING"
+                session_label = "24/7 CRYPTO INTRADAY"
+            elif self.group == "swing":
+                session = _get_session()
+                session_label = f"SWING ({session.upper()})"
             else:
                 # Intraday: sleep when market closed, trade only during 04:00–20:00 ET weekdays
                 session = _get_session()
@@ -1399,11 +1662,18 @@ class AlpacaPaperTrader:
                 account = self.get_account_summary()
                 positions = self.get_positions()
 
-                # Layer 1: dynamic coin selection (crypto only, once per cycle)
+                # Layer 1: dynamic coin selection (crypto groups, once per cycle)
                 # Runs the cross-sectional selector to pick top-K coins.
                 # For non-crypto groups, cycle_symbols == self.symbols (static).
-                if self.group == "crypto" and self._coin_selector is not None:
-                    cycle_symbols = self._run_coin_selector()
+                if self.group in ("crypto", "crypto_intraday") and self._coin_selector is not None:
+                    now_utc = datetime.now(timezone.utc)
+                    elapsed = ((now_utc - self._selector_last_run).total_seconds()
+                               if self._selector_last_run else float("inf"))
+                    if elapsed >= 86400 or not self._selector_active_symbols:
+                        cycle_symbols = self._run_coin_selector()
+                        self._selector_last_run = now_utc
+                    else:
+                        cycle_symbols = self._selector_active_symbols
                 else:
                     cycle_symbols = list(self.symbols)
 
@@ -1456,6 +1726,15 @@ class AlpacaPaperTrader:
                 # Check each symbol in this group (cycle_symbols for crypto with selector)
                 for sym in cycle_symbols:
                     sym_alloc = allocation_per_sym
+                    # Cap allocation by per-coin max order size (liquidity-based)
+                    if self.group == "crypto":
+                        yf_sym = _crypto_to_yfinance(sym) if "/" in sym else sym
+                        coin_cfg = get_coin_cost_config(yf_sym)
+                        max_order = coin_cfg.get("max_order_usd", sym_alloc)
+                        if sym_alloc > max_order > 0:
+                            log.info("Capping %s alloc $%.0f -> $%.0f (liquidity limit)",
+                                     sym, sym_alloc, max_order)
+                            sym_alloc = max_order
                     # Legacy / wrong-algorithm: manage out only (stricter stops, no new entries)
                     if sym in self._legacy_no_new_entries:
                         action = self.check_and_trade(sym, positions, sym_alloc, exit_only=True)
@@ -1925,9 +2204,10 @@ def main() -> None:
         api_key    = os.environ.get("ALPACA_API_KEY", "")
         api_secret = os.environ.get("ALPACA_API_SECRET", "")
 
-    # Crypto group can run without Alpaca keys if Kraken keys are available
-    has_kraken = bool(os.environ.get("KRAKEN_API_KEY")) or group == "crypto"
-    if (not api_key or not api_secret) and not (group == "crypto" and has_kraken):
+    # Crypto groups can run without Alpaca keys (use Kraken executor)
+    is_crypto_group = group in ("crypto", "crypto_intraday")
+    has_kraken = bool(os.environ.get("KRAKEN_API_KEY")) or is_crypto_group
+    if (not api_key or not api_secret) and not (is_crypto_group and has_kraken):
         hint = (f"ALPACA_{group.upper()}_KEY / ALPACA_{group.upper()}_SECRET  OR  "
                 if group and group != "all" else "")
         print(f"\n  ERROR: Set {hint}ALPACA_API_KEY and ALPACA_API_SECRET environment variables.")

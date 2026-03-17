@@ -52,6 +52,8 @@ class AlertType(Enum):
     CONSECUTIVE_LOSSES = "consecutive_losses"
     EQUITY_DRAWDOWN = "equity_drawdown"
     POSITION_OPENED = "position_opened"
+    MODEL_PAUSED = "model_paused"
+    PIPELINE_SUMMARY = "pipeline_summary"
 
 
 class Severity(Enum):
@@ -410,6 +412,34 @@ class AlertEngine:
             message=msg,
             severity=Severity.INFO,
             value=price,
+        )
+        self._deliver(alert)
+
+    def notify_model_paused(self, symbol: str, reason: str, group: str = "") -> None:
+        """Fire an alert when a model is paused due to health degradation."""
+        if not self._dedup.should_fire(AlertType.MODEL_PAUSED, symbol):
+            return
+        msg = f"Model PAUSED for {symbol}: {reason}"
+        if group:
+            msg += f" [{group}]"
+        alert = Alert(
+            alert_type=AlertType.MODEL_PAUSED,
+            symbol=symbol,
+            message=msg,
+            severity=Severity.WARNING,
+            value=0.0,
+        )
+        self._dedup.mark_fired(AlertType.MODEL_PAUSED, symbol)
+        self._deliver(alert)
+
+    def notify_pipeline_summary(self, summary_text: str) -> None:
+        """Send weekly pipeline run summary via Slack."""
+        alert = Alert(
+            alert_type=AlertType.PIPELINE_SUMMARY,
+            symbol="PIPELINE",
+            message=summary_text,
+            severity=Severity.INFO,
+            value=0.0,
         )
         self._deliver(alert)
 

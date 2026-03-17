@@ -1,6 +1,6 @@
 """Vercel serverless function: GET /api/history
 
-Returns portfolio equity history + filled orders for all three account groups.
+Returns portfolio equity history + filled orders for all four account groups.
 """
 
 from http.server import BaseHTTPRequestHandler
@@ -29,6 +29,12 @@ ACCOUNTS = [
         "group": "crypto",
         "key_env": "ALPACA_CRYPTO_KEY",
         "secret_env": "ALPACA_CRYPTO_SECRET",
+    },
+    {
+        "name": "Crypto Intraday",
+        "group": "crypto_intraday",
+        "key_env": "ALPACA_CRYPTO_INTRADAY_KEY",
+        "secret_env": "ALPACA_CRYPTO_INTRADAY_SECRET",
     },
 ]
 

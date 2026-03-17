@@ -31,6 +31,7 @@ import pandas as pd
 
 from signals_engine import PROJECT_ROOT, compute_rsi, compute_adx, compute_atr
 from utils import CRYPTO_MODEL_DIR
+from universe_screener import load_universe
 
 logging.basicConfig(
     level=logging.INFO,
@@ -289,7 +290,9 @@ def train_selector(
     import lightgbm as lgb
 
     if universe is None:
-        universe = list(CRYPTO_UNIVERSE)
+        # Prefer dynamic universe from Layer 0 screener; fall back to hardcoded
+        dynamic = load_universe(save_dir or CRYPTO_MODEL_DIR)
+        universe = dynamic if dynamic else list(CRYPTO_UNIVERSE)
     if save_dir is None:
         save_dir = CRYPTO_MODEL_DIR
     os.makedirs(save_dir, exist_ok=True)
@@ -589,7 +592,9 @@ def rank_coins_today(
 ) -> SelectorOutput:
     """Convenience: fetch data and rank coins for today."""
     if universe is None:
-        universe = list(CRYPTO_UNIVERSE)
+        # Prefer dynamic universe from Layer 0 screener; fall back to hardcoded
+        dynamic = load_universe(model_dir or CRYPTO_MODEL_DIR)
+        universe = dynamic if dynamic else list(CRYPTO_UNIVERSE)
     if model_dir is None:
         model_dir = CRYPTO_MODEL_DIR
 

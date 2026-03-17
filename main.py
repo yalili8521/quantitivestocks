@@ -50,6 +50,7 @@ def main() -> None:
     train-intraday   Train LightGBM intraday momentum model (replaces LSTM for intraday group)
     train-swing      Train TFT+XGBoost swing model
     train-crypto     Train swing models for crypto (BTC, ETH, SOL) → models/crypto/
+    train-crypto-intraday  Train LightGBM intraday model for crypto → models/crypto_intraday/
     training-tables Generate CSV/HTML tables of training & backtest metrics
     backtest-portfolio Portfolio-level multi-symbol backtest with shared capital
     divergence-report Compare backtest vs live paper-trading results; flag divergences
@@ -58,7 +59,9 @@ def main() -> None:
     select-symbols   Screen candidate symbols: train, backtest, classify (core/secondary/disabled), update config
     train-selector   Train cross-sectional coin selector (Layer 1 of crypto pipeline)
     rank-coins       Rank coins using trained selector and show today's top-K
+    screen-universe  Layer 0: discover tradeable coins from full market (CoinGecko × Kraken)
     lock-status      Show whether intraday (or other group) paper trader lock is present; tells you if it's safe to start
+    weekly-pipeline  Run weekly crypto maintenance: screen → train selector → train models → select symbols → health check
 
   Examples:
     python main.py signals              --provider yahoo --ml
@@ -147,17 +150,51 @@ def main() -> None:
         swing_main()
 
     elif command == "train-crypto":
-        # Convenience: trains swing models for crypto symbols into models/crypto/
-        # Use --train-end to set OOS boundary (data after this date is not used for training)
+        # Trains swing models for all coins in screen_universe (universe.json)
+        # Falls back to hardcoded list if universe.json doesn't exist
         from utils import CRYPTO_MODEL_DIR
-        # Default OOS cutoff: 2024-01-01 (backtests start 2024-02-28)
+        from universe_screener import load_universe
+        _universe = load_universe(CRYPTO_MODEL_DIR)
+        if _universe:
+            _CRYPTO_TRAIN_SYMBOLS = ",".join(_universe)
+            print(f"  Training {len(_universe)} coins from universe.json")
+        else:
+            _CRYPTO_TRAIN_SYMBOLS = (
+                "BTC-USD,ETH-USD,SOL-USD,AVAX-USD,LINK-USD,DOGE-USD,DOT-USD,"
+                "SUSHI-USD,ADA-USD,CRV-USD,AAVE-USD,RENDER-USD,"
+                "NEAR-USD,LTC-USD,ARB-USD,OP-USD,FIL-USD,APT-USD,INJ-USD,"
+                "WIF-USD,AR-USD,ENA-USD,LDO-USD"
+            )
+            print(f"  No universe.json — using hardcoded {len(_CRYPTO_TRAIN_SYMBOLS.split(','))} coins")
         sys.argv = [sys.argv[0],
-                     "--symbols", "BTC-USD,ETH-USD,SOL-USD,AVAX-USD,LINK-USD,DOGE-USD,DOT-USD,SUSHI-USD,ADA-USD,CRV-USD,AAVE-USD,RENDER-USD",
+                     "--symbols", _CRYPTO_TRAIN_SYMBOLS,
                      "--provider", "yahoo",
                      "--save-dir", CRYPTO_MODEL_DIR,
-                     "--train-end", "2024-01-01"] + sys.argv[1:]
+                     "--train-recent"] + sys.argv[1:]
         from swing_model import main as swing_main
         swing_main()
+
+    elif command == "train-crypto-intraday":
+        # Trains intraday LGB+GRU models for crypto coins
+        # Auto-loads symbols from universe.json (same as train-crypto)
+        from utils import CRYPTO_MODEL_DIR, CRYPTO_INTRADAY_MODEL_DIR
+        from universe_screener import load_universe
+        _universe = load_universe(CRYPTO_MODEL_DIR)
+        if _universe:
+            _CRYPTO_INTRADAY_SYMBOLS = ",".join(_universe)
+            print(f"  Training intraday for {len(_universe)} coins from universe.json")
+        else:
+            _CRYPTO_INTRADAY_SYMBOLS = (
+                "BTC-USD,ETH-USD,SOL-USD,AVAX-USD,LINK-USD,DOGE-USD,"
+                "ADA-USD,CRV-USD,AAVE-USD,RENDER-USD"
+            )
+            print(f"  No universe.json — using hardcoded {len(_CRYPTO_INTRADAY_SYMBOLS.split(','))} coins")
+        sys.argv = [sys.argv[0],
+                     "--symbols", _CRYPTO_INTRADAY_SYMBOLS,
+                     "--save-dir", CRYPTO_INTRADAY_MODEL_DIR,
+                     "--walk-forward"] + sys.argv[1:]
+        from crypto_intraday_model import main as crypto_intraday_main
+        crypto_intraday_main()
 
     elif command == "backtest-portfolio":
         from portfolio_backtester import main as portfolio_bt_main
@@ -183,10 +220,19 @@ def main() -> None:
         from coin_selector import main as selector_main
         selector_main()
 
+    elif command == "screen-universe":
+        # Layer 0: discover tradeable coins from full market
+        from universe_screener import main as screener_main
+        screener_main()
+
     elif command == "model-health":
         from model_monitor import ModelMonitor
         monitor = ModelMonitor()
         print(monitor.generate_report())
+
+    elif command == "weekly-pipeline":
+        import scripts.weekly_pipeline as weekly
+        weekly.main()
 
     elif command == "validate-risk":
         from risk_config import get_risk_config
@@ -205,7 +251,8 @@ def main() -> None:
         print("  Available commands: signals, train, train-meta, train-intraday, train-swing, train-crypto,")
         print("                      predict, backtest, backtest-portfolio, trade, report, training-tables,")
         print("                      divergence-report, select-symbols, check-positions, stop-paper-trader,")
-        print("                      lock-status, model-health, validate-risk, train-selector, rank-coins")
+        print("                      lock-status, model-health, validate-risk, train-selector, rank-coins,")
+        print("                      screen-universe, weekly-pipeline")
         print("  Run `python main.py --help` for usage.\n")
         sys.exit(1)
 

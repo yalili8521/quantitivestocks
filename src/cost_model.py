@@ -108,12 +108,20 @@ def get_symbol_costs(
 ) -> SymbolCosts:
     """Get cost estimates for a symbol, adjusted for session and stress.
 
+    For crypto symbols not in the static map, tries the dynamic universe
+    screener for per-coin cost data based on actual liquidity.
+
     Args:
         symbol: Trading symbol
         session: "regular", "extended", or "closed"
         stress_mult: Multiplier for stress testing (e.g., 2.0 = 2x costs)
     """
-    base = _SYMBOL_COSTS.get(symbol, _MID_ETF)
+    if symbol in _SYMBOL_COSTS:
+        base = _SYMBOL_COSTS[symbol]
+    elif _is_crypto(symbol):
+        base = _get_dynamic_crypto_costs(symbol)
+    else:
+        base = _MID_ETF
 
     session_mult = _EXTENDED_HOURS_MULT if session == "extended" else 1.0
     total_mult = session_mult * stress_mult
@@ -124,6 +132,36 @@ def get_symbol_costs(
         fee_bps=base.fee_bps,
         fill_probability=max(0.5, base.fill_probability ** total_mult),
     )
+
+
+def _is_crypto(symbol: str) -> bool:
+    """Check if symbol looks like a crypto pair."""
+    return symbol.endswith("/USD") or symbol.endswith("-USD")
+
+
+# Cache to avoid re-reading universe.json on every call
+_dynamic_cost_cache: dict = {}
+
+
+def _get_dynamic_crypto_costs(symbol: str) -> SymbolCosts:
+    """Get crypto costs from the universe screener's per-coin data."""
+    if symbol in _dynamic_cost_cache:
+        return _dynamic_cost_cache[symbol]
+
+    try:
+        from universe_screener import get_coin_cost_config
+        cfg = get_coin_cost_config(symbol)
+        costs = SymbolCosts(
+            half_spread_bps=cfg["spread_bps"],
+            slippage_bps=cfg["slippage_bps"],
+            fee_bps=cfg["fee_bps"],
+            fill_probability=0.95 if cfg["liquidity_tier"] in ("mega", "large") else 0.90,
+        )
+    except Exception:
+        costs = _CRYPTO_ALT  # fallback
+
+    _dynamic_cost_cache[symbol] = costs
+    return costs
 
 
 def validate_cost_threshold(

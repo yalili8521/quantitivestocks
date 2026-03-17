@@ -104,7 +104,16 @@ CRYPTO_REGIME_FEATURES = [
     "btc_realized_vol_30",   # BTC 30-day realized volatility (annualized)
     "btc_drawdown",          # BTC drawdown from 90-day high (0 to -1 range)
     "eth_btc_ratio_zscore",  # ETH/BTC ratio z-score vs 60-day rolling mean/std
+    # Short-term BTC trend features — the model needs to know if BTC
+    # has been going UP or DOWN recently, not just whether it's above SMA200.
+    "btc_ret5",              # BTC 5-day return (immediate trend)
+    "btc_ret21",             # BTC 21-day return (monthly trend)
+    "btc_trend_strength",    # BTC price / SMA20 ratio - 1 (>0 = above MA, <0 = below)
+    "btc_momentum_accel",    # btc_ret5 - btc_ret5.shift(5): is BTC accelerating?
 ]
+
+# Crypto sentiment features — OKX L/S ratio, Fear & Greed, Polymarket
+from crypto_sentiment_features import get_crypto_sentiment_features, CryptoSentimentBuilder
 
 # Per-symbol supplement features (fetched from proxy ETFs)
 SWING_SUPPLEMENT_FEATURES: Dict[str, List[str]] = {
@@ -163,16 +172,94 @@ def _is_crypto_swing(symbol: str | None) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Config-driven feature selection (v2)
+# ---------------------------------------------------------------------------
+
+_FEATURE_CONFIG_CACHE: Dict[str, Optional[dict]] = {}
+
+
+def load_feature_config(symbol: str) -> Optional[dict]:
+    """Load feature config JSON for a symbol's asset class.
+
+    Returns None if no config file exists (triggers fallback to hardcoded).
+    """
+    asset_class = "crypto_swing" if _is_crypto_swing(symbol) else "equity_swing"
+    cache_key = asset_class
+
+    if cache_key in _FEATURE_CONFIG_CACHE:
+        return _FEATURE_CONFIG_CACHE[cache_key]
+
+    config_path = os.path.join(PROJECT_ROOT, "config", f"features_{asset_class}.json")
+    if not os.path.exists(config_path):
+        _FEATURE_CONFIG_CACHE[cache_key] = None
+        return None
+
+    try:
+        with open(config_path) as f:
+            config = json.load(f)
+        _FEATURE_CONFIG_CACHE[cache_key] = config
+        log.info("Loaded feature config from %s (%d core features)",
+                 config_path, len(config.get("core_features", [])))
+        return config
+    except (json.JSONDecodeError, IOError) as e:
+        log.warning("Failed to load feature config %s: %s", config_path, e)
+        _FEATURE_CONFIG_CACHE[cache_key] = None
+        return None
+
+
+def resolve_features_from_config(symbol: str, config: dict) -> List[str]:
+    """Resolve core + group + per_coin features for a symbol."""
+    features = list(config.get("core_features", []))
+
+    coin_groups = config.get("coin_groups", {})
+    group_overrides = config.get("group_overrides", {})
+
+    # Apply "crypto_all" override if present
+    if "crypto_all" in group_overrides:
+        override = group_overrides["crypto_all"]
+        features.extend(override.get("add", []))
+        for f in override.get("remove", []):
+            if f in features:
+                features.remove(f)
+
+    # Determine which group(s) this symbol belongs to
+    for group_name, members in coin_groups.items():
+        if symbol in members and group_name in group_overrides:
+            override = group_overrides[group_name]
+            features.extend(override.get("add", []))
+            for f in override.get("remove", []):
+                if f in features:
+                    features.remove(f)
+
+    # Apply per-coin overrides
+    per_coin = config.get("per_coin_overrides", {})
+    if symbol in per_coin:
+        override = per_coin[symbol]
+        features.extend(override.get("add", []))
+        for f in override.get("remove", []):
+            if f in features:
+                features.remove(f)
+
+    return features
+
+
+# ---------------------------------------------------------------------------
 # Feature column registry
 # ---------------------------------------------------------------------------
 
 def get_swing_feature_cols(symbol: str | None = None) -> list:
     """Return full feature list for a swing symbol.
 
-    Composition:
-        17 base + N supplement (EEM/EWT) + cross-asset (3) + options flow (4)
-        + alpha + factor + market (from existing builders)
+    If a config file exists at config/features_{asset_class}.json,
+    loads features from config. Otherwise falls back to hardcoded constants.
     """
+    # Config-driven selection (if config exists)
+    if symbol:
+        config = load_feature_config(symbol)
+        if config is not None:
+            return resolve_features_from_config(symbol, config)
+
+    # --- Fallback: hardcoded feature assembly (original behavior) ---
     cols: list = list(SWING_BASE_FEATURES)
 
     # Regime context features (SPY trend, VIX regime — baked into model, not just inference-time)
@@ -181,6 +268,7 @@ def get_swing_feature_cols(symbol: str | None = None) -> list:
     # Crypto regime features (BTC trend, vol, drawdown, ETH/BTC ratio)
     if _is_crypto_swing(symbol):
         cols.extend(CRYPTO_REGIME_FEATURES)
+        cols.extend(get_crypto_sentiment_features())
 
     # Symbol-specific supplement features
     if symbol and symbol in SWING_SUPPLEMENT_FEATURES:
@@ -225,6 +313,7 @@ class SwingFeatureEngine:
         self._alpha_builder: Optional[AlphaFeatureBuilder] = None
         self._factor_builder: Optional[FactorFeatureBuilder] = None
         self._market_builder: Optional[MarketSignalBuilder] = None
+        self._sentiment_builder: Optional[CryptoSentimentBuilder] = None
         self._supplement_cache: dict = {}
         self._crypto_cache: dict = {}  # cache BTC-USD / ETH-USD close series
 
@@ -357,6 +446,20 @@ class SwingFeatureEngine:
         # --- Crypto regime features (BTC trend, vol, drawdown, ETH/BTC ratio) ---
         if _is_crypto_swing(symbol):
             self._build_crypto_regime(df, bars_df)
+
+        # --- Crypto sentiment features (OKX L/S, Fear & Greed, Polymarket) ---
+        if _is_crypto_swing(symbol):
+            try:
+                if self._sentiment_builder is None:
+                    self._sentiment_builder = CryptoSentimentBuilder()
+                sent_df = self._sentiment_builder.build_features(bars_df, symbol)
+                for col in sent_df.columns:
+                    df[col] = sent_df[col]
+            except Exception as exc:
+                log.warning("Crypto sentiment features failed for %s: %s", symbol, exc)
+                for col in get_crypto_sentiment_features():
+                    if col not in df.columns:
+                        df[col] = np.nan
 
         # --- Supplement features (copper / SOX) ---
         if symbol and symbol in SWING_SUPPLEMENT_FEATURES:
@@ -553,6 +656,21 @@ class SwingFeatureEngine:
             df["eth_btc_ratio_zscore"] = (eth_btc - eb_mean) / eb_std
         else:
             df["eth_btc_ratio_zscore"] = 0.0
+
+        # 5. btc_ret5: BTC 5-day return (immediate trend direction)
+        df["btc_ret5"] = btc_aligned.pct_change(5)
+
+        # 6. btc_ret21: BTC 21-day return (monthly trend)
+        df["btc_ret21"] = btc_aligned.pct_change(21)
+
+        # 7. btc_trend_strength: BTC price / SMA(20) - 1
+        # >0 means BTC is above its 20-day moving average (short-term bullish)
+        btc_sma20 = btc_aligned.rolling(20, min_periods=10).mean()
+        df["btc_trend_strength"] = (btc_aligned / btc_sma20.replace(0, np.nan)) - 1.0
+
+        # 8. btc_momentum_accel: is BTC momentum speeding up or slowing down?
+        btc_ret5 = btc_aligned.pct_change(5)
+        df["btc_momentum_accel"] = btc_ret5 - btc_ret5.shift(5)
 
         # Forward-fill and fill NaN warmup
         for col in CRYPTO_REGIME_FEATURES:
@@ -910,6 +1028,7 @@ def train_swing_model(
     lookback: int = 1000,
     save_dir: str = DEFAULT_MODEL_DIR,
     train_end: Optional[str] = None,  # e.g. "2023-08-01" — hard cutoff for OOS separation
+    train_recent: bool = False,       # walk-forward: train on first 75%, OOS on last 25%
 ) -> Optional[xgb.XGBRegressor]:
     """Train XGBoost swing model (v3 regression).
 
@@ -923,10 +1042,15 @@ def train_swing_model(
         train_end: If set (e.g. "2023-08-01"), all data on or after this date is
                    excluded from training and validation. This creates a clean OOS
                    boundary so backtests starting from train_end are truly OOS.
+        train_recent: If True, walk-forward split — train on first 75% of data,
+                      reserve last 25% as OOS. Sets train_end to the 75% date.
+                      Overrides train_end.
     """
     os.makedirs(save_dir, exist_ok=True)
     log.info("=== Training swing XGBoost for %s ===", symbol)
-    if train_end:
+    if train_recent:
+        log.info("Walk-forward mode: train on first 75%%, OOS on last 25%%.")
+    elif train_end:
         log.info("Training cutoff: data before %s only (OOS boundary).", train_end)
 
     # 1. Fetch data
@@ -942,8 +1066,29 @@ def train_swing_model(
                                      include_live=False)
     log.info("Got %d VIX rows.", len(vix_df))
 
-    # 1b. Apply train_end cutoff — drop any rows on or after the OOS boundary
-    if train_end:
+    # 1b. Walk-forward split: train on first 75%, OOS on last 25%
+    #     This keeps training data in the past and OOS in the future,
+    #     matching production (train on history, deploy forward).
+    #     With ~750 bars (3yr Yahoo), gives ~560 train vs 188 OOS.
+    if train_recent:
+        split_idx = int(len(bars) * 0.75)
+        cutoff_date = None
+        date_col = next((c for c in bars.columns if c.lower() in ("date", "timestamp", "time", "ts")), None)
+        if date_col:
+            cutoff_date = str(pd.to_datetime(bars[date_col].iloc[split_idx]).date())
+        elif hasattr(bars.index, "dtype") and str(bars.index.dtype).startswith("datetime"):
+            cutoff_date = str(bars.index[split_idx].date())
+        # Keep only bars before cutoff for training; OOS starts at cutoff_date
+        bars = bars.iloc[:split_idx].copy().reset_index(drop=True)
+        spy_cut = int(len(spy_bars) * 0.75)
+        spy_bars = spy_bars.iloc[:spy_cut].copy().reset_index(drop=True)
+        if "date" in vix_df.columns and cutoff_date:
+            vix_df = vix_df[pd.to_datetime(vix_df["date"]) < pd.Timestamp(cutoff_date)].copy()
+        train_end = cutoff_date  # store for config — backtests starting here are OOS
+        log.info("Walk-forward split at %s: training on %d bars (first 75%%), OOS after.", cutoff_date, len(bars))
+
+    # 1c. Apply train_end cutoff — drop any rows on or after the OOS boundary
+    elif train_end:
         cutoff = pd.Timestamp(train_end)
         # fetch_daily() returns a RangeIndex DataFrame; find the date column by name
         date_col = next((c for c in bars.columns if c.lower() in ("date", "timestamp", "time", "ts")), None)
@@ -1009,9 +1154,40 @@ def train_swing_model(
         log.error("Validation set too small for %s. Need more data.", symbol)
         return None
 
-    # 6. Train XGBRegressor
-    model = xgb.XGBRegressor(**_XGB_PARAMS)
-    model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+    # 5b. Demean labels for small datasets
+    #     When train_recent=True on short histories (e.g. crypto ~188 samples),
+    #     the training window can be regime-biased (all bearish or all bullish).
+    #     XGBoost's base_score auto-sets to the label mean, making ALL predictions
+    #     carry the regime's sign regardless of features.
+    #     Fix: center labels to zero, train on deviations, add mean back at prediction.
+    #     The mean is saved in the config so the predictor can reconstruct.
+    label_mean = 0.0
+    if len(X_train) < 300:
+        label_mean = float(y_train.mean())
+        y_train = y_train - label_mean
+        y_val = y_val - label_mean
+        log.info("Demeaned labels: subtracted %.4f%% (regime bias removal)", label_mean * 100)
+
+    # 6. Train XGBRegressor — adapt hyperparams to dataset size
+    xgb_params = dict(_XGB_PARAMS)
+    n_train = len(X_train)
+    xgb_params["min_child_weight"] = max(3, n_train // 40)    # ~2.5% of data
+    xgb_params["reg_lambda"] = max(1.0, 2.0 * n_train / 500)  # scale L2 with data
+    xgb_params["reg_alpha"] = max(0.05, 0.2 * n_train / 500)  # scale L1 with data
+    if n_train < 300:
+        # Small dataset: early stopping on tiny val RMSE is unreliable.
+        xgb_params["learning_rate"] = 0.01
+        xgb_params["n_estimators"] = 80
+        xgb_params["max_depth"] = 3
+        xgb_params.pop("early_stopping_rounds", None)
+    log.info("XGB adaptive params: mcw=%d, lambda=%.2f, alpha=%.2f, lr=%.3f, depth=%d, n_est=%d (n_train=%d)",
+             xgb_params["min_child_weight"], xgb_params["reg_lambda"], xgb_params["reg_alpha"],
+             xgb_params["learning_rate"], xgb_params["max_depth"], xgb_params["n_estimators"], n_train)
+    model = xgb.XGBRegressor(**xgb_params)
+    if xgb_params.get("early_stopping_rounds"):
+        model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+    else:
+        model.fit(X_train, y_train, verbose=False)
 
     # 7. Evaluate
     val_preds    = model.predict(X_val)
@@ -1088,6 +1264,8 @@ def train_swing_model(
         "n_features":           n_features,
         "feature_names":        feature_cols,
         "train_end":            train_end or "all_data",
+        "train_mode":           "walk_forward_75_25" if train_recent else "standard",
+        "label_mean_removed":   round(label_mean, 8),
     }
     with open(config_path, "w") as f:
         json.dump(config, f, indent=2)
@@ -1142,6 +1320,7 @@ class SwingPredictor:
         self._tft:   Optional[TFTSwingModel]     = None
         self._tft_seq_len    = _TFT_SEQ_LEN
         self._tft_n_features = 0
+        self._xgb_feature_names: Optional[List[str]] = None  # from model config
         self._spy_adapter    = None   # lazy-loaded for relative momentum
 
         # Dynamic ensemble weighting: track rolling prediction errors
@@ -1166,6 +1345,18 @@ class SwingPredictor:
             )
         self.model = joblib.load(model_path)
         self.engine.load_scaler(scaler_path)
+
+        # Load feature names from XGBoost config (handles feature count mismatch
+        # when new features are added but model hasn't been retrained yet)
+        xgb_cfg_path = os.path.join(self.model_dir, f"{self.symbol}_xgb_swing_config.json")
+        if os.path.exists(xgb_cfg_path):
+            try:
+                with open(xgb_cfg_path) as f:
+                    xgb_cfg = json.load(f)
+                self._xgb_feature_names = xgb_cfg.get("feature_names")
+            except Exception:
+                pass
+
         log.info("Loaded swing XGBoost for %s.", self.symbol)
 
         # --- Optional: TFT ensemble (60%) ---
@@ -1227,7 +1418,13 @@ class SwingPredictor:
             }
 
         features_norm = self.engine.transform(features)
-        x = features_norm.iloc[-1:].values.astype(np.float32)
+
+        # Select only features the XGBoost model was trained with
+        if self._xgb_feature_names:
+            available = [c for c in self._xgb_feature_names if c in features_norm.columns]
+            x = features_norm[available].iloc[-1:].values.astype(np.float32)
+        else:
+            x = features_norm.iloc[-1:].values.astype(np.float32)
         xgb_ret = float(self.model.predict(x)[0])
 
         # --- Dynamic ensemble weighting ---
@@ -1249,7 +1446,14 @@ class SwingPredictor:
                 seq = self._tft_seq_len
                 n   = self._tft_n_features
                 if len(features_norm) >= seq:
-                    window = features_norm.iloc[-seq:].values[:, :n].astype(np.float32)
+                    # Select TFT features by name (same as XGBoost training order)
+                    # to handle new features added after model was trained
+                    if self._xgb_feature_names and len(self._xgb_feature_names) == n:
+                        tft_cols = [c for c in self._xgb_feature_names
+                                    if c in features_norm.columns]
+                        window = features_norm[tft_cols].iloc[-seq:].values.astype(np.float32)
+                    else:
+                        window = features_norm.iloc[-seq:].values[:, :n].astype(np.float32)
                     xt = torch.FloatTensor(window).unsqueeze(0)   # (1, seq, n_feat)
                     with torch.no_grad():
                         tft_ret = self._tft(xt).item()
@@ -1320,6 +1524,9 @@ def main() -> None:
     parser.add_argument("--train-end", default=None,
                         help="Hard cutoff date YYYY-MM-DD — data on/after this date excluded from training. "
                              "Use to create a clean OOS boundary (e.g. --train-end 2023-08-01).")
+    parser.add_argument("--train-recent", action="store_true",
+                        help="Walk-forward split: train on first 75%% of data, OOS on last 25%%. "
+                             "Overrides --train-end.")
     parser.add_argument("--save-dir", default=SWING_MODEL_DIR,
                         help=f"Directory to save model files (default: {SWING_MODEL_DIR})")
     args = parser.parse_args()
@@ -1335,6 +1542,7 @@ def main() -> None:
             fred_key=fred_key,
             lookback=args.lookback,
             train_end=args.train_end,
+            train_recent=args.train_recent,
             save_dir=args.save_dir,
         )
 

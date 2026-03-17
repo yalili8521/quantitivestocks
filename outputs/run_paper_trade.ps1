@@ -97,11 +97,25 @@ $Groups = @(
        ExtraArgs = @(); Command = 'trade'; AlwaysOn = $false },
     @{ Name = 'swing';     EnvPrefix = 'ALPACA_SWING_';     Mode = 'daily';    Interval = '5min';
        ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true },
-    @{ Name = 'crypto';    EnvPrefix = 'ALPACA_CRYPTO_';    Mode = 'daily';    Interval = '5min';
-       ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true }
+    @{ Name = 'crypto';    EnvPrefix = 'KRAKEN_';            Mode = 'daily';    Interval = '5min';
+       ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true; SkipKeyCheck = $true },
+    @{ Name = 'crypto_intraday'; EnvPrefix = 'KRAKEN_';      Mode = 'daily';    Interval = '5min';
+       ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true; SkipKeyCheck = $true }
 )
 
 $CommonArgs = @('-u', 'main.py')
+
+# ---------------------------------------------------------------------------
+# Layer 0: refresh crypto universe (CoinGecko x Kraken, runs once at startup)
+# ---------------------------------------------------------------------------
+Write-Host "`n  [Layer 0] Refreshing crypto universe..."
+$screenLog = Join-Path $LogDir "universe_screen_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+try {
+    & $PythonExe -u main.py screen-universe --top-n 250 2>&1 | Out-File -FilePath $screenLog -Encoding utf8
+    Write-Host "  [Layer 0] Universe screen complete (see $screenLog)"
+} catch {
+    Write-Warning "  [Layer 0] Universe screen failed: $_"
+}
 
 # Stop any existing trader processes (LSTM + range)
 $existingTraders = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
@@ -129,7 +143,7 @@ function Start-TraderGroup {
     $secVar = $grp.EnvPrefix + 'SECRET'
     $keyItem = Get-Item -Path "Env:$keyVar" -ErrorAction SilentlyContinue
     $keyVal  = if ($keyItem) { $keyItem.Value } else { $null }
-    if (-not $keyVal) {
+    if (-not $keyVal -and -not $grp.SkipKeyCheck) {
         Write-Warning "  [$($grp.Name)] $keyVar not set - SKIPPING group (set it in secrets/alpaca.env)"
         return $null
     }

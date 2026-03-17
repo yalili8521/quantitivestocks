@@ -184,10 +184,29 @@ CRYPTO_RISK = RiskConfig(
     max_loss_cooldown_hours=6.0,
 )
 
+CRYPTO_INTRADAY_RISK = RiskConfig(
+    position_pct=0.12,                # smaller size for fast turnover
+    max_position_pct=0.04,
+    max_sector_pct=0.12,
+    max_total_exposure=0.12,
+    max_positions=6,                  # selector picks top-6
+    cost_threshold=0.003,             # 30bps (matches model's COST_THRESHOLD)
+    target_return=0.01,               # 1% for full size (1-hour horizon)
+    disaster_stop_atr_mult=3.0,
+    disaster_stop_max_pct=0.02,       # 2% hard stop (tight for intraday)
+    kelly_cap=0.10,
+    loss_cooldown_hours=0.5,          # 30min cooldown (fast turnover)
+    max_loss_cooldown_hours=1.0,
+    post_loss_size_mult=0.5,
+    post_loss_size_hours=1.0,
+    max_underwater_days=0,            # max-hold handled separately (4h)
+)
+
 GROUP_RISK_CONFIGS: Dict[str, RiskConfig] = {
     "swing": SWING_RISK,
     "intraday": INTRADAY_RISK,
     "crypto": CRYPTO_RISK,
+    "crypto_intraday": CRYPTO_INTRADAY_RISK,
 }
 
 
@@ -288,20 +307,36 @@ def check_position_allowed(
 # ---------------------------------------------------------------------------
 
 # OOS Sharpe registry — updated after each retrain+backtest cycle
-SYMBOL_OOS_SHARPE: Dict[str, float] = {
+_SYMBOL_OOS_SHARPE_FALLBACK: Dict[str, float] = {
     # Swing ETFs (OOS 2024-01-01 → present)
     "GLD": 1.55, "IBIT": 2.20, "SLV": 1.11,
     "SMH": 0.72, "QQQ": 0.65, "GDX": 0.59,
     "IGV": 0.54, "XLK": 0.19,
     # Intraday ETFs (OOS ~90 days)
-    # Note: mapped by their intraday Sharpe, not swing
-    # Crypto (OOS 2025-01-01 → present)
-    "CRV-USD": 1.07, "AVAX-USD": 0.54, "ADA-USD": 0.49,
-    "LINK-USD": 0.48, "DOT-USD": 0.06,
-    "ETH-USD": -0.06, "BTC-USD": -0.36, "SOL-USD": -0.25,
-    "DOGE-USD": -0.54, "SUSHI-USD": -0.07, "AAVE-USD": -0.18,
-    "RENDER-USD": -0.96,
+    "SMH_intraday": 1.0, "SOXX_intraday": 0.8,
+    "IWM_intraday": 0.7, "QQQ_intraday": 0.9,
+    "IGV_intraday": 0.6,
 }
+
+
+def _load_oos_sharpe_from_config() -> Dict[str, float]:
+    """Load OOS Sharpe from config/trading.json, merged with ETF fallbacks."""
+    result = dict(_SYMBOL_OOS_SHARPE_FALLBACK)
+    config_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "config", "trading.json",
+    )
+    try:
+        with open(config_path, "r") as f:
+            cfg = json.load(f)
+        registry = cfg.get("oos_sharpe_registry", {})
+        result.update(registry)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return result
+
+
+SYMBOL_OOS_SHARPE: Dict[str, float] = _load_oos_sharpe_from_config()
 
 # Default per-symbol caps by OOS Sharpe tier
 # These are overridden by config/trading.json symbol_caps if present

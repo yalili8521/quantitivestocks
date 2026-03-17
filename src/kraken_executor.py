@@ -73,6 +73,7 @@ class KrakenExecutor:
         paper: bool = True,
         leverage: int = 2,
         state_dir: Optional[str] = None,
+        state_file: Optional[str] = None,
         initial_balance: float = 10_000.0,
     ):
         import ccxt
@@ -95,7 +96,8 @@ class KrakenExecutor:
                 os.path.dirname(os.path.abspath(__file__)), "..", "outputs"
             )
             os.makedirs(self._state_dir, exist_ok=True)
-            self._state_file = os.path.join(self._state_dir, "kraken_paper_state.json")
+            fname = state_file or "kraken_paper_state.json"
+            self._state_file = os.path.join(self._state_dir, fname)
             self._load_state(initial_balance)
         else:
             log.info("KrakenExecutor initialized in LIVE mode — real orders will be placed")
@@ -128,7 +130,7 @@ class KrakenExecutor:
         self._save_state()
 
     def _save_state(self) -> None:
-        """Persist paper positions and balance to disk."""
+        """Persist paper positions and balance to disk, then sync to GitHub Gist."""
         if not self.paper:
             return
         state = {
@@ -142,6 +144,33 @@ class KrakenExecutor:
                 json.dump(state, f, indent=2)
         except OSError as exc:
             log.error("Failed to save paper state: %s", exc)
+
+        # Sync to GitHub Gist so Vercel API can read it
+        self._sync_to_gist(state)
+
+    def _sync_to_gist(self, state: dict) -> None:
+        """Upload paper state to a GitHub Gist for the Vercel dashboard."""
+        gist_id = os.environ.get("KRAKEN_STATE_GIST_ID", "")
+        gh_token = os.environ.get("GITHUB_TOKEN", "")
+        if not gist_id or not gh_token:
+            return  # silently skip if not configured
+        try:
+            import requests
+            resp = requests.patch(
+                f"https://api.github.com/gists/{gist_id}",
+                headers={
+                    "Authorization": f"token {gh_token}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
+                json={"files": {os.path.basename(self._state_file): {"content": json.dumps(state, indent=2)}}},
+                timeout=10,
+            )
+            if resp.ok:
+                log.debug("Synced paper state to Gist %s", gist_id)
+            else:
+                log.warning("Gist sync failed (%d): %s", resp.status_code, resp.text[:200])
+        except Exception as exc:
+            log.warning("Gist sync error: %s", exc)
 
     # -- Price fetching ----------------------------------------------------
 

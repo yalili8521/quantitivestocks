@@ -676,7 +676,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
     </div>
 
     <div id="live-footer" style="font-size:10px;color:var(--text-dim);text-align:center">
-      Live &bull; Alpaca Paper Trading (3 accounts) &bull; Auto-refreshes every 60s
+      Live &bull; Alpaca + Kraken Paper Trading (4 accounts) &bull; Auto-refreshes every 60s
     </div>
   </div>
 </section>
@@ -2911,7 +2911,7 @@ document.addEventListener('DOMContentLoaded', function() {
             var ppl    = parseFloat(p.unrealized_pl)   || 0;
             var pplPct = (parseFloat(p.unrealized_plpc) || 0) * 100;
             var plColor = ppl >= 0 ? 'var(--positive)' : 'var(--negative)';
-            var side   = parseFloat(p.qty) < 0 ? 'SHORT' : 'LONG';
+            var side   = (p.side === 'short' || parseFloat(p.qty) < 0) ? 'SHORT' : 'LONG';
             var sideColor = side === 'LONG' ? 'var(--positive)' : '#f59e0b';
             var mv     = parseFloat(p.market_value) || 0;
             var rowBg = idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)';
