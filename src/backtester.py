@@ -66,6 +66,12 @@ class Trade:
     atr_at_entry: float = 0.0   # ATR at entry for adaptive stop
     tp_activated: bool = False   # trailing take-profit activated
     tp_trail_peak: float = 0.0   # highest P&L since TP activation
+    breakeven_armed: bool = False  # breakeven ratchet activated
+    signal_flip_count: int = 0     # consecutive signal flips for decay exit
+    # MFE/MAE tracking (updated bar-by-bar)
+    mfe_pct: float = 0.0          # max favorable excursion (best unrealized PnL %)
+    mae_pct: float = 0.0          # max adverse excursion (worst unrealized PnL %, negative)
+    exit_layer: str = ""          # which exit layer fired (safety/breakeven/profit_lock/signal_decay/time)
     exit_date: object = None
     exit_price: Optional[float] = None
     pnl: Optional[float] = None
@@ -107,6 +113,9 @@ class BacktestResult:
     trades: List[Trade] = field(default_factory=list)
     mode: str = "daily"
     intraday_interval: str = "5min"
+    vol_tier: str = ""
+    exit_variant: str = ""
+    bt_group: str = ""
 
 
 # ===================================================================
@@ -145,6 +154,8 @@ class Backtester:
         # Cost model / stress test
         stress_cost_mult: float = 1.0,
         use_cost_model: bool = True,
+        # A/B exit variant
+        exit_variant: Optional[str] = None,
     ):
         self.symbol = symbol
         self.adapter = adapter
@@ -165,6 +176,7 @@ class Backtester:
         self.max_underwater_days = max_underwater_days
         self.stress_cost_mult = stress_cost_mult
         self.use_cost_model = use_cost_model
+        self.exit_variant = exit_variant
 
         # Validate cost threshold against estimated costs
         if use_cost_model:
@@ -779,6 +791,31 @@ class Backtester:
             cash=self.initial_capital,
         )
 
+        # Classify vol tier for this symbol using the price data we already have
+        from risk_config import (classify_vol_tier, compute_vol_metrics,
+                                 get_exit_params, VolTier, ExitVariant)
+        try:
+            _ohlc_df = pd.DataFrame({
+                "High": bars["high"] if "high" in bars.columns else bars["High"],
+                "Low": bars["low"] if "low" in bars.columns else bars["Low"],
+                "Close": bars["close"] if "close" in bars.columns else bars["Close"],
+            })
+            _atr_ratio, _vol20 = compute_vol_metrics(_ohlc_df)
+            _vol_tier = classify_vol_tier(_atr_ratio, _vol20)
+        except Exception:
+            _vol_tier = VolTier.HIGH
+            _atr_ratio, _vol20 = 0.0, 0.0
+
+        # Determine group for exit params: crypto if symbol ends with -USD, else swing
+        _bt_group = "crypto" if self.symbol.endswith("-USD") else "swing"
+        _exit_variant = ExitVariant(self.exit_variant) if self.exit_variant else None
+        _exit_params = get_exit_params(_bt_group, _vol_tier, variant=_exit_variant)
+        self._result_vol_tier = _vol_tier.value
+        self._result_bt_group = _bt_group
+        log.info("Backtest vol tier: %s (ATR/P=%.2f%%, Vol20=%.1f%%, group=%s, variant=%s)",
+                 _vol_tier.value, _atr_ratio * 100, _vol20 * 100, _bt_group,
+                 self.exit_variant or "base")
+
         feature_indices = features_norm.index.tolist()
         log.info("Walking %d bars from %s to %s...", len(feature_indices), start_dt, end_dt)
 
@@ -812,16 +849,29 @@ class Backtester:
                 with torch.no_grad():
                     expected_return = model(x).item()
 
-            # --- Exit logic (v2: signal-decay + disaster stop) ---
+            # --- Exit logic (tier-based: safety > breakeven > profit-lock > signal decay > time) ---
             if portfolio.position is not None:
                 pos = portfolio.position
+                ep = _exit_params
 
                 if pos.direction == "LONG":
                     unrealized_pct = (bar_close - pos.entry_price) / pos.entry_price
                 else:
                     unrealized_pct = (pos.entry_price - bar_close) / pos.entry_price
 
-                # Track peak price for trailing stop
+                # MFE/MAE tracking using High/Low for intrabar extremes
+                bar_high = float(high_s.iloc[feat_idx])
+                bar_low = float(low_s.iloc[feat_idx])
+                if pos.direction == "LONG":
+                    bar_best = (bar_high - pos.entry_price) / pos.entry_price
+                    bar_worst = (bar_low - pos.entry_price) / pos.entry_price
+                else:
+                    bar_best = (pos.entry_price - bar_low) / pos.entry_price
+                    bar_worst = (pos.entry_price - bar_high) / pos.entry_price
+                pos.mfe_pct = max(pos.mfe_pct, bar_best)
+                pos.mae_pct = min(pos.mae_pct, bar_worst)
+
+                # Track peak price
                 if pos.direction == "LONG":
                     pos.peak_price = max(pos.peak_price, bar_close)
                     drawdown_from_peak = (pos.peak_price - bar_close) / pos.peak_price if pos.peak_price > 0 else 0
@@ -829,47 +879,78 @@ class Backtester:
                     pos.peak_price = min(pos.peak_price, bar_close) if pos.peak_price > 0 else bar_close
                     drawdown_from_peak = (bar_close - pos.peak_price) / pos.peak_price if pos.peak_price > 0 else 0
 
-                # Disaster stop: safety net at N×ATR (capped at max_pct)
-                disaster_stop_pct = min(self.disaster_stop_max_pct,
-                                       self.disaster_stop_atr_mult * pos.atr_at_entry / pos.entry_price) if pos.atr_at_entry > 0 else 0.10
-                if unrealized_pct <= -disaster_stop_pct:
+                # LAYER 1: Disaster stop (fixed % or ATR, whichever is tighter)
+                if ep.use_atr and pos.atr_at_entry > 0:
+                    disaster_pct = min(ep.disaster_stop_pct,
+                                       ep.disaster_atr_mult * pos.atr_at_entry / pos.entry_price)
+                else:
+                    disaster_pct = ep.disaster_stop_pct
+                if unrealized_pct <= -disaster_pct:
+                    pos.exit_layer = "safety"
                     self._close_position(portfolio, bar_date, bar_close, "disaster_stop", bar_time=bar_time)
                     self._record_equity(portfolio, bar_date, bar_close)
                     continue
 
-                # Profit-lock trailing stop: activate after 2×ATR profit
-                if pos.atr_at_entry > 0:
-                    profit_lock_threshold = self.profit_lock_atr_mult * pos.atr_at_entry / pos.entry_price
-                    profit_lock_trail = self.profit_lock_trail_atr_mult * pos.atr_at_entry / pos.entry_price
-                    if unrealized_pct >= profit_lock_threshold:
-                        pos.tp_activated = True
-                    if pos.tp_activated and drawdown_from_peak >= profit_lock_trail:
-                        self._close_position(portfolio, bar_date, bar_close, "profit_lock_trail", bar_time=bar_time)
+                # Breakeven ratchet: arm when profitable past threshold
+                if unrealized_pct >= ep.breakeven_ratchet_pct:
+                    pos.breakeven_armed = True
+                if pos.breakeven_armed and unrealized_pct <= 0:
+                    pos.exit_layer = "breakeven"
+                    self._close_position(portfolio, bar_date, bar_close, "breakeven_ratchet", bar_time=bar_time)
+                    self._record_equity(portfolio, bar_date, bar_close)
+                    continue
+
+                # LAYER 2: Profit-lock (arm + trail)
+                if ep.use_atr and pos.atr_at_entry > 0:
+                    arm_pct = min(ep.profit_lock_arm_pct,
+                                  ep.arm_atr_mult * pos.atr_at_entry / pos.entry_price)
+                    trail_pct = min(ep.profit_lock_trail_pct,
+                                    ep.trail_atr_mult * pos.atr_at_entry / pos.entry_price)
+                else:
+                    arm_pct = ep.profit_lock_arm_pct
+                    trail_pct = ep.profit_lock_trail_pct
+
+                if unrealized_pct >= arm_pct:
+                    pos.tp_activated = True
+
+                if pos.tp_activated:
+                    # 2a: Armed + model flips + still profitable -> immediate exit
+                    signal_flipped = ((pos.direction == "LONG" and expected_return <= 0)
+                                      or (pos.direction == "SHORT" and expected_return >= 0))
+                    if signal_flipped and unrealized_pct > 0:
+                        pos.exit_layer = "profit_lock"
+                        self._close_position(portfolio, bar_date, bar_close,
+                                             "profit_lock+signal_decay", bar_time=bar_time)
+                        self._record_equity(portfolio, bar_date, bar_close)
+                        continue
+                    # 2b: Trail from peak
+                    if drawdown_from_peak >= trail_pct:
+                        pos.exit_layer = "profit_lock"
+                        self._close_position(portfolio, bar_date, bar_close,
+                                             "profit_lock_trail", bar_time=bar_time)
                         self._record_equity(portfolio, bar_date, bar_close)
                         continue
 
-                # Signal-decay: exit when expected return reverses
-                if pos.direction == "LONG" and expected_return <= 0:
-                    self._close_position(portfolio, bar_date, bar_close, "signal_decay", bar_time=bar_time)
-                    if portfolio.closed_trades:
-                        swing_recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
-                        if len(swing_recent_wins) == 20 and swing_cooldown_until is None:
-                            wr = sum(swing_recent_wins) / 20
-                            if wr < 0.5:
-                                swing_cooldown_until = bar_date + _td(days=7)
-                                log.info("Swing rolling WR %.0f%% < 50%% → cooldown until %s", wr * 100, swing_cooldown_until)
-                elif pos.direction == "SHORT" and expected_return >= 0:
-                    self._close_position(portfolio, bar_date, bar_close, "signal_decay", bar_time=bar_time)
-                    if portfolio.closed_trades:
-                        swing_recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
-                        if len(swing_recent_wins) == 20 and swing_cooldown_until is None:
-                            wr = sum(swing_recent_wins) / 20
-                            if wr < 0.5:
-                                swing_cooldown_until = bar_date + _td(days=7)
-                                log.info("Swing rolling WR %.0f%% < 50%% → cooldown until %s", wr * 100, swing_cooldown_until)
+                # LAYER 3: Signal decay (consecutive flip requirement)
+                signal_flipped = ((pos.direction == "LONG" and expected_return <= 0)
+                                  or (pos.direction == "SHORT" and expected_return >= 0))
+                if signal_flipped:
+                    pos.signal_flip_count += 1
+                else:
+                    pos.signal_flip_count = 0
 
-                # Max underwater duration: exit if held > N days and still losing
-                if portfolio.position is not None and self.max_underwater_days > 0:
+                if pos.signal_flip_count >= ep.signal_flip_consecutive:
+                    pos.exit_layer = "signal_decay"
+                    self._close_position(portfolio, bar_date, bar_close, "signal_decay", bar_time=bar_time)
+                    if portfolio.closed_trades:
+                        swing_recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
+                        if len(swing_recent_wins) == 20 and swing_cooldown_until is None:
+                            wr = sum(swing_recent_wins) / 20
+                            if wr < 0.5:
+                                swing_cooldown_until = bar_date + _td(days=7)
+
+                # LAYER 4: Max underwater duration
+                if portfolio.position is not None and ep.max_underwater_days > 0:
                     pos = portfolio.position
                     if pos.direction == "LONG":
                         uw_pct = (bar_close - pos.entry_price) / pos.entry_price
@@ -880,9 +961,10 @@ class Backtester:
                             days_held = (bar_date - pos.entry_date).days
                         except TypeError:
                             days_held = 0
-                        if days_held >= self.max_underwater_days:
+                        if days_held >= ep.max_underwater_days:
+                            pos.exit_layer = "time"
                             self._close_position(portfolio, bar_date, bar_close,
-                                                 f"max_underwater_{self.max_underwater_days}d",
+                                                 f"max_underwater_{ep.max_underwater_days}d",
                                                  bar_time=bar_time)
                             self._record_equity(portfolio, bar_date, bar_close)
                             continue
@@ -929,6 +1011,7 @@ class Backtester:
             last_close = float(close_s.iloc[last_idx])
             last_date = bar_dates.iloc[last_idx]
             last_time = bar_timestamps.iloc[last_idx] if self.mode != "daily" else None
+            portfolio.position.exit_layer = "time"
             self._close_position(portfolio, last_date, last_close, "end_of_backtest",
                                  bar_time=last_time)
             self._record_equity(portfolio, last_date, last_close)
@@ -1160,6 +1243,9 @@ class Backtester:
             trades=portfolio.closed_trades,
             mode=self.mode,
             intraday_interval=self.intraday_interval,
+            vol_tier=getattr(self, '_result_vol_tier', ''),
+            exit_variant=self.exit_variant or '',
+            bt_group=getattr(self, '_result_bt_group', ''),
         )
 
 
@@ -1433,9 +1519,16 @@ def print_report(result: BacktestResult) -> None:
     result.equity_curve.to_csv(csv_path, index=False)
     print(f"\n  Equity curve saved to {csv_path}")
 
-    summary_path = os.path.join(BACKTEST_DIR, f"backtest_{result.symbol}{mode_suffix}_summary.json")
+    # Variant-specific backtest dir
+    variant_tag = result.exit_variant
+    if variant_tag:
+        bt_dir = os.path.join(os.path.dirname(BACKTEST_DIR), f"backtests_{variant_tag}")
+        os.makedirs(bt_dir, exist_ok=True)
+    else:
+        bt_dir = BACKTEST_DIR
+    summary_path = os.path.join(bt_dir, f"backtest_{result.symbol}{mode_suffix}_summary.json")
     # Also write the non-suffixed version for backwards compat
-    summary_path_compat = os.path.join(BACKTEST_DIR, f"backtest_{result.symbol}_summary.json")
+    summary_path_compat = os.path.join(bt_dir, f"backtest_{result.symbol}_summary.json")
     summary = {
         "symbol": result.symbol,
         "mode": getattr(result, "mode", "daily"),
@@ -1454,6 +1547,9 @@ def print_report(result: BacktestResult) -> None:
         "avg_loss_pct": float(result.avg_loss_pct),
         "profit_factor": float(result.profit_factor) if result.profit_factor != float("inf") else None,
         "avg_trade_duration_days": float(result.avg_trade_duration_days),
+        "vol_tier": result.vol_tier,
+        "exit_variant": variant_tag or "base",
+        "bt_group": result.bt_group,
     }
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
@@ -1462,18 +1558,32 @@ def print_report(result: BacktestResult) -> None:
 
     # Save trade history
     if result.trades:
-        os.makedirs(TRADES_DIR, exist_ok=True)
-        trades_csv = os.path.join(TRADES_DIR, f"trades_{result.symbol}{mode_suffix}.csv")
+        # Variant-specific output dir
+        variant_tag = result.exit_variant
+        if variant_tag:
+            trades_dir = os.path.join(os.path.dirname(TRADES_DIR), f"trades_{variant_tag}")
+        else:
+            trades_dir = TRADES_DIR
+        os.makedirs(trades_dir, exist_ok=True)
+        trades_csv = os.path.join(trades_dir, f"trades_{result.symbol}{mode_suffix}.csv")
         rows = []
         for t in result.trades:
             pnl = t.pnl or 0.0
             ret_pct = (pnl / (t.size * t.entry_price)) if t.size and t.entry_price else 0.0
             rows.append({
+                "symbol": result.symbol,
+                "group": result.bt_group,
+                "tier": result.vol_tier,
+                "variant": variant_tag or "base",
                 "direction": t.direction,
-                "entry_date": t.entry_date, "entry_price": round(t.entry_price, 2),
-                "exit_date": t.exit_date, "exit_price": round(t.exit_price, 2),
-                "shares": round(t.size, 2), "pnl": round(pnl, 2),
-                "return_pct": round(ret_pct * 100, 2), "exit_reason": t.exit_reason,
+                "entry_date": t.entry_date, "entry_price": round(t.entry_price, 4),
+                "exit_date": t.exit_date, "exit_price": round(t.exit_price, 4),
+                "shares": round(t.size, 4), "pnl": round(pnl, 2),
+                "return_pct": round(ret_pct * 100, 4),
+                "mfe_pct": round(t.mfe_pct * 100, 4),
+                "mae_pct": round(t.mae_pct * 100, 4),
+                "exit_reason": t.exit_reason,
+                "exit_layer": t.exit_layer,
             })
         pd.DataFrame(rows).to_csv(trades_csv, index=False)
         print(f"  Trade history saved to {trades_csv}\n")
@@ -1622,6 +1732,8 @@ def main() -> None:
                         help="Cost multiplier for stress testing (default: 1.0; use 2.0 or 3.0 for stress)")
     parser.add_argument("--no-cost-model", action="store_true",
                         help="Disable cost model (use raw prices, no slippage)")
+    parser.add_argument("--exit-variant", default=None, choices=["A", "B"],
+                        help="A/B exit variant: A=tighter, B=looser (default: base params)")
 
     args = parser.parse_args()
 
@@ -1668,6 +1780,7 @@ def main() -> None:
         max_underwater_days=args.max_underwater_days,
         stress_cost_mult=args.stress_cost_mult,
         use_cost_model=not args.no_cost_model,
+        exit_variant=args.exit_variant,
     )
 
     result = bt.run(start_date=args.start, end_date=args.end)

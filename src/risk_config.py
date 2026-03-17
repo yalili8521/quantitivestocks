@@ -10,7 +10,8 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
+from enum import Enum
+from typing import Dict, List, Optional, Set, Tuple
 
 log = logging.getLogger(__name__)
 
@@ -584,3 +585,220 @@ def evaluate_derisk(
         state.halved = False
 
     return "ok", ""
+
+
+# ---------------------------------------------------------------------------
+# Volatility tiers — asset-aware exit parameters
+# ---------------------------------------------------------------------------
+
+class VolTier(Enum):
+    MEDIUM = "medium"
+    HIGH = "high"
+    ULTRA = "ultra"
+
+
+@dataclass(frozen=True)
+class ExitParams:
+    """Fixed-percentage exit thresholds for a (group, vol_tier) pair."""
+    disaster_stop_pct: float          # max loss before forced exit
+    profit_lock_arm_pct: float        # PnL threshold to arm profit-lock
+    profit_lock_trail_pct: float      # retrace from peak to trigger exit once armed
+    breakeven_ratchet_pct: float      # once PnL >= this, floor stop = entry price
+    max_underwater_days: int          # max days underwater before forced exit
+    use_atr: bool = False             # True = use ATR multipliers instead of fixed %
+    # ATR multipliers (only used when use_atr=True)
+    disaster_atr_mult: float = 3.0
+    arm_atr_mult: float = 2.0
+    trail_atr_mult: float = 1.5
+    # Signal-decay interaction
+    signal_flip_consecutive: int = 2  # require N consecutive flips before exit
+
+
+# Per-group, per-tier exit configs (calibrated from MFE/MAE analysis, 4040 trades)
+# EV breakeven at ~-3% MAE; equity recovery 0% past -10%; crypto ~44% to -8%
+EXIT_PARAMS: Dict[str, Dict[VolTier, ExitParams]] = {
+    "swing": {
+        VolTier.MEDIUM: ExitParams(
+            disaster_stop_pct=0.04, profit_lock_arm_pct=0.02,
+            profit_lock_trail_pct=0.015, breakeven_ratchet_pct=0.015,
+            max_underwater_days=90, use_atr=True,
+            disaster_atr_mult=3.0, arm_atr_mult=2.0, trail_atr_mult=1.5,
+            signal_flip_consecutive=2,
+        ),
+        VolTier.HIGH: ExitParams(
+            disaster_stop_pct=0.07, profit_lock_arm_pct=0.04,
+            profit_lock_trail_pct=0.025, breakeven_ratchet_pct=0.02,
+            max_underwater_days=60, signal_flip_consecutive=2,
+        ),
+        VolTier.ULTRA: ExitParams(
+            disaster_stop_pct=0.06, profit_lock_arm_pct=0.03,
+            profit_lock_trail_pct=0.015, breakeven_ratchet_pct=0.015,
+            max_underwater_days=45, signal_flip_consecutive=2,
+        ),
+    },
+    "intraday": {
+        VolTier.MEDIUM: ExitParams(
+            disaster_stop_pct=0.03, profit_lock_arm_pct=0.008,
+            profit_lock_trail_pct=0.004, breakeven_ratchet_pct=0.005,
+            max_underwater_days=1, signal_flip_consecutive=1,
+        ),
+        VolTier.HIGH: ExitParams(
+            disaster_stop_pct=0.04, profit_lock_arm_pct=0.012,
+            profit_lock_trail_pct=0.006, breakeven_ratchet_pct=0.007,
+            max_underwater_days=1, signal_flip_consecutive=1,
+        ),
+        VolTier.ULTRA: ExitParams(
+            disaster_stop_pct=0.04, profit_lock_arm_pct=0.012,
+            profit_lock_trail_pct=0.006, breakeven_ratchet_pct=0.007,
+            max_underwater_days=1, signal_flip_consecutive=1,
+        ),
+    },
+    "crypto": {
+        VolTier.MEDIUM: ExitParams(
+            disaster_stop_pct=0.08, profit_lock_arm_pct=0.04,
+            profit_lock_trail_pct=0.02, breakeven_ratchet_pct=0.02,
+            max_underwater_days=30, signal_flip_consecutive=2,
+        ),
+        VolTier.HIGH: ExitParams(
+            disaster_stop_pct=0.08, profit_lock_arm_pct=0.04,
+            profit_lock_trail_pct=0.02, breakeven_ratchet_pct=0.02,
+            max_underwater_days=30, signal_flip_consecutive=2,
+        ),
+        VolTier.ULTRA: ExitParams(
+            disaster_stop_pct=0.08, profit_lock_arm_pct=0.04,
+            profit_lock_trail_pct=0.02, breakeven_ratchet_pct=0.02,
+            max_underwater_days=30, signal_flip_consecutive=2,
+        ),
+    },
+    "crypto_intraday": {
+        VolTier.MEDIUM: ExitParams(
+            disaster_stop_pct=0.03, profit_lock_arm_pct=0.007,
+            profit_lock_trail_pct=0.004, breakeven_ratchet_pct=0.005,
+            max_underwater_days=0, signal_flip_consecutive=1,
+        ),
+        VolTier.HIGH: ExitParams(
+            disaster_stop_pct=0.03, profit_lock_arm_pct=0.007,
+            profit_lock_trail_pct=0.004, breakeven_ratchet_pct=0.005,
+            max_underwater_days=0, signal_flip_consecutive=1,
+        ),
+        VolTier.ULTRA: ExitParams(
+            disaster_stop_pct=0.03, profit_lock_arm_pct=0.007,
+            profit_lock_trail_pct=0.004, breakeven_ratchet_pct=0.005,
+            max_underwater_days=0, signal_flip_consecutive=1,
+        ),
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# A/B exit variant system
+# ---------------------------------------------------------------------------
+
+class ExitVariant(Enum):
+    A = "A"  # tighter stops + trails
+    B = "B"  # current/looser stops + trails
+
+
+# Only override the groups/tiers under test; everything else uses EXIT_PARAMS
+EXIT_VARIANT_OVERRIDES: Dict[ExitVariant, Dict[str, Dict[VolTier, ExitParams]]] = {
+    ExitVariant.A: {
+        "swing": {
+            VolTier.ULTRA: ExitParams(
+                disaster_stop_pct=0.06, profit_lock_arm_pct=0.03,
+                profit_lock_trail_pct=0.015, breakeven_ratchet_pct=0.015,
+                max_underwater_days=45, signal_flip_consecutive=2,
+            ),
+        },
+        "crypto": {
+            VolTier.HIGH: ExitParams(
+                disaster_stop_pct=0.08, profit_lock_arm_pct=0.04,
+                profit_lock_trail_pct=0.02, breakeven_ratchet_pct=0.02,
+                max_underwater_days=30, signal_flip_consecutive=2,
+            ),
+        },
+    },
+    ExitVariant.B: {
+        "swing": {
+            VolTier.ULTRA: ExitParams(
+                disaster_stop_pct=0.08, profit_lock_arm_pct=0.03,
+                profit_lock_trail_pct=0.020, breakeven_ratchet_pct=0.015,
+                max_underwater_days=45, signal_flip_consecutive=2,
+            ),
+        },
+        "crypto": {
+            VolTier.HIGH: ExitParams(
+                disaster_stop_pct=0.10, profit_lock_arm_pct=0.04,
+                profit_lock_trail_pct=0.025, breakeven_ratchet_pct=0.02,
+                max_underwater_days=30, signal_flip_consecutive=2,
+            ),
+        },
+    },
+}
+
+
+def classify_vol_tier(
+    atr_price_ratio: float,
+    vol20_annualized: float,
+) -> VolTier:
+    """Classify a symbol into a volatility tier.
+
+    Args:
+        atr_price_ratio: ATR(14) / current_price
+        vol20_annualized: 20-day realized volatility (annualized, e.g. 0.50 = 50%)
+    """
+    if atr_price_ratio > 0.05 or vol20_annualized > 0.50:
+        return VolTier.ULTRA
+    if atr_price_ratio > 0.025 or vol20_annualized > 0.35:
+        return VolTier.HIGH
+    return VolTier.MEDIUM
+
+
+def compute_vol_metrics(prices_df) -> Tuple[float, float]:
+    """Compute ATR/Price ratio and 20d annualized vol from a DataFrame with OHLC columns.
+
+    Args:
+        prices_df: DataFrame with 'High', 'Low', 'Close' columns (at least 21 rows)
+
+    Returns:
+        (atr_price_ratio, vol20_annualized)
+    """
+    import numpy as np
+
+    close = prices_df["Close"].values.flatten()
+    high = prices_df["High"].values.flatten()
+    low = prices_df["Low"].values.flatten()
+
+    # ATR(14)
+    trs = []
+    for i in range(1, len(close)):
+        trs.append(max(high[i] - low[i],
+                       abs(high[i] - close[i - 1]),
+                       abs(low[i] - close[i - 1])))
+    atr14 = float(np.mean(trs[-14:])) if len(trs) >= 14 else float(np.mean(trs))
+    atr_price_ratio = atr14 / close[-1] if close[-1] > 0 else 0.0
+
+    # 20d realized vol (annualized)
+    if len(close) >= 21:
+        rets = np.diff(np.log(close[-21:]))
+        vol20 = float(np.std(rets) * np.sqrt(252))
+    else:
+        rets = np.diff(np.log(close))
+        vol20 = float(np.std(rets) * np.sqrt(252)) if len(rets) > 1 else 0.0
+
+    return atr_price_ratio, vol20
+
+
+def get_exit_params(group: str, tier: VolTier,
+                    variant: Optional[ExitVariant] = None) -> ExitParams:
+    """Look up exit parameters for a (group, tier) pair, optionally with A/B variant.
+
+    If variant is set, checks EXIT_VARIANT_OVERRIDES first for that (group, tier).
+    Falls back to EXIT_PARAMS, then to HIGH tier, then to swing group.
+    """
+    if variant is not None:
+        overrides = EXIT_VARIANT_OVERRIDES.get(variant, {})
+        group_overrides = overrides.get(group, {})
+        if tier in group_overrides:
+            return group_overrides[tier]
+    group_params = EXIT_PARAMS.get(group, EXIT_PARAMS["swing"])
+    return group_params.get(tier, group_params.get(VolTier.HIGH, list(group_params.values())[0]))

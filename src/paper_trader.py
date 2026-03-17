@@ -516,6 +516,73 @@ class AlpacaPaperTrader:
         self._entry_predictions: Dict[str, float] = {}  # symbol → predicted return at entry
         self._derisk_states: Dict[str, DeRiskState] = {}  # symbol → rolling perf tracker
 
+        # Volatility-tier exit params (classified at startup, recomputed weekly)
+        from src.risk_config import (VolTier, ExitParams, classify_vol_tier,
+                                     compute_vol_metrics, get_exit_params)
+        self._vol_tiers: Dict[str, VolTier] = {}
+        self._exit_params: Dict[str, ExitParams] = {}
+        self._vol_tier_last_update: Optional[datetime] = None
+        self._breakeven_floor: Dict[str, float] = {}  # symbol → floor price (entry or higher)
+        self._signal_flip_counts: Dict[str, int] = {}  # consecutive signal flips
+        self._classify_vol_tiers()
+
+    # -- Volatility tier classification -----------------------------------
+
+    def _classify_vol_tiers(self) -> None:
+        """Classify all symbols into volatility tiers and cache exit params.
+
+        Called at startup and recomputed weekly.
+        """
+        from src.risk_config import (classify_vol_tier, compute_vol_metrics,
+                                     get_exit_params, VolTier)
+        import yfinance as yf
+
+        yf_symbols = []
+        sym_map = {}  # yf_symbol → original symbol
+        for sym in self.symbols:
+            yf_sym = _crypto_to_yfinance(sym) if _is_crypto_symbol(sym) else sym
+            yf_symbols.append(yf_sym)
+            sym_map[yf_sym] = sym
+
+        try:
+            data = yf.download(yf_symbols, period="60d", progress=False, threads=True)
+            for yf_sym, orig_sym in sym_map.items():
+                try:
+                    if len(yf_symbols) == 1:
+                        df = data
+                    else:
+                        df = data.xs(yf_sym, axis=1, level=1) if hasattr(data.columns, 'levels') else data
+                    if len(df) < 15:
+                        raise ValueError(f"insufficient data ({len(df)} rows)")
+                    atr_ratio, vol20 = compute_vol_metrics(df)
+                    tier = classify_vol_tier(atr_ratio, vol20)
+                    self._vol_tiers[orig_sym] = tier
+                    self._exit_params[orig_sym] = get_exit_params(self.group or "swing", tier)
+                    log.info("Vol tier %s: %s (ATR/P=%.2f%%, Vol20=%.1f%%)",
+                             orig_sym, tier.value, atr_ratio * 100, vol20 * 100)
+                except Exception as exc:
+                    log.warning("Vol tier classification failed for %s: %s — defaulting to HIGH",
+                                orig_sym, exc)
+                    self._vol_tiers[orig_sym] = VolTier.HIGH
+                    self._exit_params[orig_sym] = get_exit_params(self.group or "swing", VolTier.HIGH)
+        except Exception as exc:
+            log.warning("Vol tier bulk download failed: %s — defaulting all to HIGH", exc)
+            for sym in self.symbols:
+                self._vol_tiers[sym] = VolTier.HIGH
+                self._exit_params[sym] = get_exit_params(self.group or "swing", VolTier.HIGH)
+
+        self._vol_tier_last_update = datetime.now(timezone.utc)
+
+    def _maybe_recompute_vol_tiers(self) -> None:
+        """Recompute vol tiers weekly."""
+        if self._vol_tier_last_update is None:
+            self._classify_vol_tiers()
+            return
+        elapsed = (datetime.now(timezone.utc) - self._vol_tier_last_update).total_seconds()
+        if elapsed > 7 * 24 * 3600:  # 7 days
+            log.info("Weekly vol tier recomputation triggered")
+            self._classify_vol_tiers()
+
     # -- Predictor factory (selects model type per group) ----------------
     @staticmethod
     def _create_predictor(symbol: str, group: Optional[str], model_dir: str,
@@ -1224,10 +1291,9 @@ class AlpacaPaperTrader:
         if exit_only and not has_position:
             return "EXIT-ONLY  (no position — symbol not in this group)"
 
-        # --- Exit logic ---
+        # --- Exit logic (tier-based) ---
         if has_position:
             qty = pos["qty"]
-            # For equities qty is int; for crypto it can be float
             qty_display = f"{qty:.6f}" if is_crypto and isinstance(qty, float) else str(int(qty))
             side = pos["side"]
             current_price = pos["current_price"]
@@ -1236,7 +1302,7 @@ class AlpacaPaperTrader:
 
             use_legacy_stops = exit_only or (symbol in self._legacy_stricter_exit)
 
-            # Initialize peak from entry_price
+            # Peak tracking (best price for this position's direction)
             if symbol not in self._peak_prices:
                 self._peak_prices[symbol] = entry_price
             if side == "LONG":
@@ -1249,7 +1315,31 @@ class AlpacaPaperTrader:
                                       / self._peak_prices[symbol]
                                       if self._peak_prices[symbol] > 0 else 0)
 
-            # EOD exit for intraday momentum models: close all positions at 15:30 ET
+            # Get tier-based exit params for this symbol
+            ep = self._exit_params.get(symbol)
+            tier = self._vol_tiers.get(symbol)
+            if ep is None:
+                from src.risk_config import get_exit_params, VolTier
+                ep = get_exit_params(self.group or "swing", VolTier.HIGH)
+                tier = VolTier.HIGH
+
+            # Helper: execute exit order and return action string
+            def _do_exit(reason: str, layer: str) -> Optional[str]:
+                if side == "LONG":
+                    oid = self.sell(symbol, qty, reason=reason, limit_price=current_price)
+                else:
+                    oid = self.buy_to_cover(symbol, qty, reason=reason, limit_price=current_price)
+                if oid is None:
+                    return None  # market closed
+                self._record_closed_trade(pnl_pct, symbol)
+                self._log_daily_trade(symbol, side, qty, current_price, reason, pnl_pct)
+                log.info("EXIT layer=%s symbol=%s tier=%s pnl=%.2f%% reason=%s",
+                         layer, symbol, tier.value if tier else "?", pnl_pct * 100, reason)
+                self._clear_symbol_state(symbol)
+                return (f"EXIT  ({reason}, P&L={pnl_pct:+.2%}, {qty_display} sh {side})  "
+                        f"ML: {direction} E[r]={expected_return:+.4f}  [layer={layer}, tier={tier.value if tier else '?'}]")
+
+            # --- EOD exit for intraday momentum models ---
             predictor = self.predictors.get(symbol)
             if getattr(predictor, 'eod_exit', False):
                 try:
@@ -1259,180 +1349,173 @@ class AlpacaPaperTrader:
                 import datetime as _dt
                 now_et = _dt.datetime.now(ZoneInfo("America/New_York"))
                 if now_et.time() >= _dt.time(15, 30):
-                    exit_reason = "eod_exit (intraday momentum)"
-                    if side == "LONG":
-                        self.sell(symbol, qty, reason=exit_reason,
-                                  limit_price=current_price)
-                    else:
-                        self.buy_to_cover(symbol, qty, reason=exit_reason,
-                                          limit_price=current_price)
-                    self._record_closed_trade(pnl_pct, symbol)
-                    self._log_daily_trade(symbol, side, qty, current_price, exit_reason, pnl_pct)
-                    self._clear_symbol_state(symbol)
-                    return (f"EXIT  (EOD close {pnl_pct:+.2%}, {qty_display} sh {side})  "
-                            f"ML: {direction} E[r]={expected_return:+.4f}")
+                    result = _do_exit("eod_exit (intraday momentum)", "eod")
+                    if result:
+                        return result
+                    return f"EXIT-DEFERRED  (EOD close, market closed)"
 
             # Legacy positions: trailing stop (3% from peak)
             if use_legacy_stops:
                 if drawdown_from_peak >= LEGACY_TRAILING_STOP_PCT:
-                    exit_reason = f"legacy_trailing_stop ({drawdown_from_peak:.2%})"
-                    if side == "LONG":
-                        oid = self.sell(symbol, qty, reason=exit_reason,
-                                       limit_price=current_price)
-                    else:
-                        oid = self.buy_to_cover(symbol, qty, reason=exit_reason,
-                                               limit_price=current_price)
-                    if oid is None:
-                        return f"EXIT-DEFERRED  (legacy trailing stop, market closed)"
-                    self._record_closed_trade(pnl_pct, symbol)
-                    self._log_daily_trade(symbol, side, qty, current_price, exit_reason, pnl_pct)
-                    self._clear_symbol_state(symbol)
-                    return (f"EXIT  (legacy trailing stop {drawdown_from_peak:.2%} from peak, "
-                            f"{qty_display} sh {side})  ML: {direction} E[r]={expected_return:+.4f}")
+                    result = _do_exit(f"legacy_trailing_stop ({drawdown_from_peak:.2%})", "legacy")
+                    if result:
+                        return result
+                    return f"EXIT-DEFERRED  (legacy trailing stop, market closed)"
 
-            # --- Priority 1: Disaster stop (safety net at N*ATR) ---
+            # ===== LAYER 1: Hard safety (disaster stop) =====
             if not use_legacy_stops:
-                entry_atr = self._entry_atrs.get(symbol, bar_atr)
-                if entry_atr > 0 and entry_price > 0:
-                    disaster_stop_pct = min(self.disaster_stop_max_pct,
-                                           self.disaster_stop_atr_mult * entry_atr / entry_price)
-                else:
-                    disaster_stop_pct = 0.10
-                if pnl_pct <= -disaster_stop_pct:
-                    exit_reason = f"disaster_stop ({pnl_pct:+.2%})"
-                    if side == "LONG":
-                        oid = self.sell(symbol, qty, reason=exit_reason,
-                                       limit_price=current_price)
+                if ep.use_atr:
+                    entry_atr = self._entry_atrs.get(symbol, bar_atr)
+                    if entry_atr > 0 and entry_price > 0:
+                        disaster_stop_pct = min(ep.disaster_stop_pct,
+                                                ep.disaster_atr_mult * entry_atr / entry_price)
                     else:
-                        oid = self.buy_to_cover(symbol, qty, reason=exit_reason,
-                                               limit_price=current_price)
-                    if oid is None:
+                        disaster_stop_pct = ep.disaster_stop_pct
+                else:
+                    disaster_stop_pct = ep.disaster_stop_pct
+
+                if pnl_pct <= -disaster_stop_pct:
+                    reason = f"disaster_stop ({pnl_pct:+.2%} <= -{disaster_stop_pct:.2%})"
+                    result = _do_exit(reason, "safety")
+                    if result is None:
                         return f"EXIT-DEFERRED  (disaster stop {pnl_pct:+.2%}, market closed)"
-                    self._record_closed_trade(pnl_pct, symbol)
-                    self._log_daily_trade(symbol, side, qty, current_price, exit_reason, pnl_pct)
-                    self._clear_symbol_state(symbol)
-                    # Opt #1: use the longer max-loss cooldown (2h intraday vs 0.5h normal)
                     cd_hours = self.max_loss_cooldown_hours
                     if cd_hours > 0:
-                        cd = timedelta(hours=cd_hours)
-                        self._cooldown_until[symbol] = datetime.now(timezone.utc) + cd
-                        log.info("Max-loss cooldown %s: no re-entry for %.1fh after disaster stop", symbol, cd_hours)
-                    # Opt #2/#5: record the exit direction and time for same-dir penalty + reduced sizing
+                        self._cooldown_until[symbol] = datetime.now(timezone.utc) + timedelta(hours=cd_hours)
+                        log.info("Max-loss cooldown %s: %.1fh after disaster stop", symbol, cd_hours)
                     self._max_loss_exits[symbol] = {
-                        "direction": side,
-                        "time": datetime.now(timezone.utc),
+                        "direction": side, "time": datetime.now(timezone.utc),
                     }
-                    return (f"EXIT  (disaster stop {pnl_pct:+.2%} >= -{disaster_stop_pct:.2%} "
-                            f"[{self.disaster_stop_atr_mult}xATR], "
-                            f"{qty_display} sh {side})  ML: {direction} E[r]={expected_return:+.4f}")
+                    return result
 
-            # --- Priority 2: Profit-lock trailing stop ---
+            # ===== Breakeven ratchet: set floor once profitable past threshold =====
+            if not use_legacy_stops and pnl_pct >= ep.breakeven_ratchet_pct:
+                if symbol not in self._breakeven_floor:
+                    self._breakeven_floor[symbol] = entry_price
+                    log.info("Breakeven ratchet armed for %s at entry=%.4f (PnL=%.2f%%)",
+                             symbol, entry_price, pnl_pct * 100)
+            # Check breakeven floor violation
+            if not use_legacy_stops and symbol in self._breakeven_floor:
+                floor = self._breakeven_floor[symbol]
+                floor_breached = (current_price <= floor if side == "LONG"
+                                  else current_price >= floor)
+                if floor_breached and pnl_pct <= 0:
+                    reason = (f"breakeven_ratchet (floor=${floor:.4f}, "
+                              f"current=${current_price:.4f})")
+                    result = _do_exit(reason, "breakeven")
+                    if result is None:
+                        return f"EXIT-DEFERRED  (breakeven ratchet, market closed)"
+                    return result
+
+            # ===== LAYER 2: Profit protection (profit-lock arm + trail) =====
             if not use_legacy_stops:
-                entry_atr = self._entry_atrs.get(symbol, bar_atr)
-                if entry_atr > 0 and entry_price > 0:
-                    profit_lock_threshold = self.profit_lock_atr_mult * entry_atr / entry_price
-                    profit_lock_trail = self.profit_lock_trail_atr_mult * entry_atr / entry_price
-                    if pnl_pct >= profit_lock_threshold:
-                        self._profit_lock_active[symbol] = True
-                    if self._profit_lock_active.get(symbol, False) and drawdown_from_peak >= profit_lock_trail:
-                        exit_reason = (f"profit_lock_trail ({drawdown_from_peak:.2%} from peak, "
-                                       f"P&L={pnl_pct:+.2%})")
-                        if side == "LONG":
-                            oid = self.sell(symbol, qty, reason=exit_reason,
-                                           limit_price=current_price)
-                        else:
-                            oid = self.buy_to_cover(symbol, qty, reason=exit_reason,
-                                                   limit_price=current_price)
-                        if oid is None:
+                if ep.use_atr:
+                    entry_atr = self._entry_atrs.get(symbol, bar_atr)
+                    if entry_atr > 0 and entry_price > 0:
+                        arm_pct = min(ep.profit_lock_arm_pct,
+                                      ep.arm_atr_mult * entry_atr / entry_price)
+                        trail_pct = min(ep.profit_lock_trail_pct,
+                                        ep.trail_atr_mult * entry_atr / entry_price)
+                    else:
+                        arm_pct = ep.profit_lock_arm_pct
+                        trail_pct = ep.profit_lock_trail_pct
+                else:
+                    arm_pct = ep.profit_lock_arm_pct
+                    trail_pct = ep.profit_lock_trail_pct
+
+                # Arm profit-lock when PnL exceeds threshold
+                if pnl_pct >= arm_pct:
+                    if not self._profit_lock_active.get(symbol, False):
+                        log.info("Profit-lock ARMED for %s at PnL=%.2f%% (arm=%.2f%%)",
+                                 symbol, pnl_pct * 100, arm_pct * 100)
+                    self._profit_lock_active[symbol] = True
+
+                profit_lock_armed = self._profit_lock_active.get(symbol, False)
+
+                if profit_lock_armed:
+                    # 2a: Profit-lock armed + model flips + still profitable → exit immediately
+                    signal_flipped = ((side == "LONG" and expected_return <= 0)
+                                      or (side == "SHORT" and expected_return >= 0))
+                    if signal_flipped and pnl_pct > 0:
+                        reason = (f"profit_lock+signal_decay (armed, E[r]={expected_return:+.4f}, "
+                                  f"PnL={pnl_pct:+.2%})")
+                        result = _do_exit(reason, "profit_lock+signal")
+                        if result is None:
+                            return (f"EXIT-DEFERRED  (profit-lock+signal decay, market closed)")
+                        self._decay_cooldown_until[symbol] = (
+                            datetime.now(timezone.utc) + timedelta(seconds=2 * self.check_interval))
+                        return result
+
+                    # 2b: Price hits trail → exit (price invalidates leg even if model is slow)
+                    if drawdown_from_peak >= trail_pct:
+                        reason = (f"profit_lock_trail ({drawdown_from_peak:.2%} from peak, "
+                                  f"PnL={pnl_pct:+.2%}, trail={trail_pct:.2%})")
+                        result = _do_exit(reason, "profit_lock")
+                        if result is None:
                             return f"EXIT-DEFERRED  (profit-lock trail, market closed)"
-                        self._record_closed_trade(pnl_pct, symbol)
-                        self._log_daily_trade(symbol, side, qty, current_price, exit_reason, pnl_pct)
-                        self._clear_symbol_state(symbol)
-                        return (f"EXIT  (profit-lock trail {drawdown_from_peak:.2%} from peak, "
-                                f"P&L={pnl_pct:+.2%}, {qty_display} sh {side})  "
-                                f"ML: {direction} E[r]={expected_return:+.4f}")
+                        return result
 
-            # --- Priority 3: Signal-decay exit ---
+            # ===== LAYER 3: Model-state exits (signal decay) =====
             if not use_legacy_stops:
-                if side == "LONG" and expected_return <= 0:
-                    exit_reason = f"signal_decay (E[r]={expected_return:+.4f})"
-                    oid = self.sell(symbol, qty, reason=exit_reason, limit_price=current_price)
-                    if oid is None:
-                        return (f"EXIT-DEFERRED  (signal decay E[r]={expected_return:+.4f}, "
-                                f"P&L={pnl_pct:+.2%}, market closed)")
-                    self._record_closed_trade(pnl_pct, symbol)
-                    self._log_daily_trade(symbol, side, qty, current_price, exit_reason, pnl_pct)
-                    self._clear_symbol_state(symbol)
-                    self._decay_cooldown_until[symbol] = (
-                        datetime.now(timezone.utc) + timedelta(seconds=2 * self.check_interval)
-                    )
-                    return (f"EXIT  (signal decay: E[r]={expected_return:+.4f} <= 0, "
-                            f"P&L={pnl_pct:+.2%}, {qty_display} sh {side})")
-                elif side == "SHORT" and expected_return >= 0:
-                    exit_reason = f"signal_decay (E[r]={expected_return:+.4f})"
-                    oid = self.buy_to_cover(symbol, qty, reason=exit_reason, limit_price=current_price)
-                    if oid is None:
-                        return (f"EXIT-DEFERRED  (signal decay E[r]={expected_return:+.4f}, "
-                                f"P&L={pnl_pct:+.2%}, market closed)")
-                    self._record_closed_trade(pnl_pct, symbol)
-                    self._log_daily_trade(symbol, side, qty, current_price, exit_reason, pnl_pct)
-                    self._clear_symbol_state(symbol)
-                    self._decay_cooldown_until[symbol] = (
-                        datetime.now(timezone.utc) + timedelta(seconds=2 * self.check_interval)
-                    )
-                    return (f"EXIT  (signal decay: E[r]={expected_return:+.4f} >= 0, "
-                            f"P&L={pnl_pct:+.2%}, {qty_display} sh {side})")
+                signal_flipped = ((side == "LONG" and expected_return <= 0)
+                                  or (side == "SHORT" and expected_return >= 0))
+                if signal_flipped:
+                    self._signal_flip_counts[symbol] = self._signal_flip_counts.get(symbol, 0) + 1
+                else:
+                    self._signal_flip_counts[symbol] = 0
 
-            # --- Priority 4: Max underwater duration ---
-            if not use_legacy_stops and self.max_underwater_days > 0:
+                flip_count = self._signal_flip_counts.get(symbol, 0)
+                required_flips = ep.signal_flip_consecutive
+
+                if flip_count >= required_flips:
+                    reason = (f"signal_decay (E[r]={expected_return:+.4f}, "
+                              f"flips={flip_count}/{required_flips})")
+                    result = _do_exit(reason, "signal_decay")
+                    if result is None:
+                        return (f"EXIT-DEFERRED  (signal decay E[r]={expected_return:+.4f}, "
+                                f"P&L={pnl_pct:+.2%}, market closed)")
+                    self._decay_cooldown_until[symbol] = (
+                        datetime.now(timezone.utc) + timedelta(seconds=2 * self.check_interval))
+                    return result
+
+            # ===== LAYER 4: Time exits =====
+            # 4a: Max underwater duration
+            if not use_legacy_stops and ep.max_underwater_days > 0:
                 entry_time = self._entry_times.get(symbol)
                 if entry_time and pnl_pct < 0:
                     days_held = (datetime.now(timezone.utc) - entry_time).days
-                    if days_held >= self.max_underwater_days:
-                        exit_reason = (f"max_underwater_{self.max_underwater_days}d "
-                                       f"(held {days_held}d, P&L={pnl_pct:+.2%})")
-                        if side == "LONG":
-                            oid = self.sell(symbol, qty, reason=exit_reason,
-                                           limit_price=current_price)
-                        else:
-                            oid = self.buy_to_cover(symbol, qty, reason=exit_reason,
-                                                   limit_price=current_price)
-                        if oid is None:
+                    if days_held >= ep.max_underwater_days:
+                        reason = (f"max_underwater_{ep.max_underwater_days}d "
+                                  f"(held {days_held}d, PnL={pnl_pct:+.2%})")
+                        result = _do_exit(reason, "time")
+                        if result is None:
                             return f"EXIT-DEFERRED  (max underwater {days_held}d, market closed)"
-                        self._record_closed_trade(pnl_pct, symbol)
-                        self._log_daily_trade(symbol, side, qty, current_price, exit_reason, pnl_pct)
-                        self._clear_symbol_state(symbol)
-                        return (f"EXIT  (max underwater {days_held}d >= {self.max_underwater_days}d, "
-                                f"P&L={pnl_pct:+.2%}, {qty_display} sh {side})  "
-                                f"ML: {direction} E[r]={expected_return:+.4f}")
+                        return result
 
-            # --- Priority 5: Max hold hours (crypto_intraday: 4h max hold) ---
+            # 4b: Max hold hours (crypto_intraday: 4h max hold)
             if self.group == "crypto_intraday":
                 entry_time = self._entry_times.get(symbol)
                 max_hold_hours = 4.0
                 if entry_time:
                     hours_held = (datetime.now(timezone.utc) - entry_time).total_seconds() / 3600
                     if hours_held >= max_hold_hours:
-                        exit_reason = f"max_hold_{max_hold_hours}h (held {hours_held:.1f}h, P&L={pnl_pct:+.2%})"
-                        if side == "LONG":
-                            oid = self.sell(symbol, qty, reason=exit_reason,
-                                           limit_price=current_price)
-                        else:
-                            oid = self.buy_to_cover(symbol, qty, reason=exit_reason,
-                                                   limit_price=current_price)
-                        if oid is None:
+                        reason = f"max_hold_{max_hold_hours}h (held {hours_held:.1f}h, PnL={pnl_pct:+.2%})"
+                        result = _do_exit(reason, "time")
+                        if result is None:
                             return f"EXIT-DEFERRED  (max hold {hours_held:.1f}h)"
-                        self._record_closed_trade(pnl_pct, symbol)
-                        self._log_daily_trade(symbol, side, qty, current_price, exit_reason, pnl_pct)
-                        self._clear_symbol_state(symbol)
-                        return (f"EXIT  (max hold {hours_held:.1f}h >= {max_hold_hours}h, "
-                                f"P&L={pnl_pct:+.2%}, {qty_display} sh {side})  "
-                                f"ML: {direction} E[r]={expected_return:+.4f}")
+                        return result
 
             # HOLD
+            hold_extras = []
+            if self._profit_lock_active.get(symbol, False):
+                hold_extras.append("PL=armed")
+            if symbol in self._breakeven_floor:
+                hold_extras.append(f"BE=${self._breakeven_floor[symbol]:.2f}")
+            extras_str = f"  [{', '.join(hold_extras)}]" if hold_extras else ""
             return (f"HOLD  ({side} {qty_display} sh @ ${entry_price:.2f}, "
                     f"P&L: {pnl_pct:+.2%})  "
-                    f"ML: {direction} E[r]={expected_return:+.4f}  trend={bar_trend:+.0f}")
+                    f"ML: {direction} E[r]={expected_return:+.4f}  "
+                    f"tier={tier.value if tier else '?'}{extras_str}")
 
         # --- Entry logic ---
         if exit_only:
@@ -1668,6 +1751,8 @@ class AlpacaPaperTrader:
         self._entry_atrs.pop(symbol, None)
         self._entry_times.pop(symbol, None)
         self._profit_lock_active.pop(symbol, None)
+        self._breakeven_floor.pop(symbol, None)
+        self._signal_flip_counts.pop(symbol, None)
         # Note: _decay_cooldown_until is intentionally NOT cleared here —
         # signal-decay exits set it after calling this method.
 
@@ -1724,6 +1809,9 @@ class AlpacaPaperTrader:
         cycle = 0
         while self._running:
             cycle += 1
+
+            # Weekly vol tier recomputation
+            self._maybe_recompute_vol_tiers()
 
             # Session check — intraday: only trade during market/open hours; crypto & swing: run 24/7
             # Crypto and swing run 24/7 (orders fill when Alpaca allows; swing/crypto can use extended hours).
