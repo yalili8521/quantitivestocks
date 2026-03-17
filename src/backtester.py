@@ -313,7 +313,7 @@ class Backtester:
 
             # Layer 2: rolling win rate cooldown
             if cooldown_until is not None:
-                if day <= cooldown_until:
+                if day < cooldown_until:
                     self._record_equity(portfolio, day, eod_close)
                     cooldown_skipped += 1
                     continue
@@ -581,9 +581,9 @@ class Backtester:
                 # Cooldown check after close
                 if len(recent_wins) == 20 and cooldown_until is None:
                     wr = sum(recent_wins) / 20
-                    if wr < 0.45:
-                        cooldown_until = ts + _td(days=3)
-                        log.info("Rolling WR %.0f%% < 45%% at %s → cooldown 3d",
+                    if wr < 0.5:
+                        cooldown_until = ts + _td(days=7)
+                        log.info("Rolling WR %.0f%% < 50%% at %s → cooldown 7d",
                                  wr * 100, ts)
 
                 self._record_equity(portfolio, bar_date, bar_close)
@@ -603,7 +603,7 @@ class Backtester:
 
             # Cooldown gate
             if cooldown_until is not None:
-                if ts <= cooldown_until:
+                if ts < cooldown_until:
                     cooldown_skipped += 1
                     self._record_equity(portfolio, bar_date, bar_close)
                     continue
@@ -948,6 +948,8 @@ class Backtester:
                             wr = sum(swing_recent_wins) / 20
                             if wr < 0.5:
                                 swing_cooldown_until = bar_date + _td(days=7)
+                    self._record_equity(portfolio, bar_date, bar_close)
+                    continue
 
                 # LAYER 4: Max underwater duration
                 if portfolio.position is not None and ep.max_underwater_days > 0:
@@ -980,7 +982,7 @@ class Backtester:
                     continue
                 # Rolling win rate cooldown
                 if swing_cooldown_until is not None:
-                    if bar_date <= swing_cooldown_until:
+                    if bar_date < swing_cooldown_until:
                         self._record_equity(portfolio, bar_date, bar_close)
                         swing_cooldown_skipped += 1
                         continue
@@ -1177,8 +1179,17 @@ class Backtester:
 
         # Daily returns for Sharpe
         eq_df["daily_return"] = eq_df["equity"].pct_change().fillna(0)
-        n_days = len(eq_df)
-        n_years = n_days / 252
+        n_rows = len(eq_df)
+        # Use actual trading days count; for crypto (365d/yr) vs equity (252d/yr)
+        try:
+            first_date = pd.Timestamp(eq_df["date"].iloc[0])
+            last_date = pd.Timestamp(eq_df["date"].iloc[-1])
+            calendar_days = (last_date - first_date).days
+            n_years = max(calendar_days / 365.25, 0.01)
+        except Exception:
+            n_years = max(n_rows / 252, 0.01)
+        # Annualization factor: use n_rows for Sharpe scaling
+        ann_factor = np.sqrt(n_rows / max(n_years, 0.01)) if n_years > 0 else np.sqrt(252)
 
         annualized_return = (
             (1 + total_return) ** (1 / max(n_years, 0.01)) - 1
@@ -1186,7 +1197,7 @@ class Backtester:
         )
 
         daily_std = eq_df["daily_return"].std()
-        sharpe = (eq_df["daily_return"].mean() / daily_std * np.sqrt(252)
+        sharpe = (eq_df["daily_return"].mean() / daily_std * ann_factor
                   if daily_std > 0 else 0.0)
 
         # Max drawdown

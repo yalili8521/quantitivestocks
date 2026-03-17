@@ -110,6 +110,41 @@ LEGACY_STRICTER_EXIT_DEFAULT: Set[str] = set()
 LEGACY_NO_NEW_ENTRIES_DEFAULT: Set[str] = set()
 LEGACY_TRAILING_STOP_PCT = 0.03   # 3% from peak for legacy positions
 
+def _resolve_swing_symbols() -> List[str]:
+    """Resolve swing group symbols dynamically.
+
+    Fallback chain:
+      1. promoted_symbols.json (OOS-validated symbols from batch-backtest)
+         If > 15 promoted, run ETFSelector to pick top-10
+      2. etf_universe.json (full screened universe)
+      3. Hardcoded fallback (SYMBOL_GROUPS["swing"])
+    """
+    try:
+        from etf_screener import load_promoted_symbols, load_etf_universe
+        promoted = load_promoted_symbols(SWING_MODEL_DIR)
+        if promoted:
+            # If pool is large, apply Layer 1 selector to pick top-K
+            if len(promoted) > 15:
+                try:
+                    from etf_selector import ETFSelector
+                    selector = ETFSelector(top_k=10)
+                    selected = selector.select(promoted)
+                    log.info("Swing symbols: ETFSelector picked %d/%d promoted",
+                             len(selected), len(promoted))
+                    return selected
+                except Exception as e:
+                    log.warning("ETFSelector failed: %s — using all promoted", e)
+            log.info("Swing symbols from promoted_symbols.json: %s", promoted)
+            return promoted
+        universe = load_etf_universe(SWING_MODEL_DIR)
+        if universe:
+            log.info("Swing symbols from etf_universe.json (%d symbols)", len(universe))
+            return universe
+    except Exception as e:
+        log.warning("Dynamic swing symbol load failed: %s — using hardcoded", e)
+    return SYMBOL_GROUPS["swing"]
+
+
 def _is_option_symbol(symbol: str) -> bool:
     """True if symbol looks like an OCC option (e.g. QQQ260327C00592000). Used to skip
     option positions that may exist in the account but are not managed by this trader."""
@@ -574,13 +609,13 @@ class AlpacaPaperTrader:
         self._vol_tier_last_update = datetime.now(timezone.utc)
 
     def _maybe_recompute_vol_tiers(self) -> None:
-        """Recompute vol tiers weekly."""
+        """Recompute vol tiers daily (was weekly — too slow for regime shifts)."""
         if self._vol_tier_last_update is None:
             self._classify_vol_tiers()
             return
         elapsed = (datetime.now(timezone.utc) - self._vol_tier_last_update).total_seconds()
-        if elapsed > 7 * 24 * 3600:  # 7 days
-            log.info("Weekly vol tier recomputation triggered")
+        if elapsed > 24 * 3600:  # daily
+            log.info("Daily vol tier recomputation triggered")
             self._classify_vol_tiers()
 
     # -- Predictor factory (selects model type per group) ----------------
@@ -748,6 +783,7 @@ class AlpacaPaperTrader:
             if len(selector_input) < 3:
                 log.warning("Model universe too small (%d coins) — using static list",
                             len(selector_input))
+                self._composite_scores = {}  # clear stale scores
                 return list(self.symbols)
 
             log.info("Selector input: %d coins (model_universe) out of %d (screen_universe)",
@@ -757,11 +793,13 @@ class AlpacaPaperTrader:
             data = fetch_universe_data(selector_input, lookback_days=400)
             if len(data) < 3:
                 log.warning("Selector: only %d coins with data — falling back to static list", len(data))
+                self._composite_scores = {}
                 return list(self.symbols)
 
             result = self._coin_selector.rank(data)
             if not result.selected:
                 log.warning("Selector returned empty selection — using static list")
+                self._composite_scores = {}
                 return list(self.symbols)
 
             # Layer 2: composite scoring (selector + OOS Sharpe + OOS return)
@@ -772,6 +810,7 @@ class AlpacaPaperTrader:
 
             if not composite:
                 log.warning("No coins passed composite scoring — using static list")
+                self._composite_scores = {}
                 return list(self.symbols)
 
             # Select top-K by composite score
@@ -811,6 +850,7 @@ class AlpacaPaperTrader:
 
         except Exception as exc:
             log.error("Coin selector failed: %s — using static list", exc)
+            self._composite_scores = {}  # clear stale scores
             return list(self.symbols)
 
     def _get_rank_scalar(self, symbol: str) -> float:
@@ -1597,8 +1637,9 @@ class AlpacaPaperTrader:
             try:
                 account = self.get_account_summary()
                 equity = account["equity"]
+                self._last_known_equity = equity  # cache for fallback
             except Exception:
-                equity = allocation  # fallback
+                equity = getattr(self, '_last_known_equity', self.initial_capital)
 
             signal_pct = min(1.0, max(0.1, abs(expected_return) / self.target_return))
 
@@ -2409,11 +2450,14 @@ def main() -> None:
             print(f"  Use --group intraday instead.\n")
             sys.exit(1)
 
-    # Resolve symbols: --symbols > --group > full DEFAULT_UNIVERSE
+    # Resolve symbols: --symbols > --group (dynamic for swing) > full DEFAULT_UNIVERSE
     if args.symbols:
         symbols = [s.strip().upper() for s in args.symbols.split(",")]
     elif group and group != "all":
-        symbols = SYMBOL_GROUPS[group]
+        if group == "swing":
+            symbols = _resolve_swing_symbols()
+        else:
+            symbols = SYMBOL_GROUPS[group]
         log.info("Account group '%s': trading %s", group, symbols)
     else:
         symbols = DEFAULT_UNIVERSE

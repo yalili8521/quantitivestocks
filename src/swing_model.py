@@ -541,10 +541,15 @@ class SwingFeatureEngine:
         return df[all_cols]
 
     def _fetch_supplement(self, bars_df: pd.DataFrame, symbol: str) -> pd.DataFrame:
-        """Fetch proxy ETF data for EEM (copper) and EWT (SOX)."""
+        """Fetch proxy ETF data for EEM (copper) and EWT (SOX).
+
+        Uses the last date in bars_df as cutoff to prevent train-set leakage.
+        """
         import yfinance as yf
 
         bar_dates = pd.to_datetime(bars_df["ts"]).dt.date
+        # Use last bar date as cutoff to prevent future data leakage
+        cutoff_date = bar_dates.iloc[-1]
         supplement_cols = SWING_SUPPLEMENT_FEATURES.get(symbol, [])
         df = pd.DataFrame(index=bars_df.index)
 
@@ -554,18 +559,21 @@ class SwingFeatureEngine:
                 df[col] = 0.0
                 continue
             try:
-                if ticker not in self._supplement_cache:
+                cache_key = f"{ticker}_{cutoff_date}"
+                if cache_key not in self._supplement_cache:
                     data = yf.download(ticker, period="5y", progress=False,
                                        auto_adjust=True)
                     if data.empty:
-                        self._supplement_cache[ticker] = pd.Series(dtype=float)
+                        self._supplement_cache[cache_key] = pd.Series(dtype=float)
                     else:
                         close = data["Close"]
                         if hasattr(close, "squeeze"):
                             close = close.squeeze()
-                        self._supplement_cache[ticker] = close
+                        # Truncate to cutoff date to prevent leakage
+                        close = close[close.index.date <= cutoff_date]
+                        self._supplement_cache[cache_key] = close
 
-                proxy = self._supplement_cache[ticker]
+                proxy = self._supplement_cache[cache_key]
                 if proxy.empty:
                     df[col] = 0.0
                     continue
@@ -587,24 +595,32 @@ class SwingFeatureEngine:
     # Crypto regime helpers
     # ------------------------------------------------------------------
 
-    def _fetch_crypto_close(self, ticker: str) -> pd.Series:
-        """Fetch daily close for a crypto ticker (e.g. BTC-USD), cached."""
-        if ticker in self._crypto_cache:
-            return self._crypto_cache[ticker]
+    def _fetch_crypto_close(self, ticker: str,
+                            cutoff_date=None) -> pd.Series:
+        """Fetch daily close for a crypto ticker (e.g. BTC-USD), cached.
+
+        Args:
+            cutoff_date: if set, truncate data to this date to prevent leakage.
+        """
+        cache_key = f"{ticker}_{cutoff_date}" if cutoff_date else ticker
+        if cache_key in self._crypto_cache:
+            return self._crypto_cache[cache_key]
         import yfinance as yf
         try:
             data = yf.download(ticker, period="5y", progress=False, auto_adjust=True)
             if data.empty:
-                self._crypto_cache[ticker] = pd.Series(dtype=float)
+                self._crypto_cache[cache_key] = pd.Series(dtype=float)
             else:
                 close = data["Close"]
                 if hasattr(close, "squeeze"):
                     close = close.squeeze()
-                self._crypto_cache[ticker] = close
+                if cutoff_date is not None:
+                    close = close[close.index.date <= cutoff_date]
+                self._crypto_cache[cache_key] = close
         except Exception as exc:
             log.warning("Failed to fetch %s for crypto regime: %s", ticker, exc)
-            self._crypto_cache[ticker] = pd.Series(dtype=float)
-        return self._crypto_cache[ticker]
+            self._crypto_cache[cache_key] = pd.Series(dtype=float)
+        return self._crypto_cache[cache_key]
 
     def _build_crypto_regime(self, df: pd.DataFrame, bars_df: pd.DataFrame) -> None:
         """Add CRYPTO_REGIME_FEATURES columns in-place.
@@ -613,10 +629,11 @@ class SwingFeatureEngine:
         and computes the four crypto regime features.
         """
         bar_dates = pd.to_datetime(bars_df["ts"]).dt.date
+        cutoff_date = bar_dates.iloc[-1]
         annualize = np.sqrt(365)  # crypto trades 365 days/year
 
-        btc_close = self._fetch_crypto_close("BTC-USD")
-        eth_close = self._fetch_crypto_close("ETH-USD")
+        btc_close = self._fetch_crypto_close("BTC-USD", cutoff_date=cutoff_date)
+        eth_close = self._fetch_crypto_close("ETH-USD", cutoff_date=cutoff_date)
 
         if btc_close.empty:
             for col in CRYPTO_REGIME_FEATURES:
