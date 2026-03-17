@@ -81,5 +81,6 @@
     "breadth_momentum",
     "correlation_regime"
   ],
-  "train_end": "2025-01-01"
+  "train_end": "2025-01-01",
+  "train_mode": "standard"
 }

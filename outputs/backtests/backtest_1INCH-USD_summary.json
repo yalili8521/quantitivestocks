@@ -1,0 +1,11 @@
+{
+  "symbol": "1INCH-USD",
+  "start_date": "2024-02-29",
+  "end_date": "2026-03-16",
+  "total_return_pct": 14.01,
+  "sharpe_ratio": 0.773,
+  "max_drawdown_pct": -12.52,
+  "total_trades": 7,
+  "win_rate": 0.429,
+  "profit_factor": 2.228
+}

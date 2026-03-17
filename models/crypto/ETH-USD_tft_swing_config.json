@@ -1,12 +1,12 @@
 {
   "symbol": "ETH-USD",
   "model_type": "tft_swing",
-  "n_features": 70,
+  "n_features": 20,
   "seq_len": 20,
   "hidden": 32,
   "n_heads": 4,
-  "val_mse": 0.0073503,
-  "val_direction_accuracy": 0.5893,
-  "n_train": 223,
-  "n_val": 56
+  "val_mse": 0.01022904,
+  "val_direction_accuracy": 0.5106,
+  "n_train": 374,
+  "n_val": 94
 }

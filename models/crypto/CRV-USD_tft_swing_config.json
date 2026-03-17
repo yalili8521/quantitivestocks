@@ -1,12 +1,12 @@
 {
   "symbol": "CRV-USD",
   "model_type": "tft_swing",
-  "n_features": 70,
+  "n_features": 20,
   "seq_len": 20,
   "hidden": 32,
   "n_heads": 4,
-  "val_mse": 0.01172727,
-  "val_direction_accuracy": 0.6964,
-  "n_train": 223,
-  "n_val": 56
+  "val_mse": 0.00485802,
+  "val_direction_accuracy": 0.7234,
+  "n_train": 374,
+  "n_val": 94
 }

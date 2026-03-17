@@ -1,0 +1,19 @@
+{
+  "symbol": "ETC-USD",
+  "mode": "daily",
+  "intraday_interval": "5min",
+  "start_date": "2026-02-01",
+  "end_date": "2026-03-16",
+  "initial_capital": 100000.0,
+  "final_equity": 193059.51,
+  "total_return_pct": 93.06,
+  "annualized_return_pct": 3.59,
+  "sharpe_ratio": 1.286,
+  "max_drawdown_pct": -2.04,
+  "total_trades": 205,
+  "win_rate": 0.629,
+  "avg_win_pct": 1.99,
+  "avg_loss_pct": -0.94,
+  "profit_factor": 4.582,
+  "avg_trade_duration_days": 0.1
+}

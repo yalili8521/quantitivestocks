@@ -1,21 +1,49 @@
 {
-  "cash": 100000.0,
+  "cash": 99994.33262606921,
   "initial_balance": 100000.0,
   "positions": {
-    "CRV/USD": {
-      "symbol": "CRV/USD",
-      "qty": 1811.025607,
+    "EGLD/USD": {
+      "symbol": "EGLD/USD",
+      "qty": 191.164421,
       "side": "SHORT",
-      "entry_price": 0.2417,
-      "entry_time": "2026-03-15T20:09:32.866718+00:00"
+      "entry_price": 4.34,
+      "entry_time": "2026-03-17T07:46:04.002572+00:00"
     },
-    "ADA/USD": {
-      "symbol": "ADA/USD",
-      "qty": 569.433069,
+    "XTZ/USD": {
+      "symbol": "XTZ/USD",
+      "qty": 1971.477272,
       "side": "SHORT",
-      "entry_price": 0.263167,
-      "entry_time": "2026-03-15T20:09:39.689109+00:00"
+      "entry_price": 0.3937,
+      "entry_time": "2026-03-17T07:46:16.850578+00:00"
+    },
+    "WLD/USD": {
+      "symbol": "WLD/USD",
+      "qty": 1390.769039,
+      "side": "SHORT",
+      "entry_price": 0.3944,
+      "entry_time": "2026-03-17T07:46:34.804974+00:00"
+    },
+    "ATOM/USD": {
+      "symbol": "ATOM/USD",
+      "qty": 368.069507,
+      "side": "SHORT",
+      "entry_price": 1.9449,
+      "entry_time": "2026-03-17T07:46:45.197569+00:00"
+    },
+    "FIL/USD": {
+      "symbol": "FIL/USD",
+      "qty": 584.829103,
+      "side": "SHORT",
+      "entry_price": 0.974,
+      "entry_time": "2026-03-17T12:11:35.914144+00:00"
+    },
+    "OP/USD": {
+      "symbol": "OP/USD",
+      "qty": 4304.31493,
+      "side": "SHORT",
+      "entry_price": 0.1357,
+      "entry_time": "2026-03-17T18:05:45.818931+00:00"
     }
   },
-  "last_updated": "2026-03-15T20:09:39.689109+00:00"
+  "last_updated": "2026-03-17T18:05:45.829010+00:00"
 }

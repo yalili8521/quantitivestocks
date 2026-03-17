@@ -1,0 +1,11 @@
+{
+  "symbol": "FET-USD",
+  "start_date": "2024-02-29",
+  "end_date": "2026-03-16",
+  "total_return_pct": 26.75,
+  "sharpe_ratio": 1.105,
+  "max_drawdown_pct": -15.76,
+  "total_trades": 6,
+  "win_rate": 0.667,
+  "profit_factor": 2.937
+}

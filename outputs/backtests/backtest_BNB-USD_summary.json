@@ -1,0 +1,11 @@
+{
+  "symbol": "BNB-USD",
+  "start_date": "2024-02-29",
+  "end_date": "2024-11-01",
+  "total_return_pct": -1.96,
+  "sharpe_ratio": -0.345,
+  "max_drawdown_pct": -8.92,
+  "total_trades": 21,
+  "win_rate": 0.619,
+  "profit_factor": 0.84
+}

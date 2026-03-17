@@ -1,0 +1,28 @@
+{
+  "cash": 100005.1034255833,
+  "initial_balance": 100000.0,
+  "positions": {
+    "WLD/USD": {
+      "symbol": "WLD/USD",
+      "qty": 1262.514921,
+      "side": "SHORT",
+      "entry_price": 0.3961,
+      "entry_time": "2026-03-17T20:04:10.994774+00:00"
+    },
+    "FIL/USD": {
+      "symbol": "FIL/USD",
+      "qty": 518.800872,
+      "side": "SHORT",
+      "entry_price": 0.966,
+      "entry_time": "2026-03-17T20:25:34.759420+00:00"
+    },
+    "ATOM/USD": {
+      "symbol": "ATOM/USD",
+      "qty": 342.834921,
+      "side": "SHORT",
+      "entry_price": 1.9507,
+      "entry_time": "2026-03-17T20:25:40.786126+00:00"
+    }
+  },
+  "last_updated": "2026-03-17T20:30:55.952351+00:00"
+}

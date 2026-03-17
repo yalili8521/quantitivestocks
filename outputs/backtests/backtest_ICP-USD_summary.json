@@ -1,0 +1,11 @@
+{
+  "symbol": "ICP-USD",
+  "start_date": "2024-02-29",
+  "end_date": "2024-11-01",
+  "total_return_pct": -5.44,
+  "sharpe_ratio": -0.365,
+  "max_drawdown_pct": -16.25,
+  "total_trades": 17,
+  "win_rate": 0.471,
+  "profit_factor": 0.705
+}

@@ -1,0 +1,11 @@
+{
+  "symbol": "XRP-USD",
+  "start_date": "2024-02-29",
+  "end_date": "2026-03-16",
+  "total_return_pct": -44.41,
+  "sharpe_ratio": -0.977,
+  "max_drawdown_pct": -48.13,
+  "total_trades": 5,
+  "win_rate": 0.6,
+  "profit_factor": 0.097
+}

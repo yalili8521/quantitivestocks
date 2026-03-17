@@ -1,0 +1,11 @@
+{
+  "symbol": "LDO-USD",
+  "start_date": "2024-02-29",
+  "end_date": "2026-03-16",
+  "total_return_pct": 24.23,
+  "sharpe_ratio": 1.004,
+  "max_drawdown_pct": -13.05,
+  "total_trades": 8,
+  "win_rate": 0.75,
+  "profit_factor": 3.101
+}

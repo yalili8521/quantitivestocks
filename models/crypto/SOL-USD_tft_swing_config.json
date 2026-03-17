@@ -1,12 +1,12 @@
 {
   "symbol": "SOL-USD",
   "model_type": "tft_swing",
-  "n_features": 70,
+  "n_features": 20,
   "seq_len": 20,
   "hidden": 32,
   "n_heads": 4,
-  "val_mse": 0.00387732,
-  "val_direction_accuracy": 0.8214,
-  "n_train": 223,
-  "n_val": 56
+  "val_mse": 0.01089822,
+  "val_direction_accuracy": 0.5426,
+  "n_train": 374,
+  "n_val": 94
 }

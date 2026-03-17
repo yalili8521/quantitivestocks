@@ -1,0 +1,19 @@
+{
+  "symbol": "ATOM-USD",
+  "mode": "daily",
+  "intraday_interval": "5min",
+  "start_date": "2026-02-01",
+  "end_date": "2026-03-17",
+  "initial_capital": 100000.0,
+  "final_equity": 3284800.85,
+  "total_return_pct": 3184.8,
+  "annualized_return_pct": 10.51,
+  "sharpe_ratio": 2.63,
+  "max_drawdown_pct": -5.39,
+  "total_trades": 639,
+  "win_rate": 0.782,
+  "avg_win_pct": 2.01,
+  "avg_loss_pct": -0.94,
+  "profit_factor": 11.426,
+  "avg_trade_duration_days": 0.1
+}

@@ -4,10 +4,10 @@
   "horizon": "10d",
   "model_version": "v4_regression_regime",
   "target": "forward_10d_return",
-  "val_rmse": 0.21939663,
-  "val_direction_accuracy": 0.4536,
-  "n_train": 386,
-  "n_val": 97,
+  "val_rmse": 0.01242475,
+  "val_direction_accuracy": 1.0,
+  "n_train": 79,
+  "n_val": 20,
   "n_features": 70,
   "feature_names": [
     "ret252",
@@ -81,5 +81,6 @@
     "breadth_momentum",
     "correlation_regime"
   ],
-  "train_end": "2025-01-01"
+  "train_end": "2024-02-09",
+  "train_mode": "recent_half"
 }

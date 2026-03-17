@@ -1,0 +1,12 @@
+{
+  "symbol": "JTO-USD",
+  "model_type": "tft_swing",
+  "n_features": 20,
+  "seq_len": 20,
+  "hidden": 32,
+  "n_heads": 4,
+  "val_mse": 0.00576079,
+  "val_direction_accuracy": 0.6087,
+  "n_train": 272,
+  "n_val": 69
+}

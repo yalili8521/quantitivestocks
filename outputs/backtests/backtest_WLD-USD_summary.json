@@ -1,0 +1,11 @@
+{
+  "symbol": "WLD-USD",
+  "start_date": "2024-03-01",
+  "end_date": "2024-11-01",
+  "total_return_pct": 18.74,
+  "sharpe_ratio": 1.315,
+  "max_drawdown_pct": -10.1,
+  "total_trades": 8,
+  "win_rate": 0.625,
+  "profit_factor": 2.003
+}
