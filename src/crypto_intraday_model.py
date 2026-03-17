@@ -309,12 +309,8 @@ class CryptoIntradayFeatureEngine:
         # Drop rows without labels
         features = features.dropna(subset=["fwd_return"]).reset_index(drop=True)
 
-        # Winsorize labels at 1st/99th percentile
-        if len(features) > 100:
-            lo_q = features["fwd_return"].quantile(0.01)
-            hi_q = features["fwd_return"].quantile(0.99)
-            features["fwd_return"] = features["fwd_return"].clip(lo_q, hi_q)
-            log.info("Label winsorization: clipped to [%.4f, %.4f]", lo_q, hi_q)
+        # NOTE: winsorization moved to train_model() to avoid leaking
+        # validation data quantile bounds into training labels.
 
         return features
 
@@ -566,6 +562,15 @@ class CryptoIntradayTrainer:
         X_train, X_val = X[:split_idx], X[split_idx:]
         y_train, y_val = y[:split_idx], y[split_idx:]
 
+        # Winsorize labels at 1st/99th percentile — bounds from TRAIN only
+        # to avoid leaking validation data distribution into training.
+        if len(y_train) > 100:
+            lo_q = float(np.quantile(y_train, 0.01))
+            hi_q = float(np.quantile(y_train, 0.99))
+            y_train = np.clip(y_train, lo_q, hi_q)
+            y_val = np.clip(y_val, lo_q, hi_q)  # same bounds, not val-derived
+            log.info("Label winsorization (train-derived): [%.4f, %.4f]", lo_q, hi_q)
+
         log.info("%s: Train %d, Val %d, %d features",
                  symbol, len(X_train), len(X_val), n_feat)
 
@@ -687,7 +692,17 @@ class CryptoIntradayTrainer:
 # Predictor (for live trading)
 # ---------------------------------------------------------------------------
 class CryptoIntradayPredictor:
-    """Load trained LGB+GRU ensemble and predict on live bars."""
+    """Load trained LGB+GRU ensemble and predict on live bars.
+
+    v2: Dynamic ensemble weighting via inverse-MAE (same approach as swing).
+    Predictions are buffered for FORWARD_BARS (12) bars (~1 hour) before
+    comparing to realized returns. Requires 20 completed observations.
+    """
+
+    _ENSEMBLE_WINDOW = 50
+    _MIN_WEIGHT = 0.20
+    _MAX_WEIGHT = 0.80
+    _MIN_OBS_FOR_DYNAMIC = 20
 
     def __init__(self, symbol: str, model_dir: str):
         self.symbol = symbol
@@ -699,6 +714,14 @@ class CryptoIntradayPredictor:
         self.gru_seq_len = GRU_SEQ_LEN
         self.config = None
         self.feature_engine = CryptoIntradayFeatureEngine()
+
+        # Dynamic ensemble weighting
+        from collections import deque
+        self._lgb_errors: deque = deque(maxlen=self._ENSEMBLE_WINDOW)
+        self._gru_errors: deque = deque(maxlen=self._ENSEMBLE_WINDOW)
+        self._pending_preds: deque = deque(maxlen=100)  # (timestamp, lgb_pred, gru_pred, entry_price)
+        self._dynamic_lgb_weight = W_LGB  # start at default 0.70
+
         self._load()
 
     def _load(self):
@@ -772,14 +795,47 @@ class CryptoIntradayPredictor:
             with torch.no_grad():
                 gru_pred = float(self.gru_model(x_tensor).item())
 
-        # Ensemble
+        # --- Evaluate pending predictions (1-hour lag = FORWARD_BARS) ---
+        current_ts = features["ts"].iloc[-1]
+        current_price = float(bars["close"].iloc[-1])
+        resolved = []
+        for pp in self._pending_preds:
+            pred_ts, lgb_p, gru_p, entry_px = pp
+            try:
+                elapsed = (pd.Timestamp(current_ts) - pd.Timestamp(pred_ts)).total_seconds()
+            except (TypeError, ValueError):
+                continue
+            # 12 bars × 5 min = 3600s (1 hour)
+            if elapsed >= FORWARD_BARS * 5 * 60 and entry_px > 0:
+                realized = current_price / entry_px - 1
+                self._lgb_errors.append(abs(lgb_p - realized))
+                if gru_p is not None:
+                    self._gru_errors.append(abs(gru_p - realized))
+                resolved.append(pp)
+        for pp in resolved:
+            self._pending_preds.remove(pp)
+
+        # --- Dynamic ensemble weighting (inverse-MAE) ---
         if gru_pred is not None:
-            weights = self.config.get("ensemble_weights", {"lgb": W_LGB, "gru": W_GRU})
-            expected_return = weights.get("lgb", W_LGB) * lgb_pred + weights.get("gru", W_GRU) * gru_pred
-            model_type = "lgb+gru"
+            # Check if enough observations for dynamic weights
+            if (len(self._lgb_errors) >= self._MIN_OBS_FOR_DYNAMIC and
+                    len(self._gru_errors) >= self._MIN_OBS_FOR_DYNAMIC):
+                lgb_mae = sum(self._lgb_errors) / len(self._lgb_errors)
+                gru_mae = sum(self._gru_errors) / len(self._gru_errors)
+                if lgb_mae > 0 and gru_mae > 0:
+                    w_lgb = (1 / lgb_mae) / (1 / lgb_mae + 1 / gru_mae)
+                    w_lgb = max(self._MIN_WEIGHT, min(self._MAX_WEIGHT, w_lgb))
+                    self._dynamic_lgb_weight = w_lgb
+            w_lgb = self._dynamic_lgb_weight
+            w_gru = 1.0 - w_lgb
+            expected_return = w_lgb * lgb_pred + w_gru * gru_pred
+            model_type = f"lgb({w_lgb:.0%})+gru({w_gru:.0%})"
         else:
             expected_return = lgb_pred
             model_type = "lgb"
+
+        # Queue current prediction for future evaluation
+        self._pending_preds.append((current_ts, lgb_pred, gru_pred, current_price))
 
         # Calibrate: scale compressed predictions back to return magnitude
         pred_scale = self.config.get("pred_scale", 1.0) if self.config else 1.0

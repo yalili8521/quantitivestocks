@@ -1088,7 +1088,15 @@ class AlpacaPaperTrader:
             return None
 
     def _get_market_context(self, symbol: str) -> Dict[str, float]:
-        """Fetch ATR, trend signal, realized vol, and price for position management."""
+        """Fetch ATR, trend signal, realized vol, and price for position management.
+
+        For crypto_intraday: uses 5-min bars with intraday-native trend (VWAP + 4h momentum).
+        For all other groups: uses daily bars with SMA(50) trend filter.
+        """
+        # --- Crypto intraday: intraday-native trend from 5-min bars ---
+        if self.group == "crypto_intraday":
+            return self._get_intraday_market_context(symbol)
+
         try:
             ds = self._data_symbol(symbol)
             bars = self.adapter.fetch_daily(ds, 60)
@@ -1120,6 +1128,69 @@ class AlpacaPaperTrader:
             }
         except Exception as exc:
             log.warning("Market context fetch failed for %s: %s", symbol, exc)
+            return {"atr": 0.0, "trend": 0.0, "rv_30d": 0.0, "price": 0.0}
+
+    def _get_intraday_market_context(self, symbol: str) -> Dict[str, float]:
+        """Intraday-native trend filter for crypto_intraday group.
+
+        Uses 5-min bars from Kraken instead of daily SMA-50.
+        Trend = majority vote of 3 intraday signals:
+          1. close > VWAP(48) — short-term institutional anchor
+          2. ret_48bar > 0    — 4-hour momentum positive
+          3. close > EMA(20)  — session-level trend on 5-min bars
+        trend = +1 if >=2 bullish, -1 if >=2 bearish
+        """
+        try:
+            if self._crypto_intraday_data is None:
+                from crypto_intraday_data import CryptoIntradayData
+                self._crypto_intraday_data = CryptoIntradayData()
+
+            ccxt_sym = symbol.replace("-", "/").replace("USD", "/USD") if "/" not in symbol else symbol
+            if not ccxt_sym.endswith("/USD"):
+                ccxt_sym = ccxt_sym.split("/")[0] + "/USD"
+            bars = self._crypto_intraday_data.fetch_live_bars(ccxt_sym, limit=100)
+
+            if bars.empty or len(bars) < 50:
+                return {"atr": 0.0, "trend": 0.0, "rv_30d": 0.0, "price": 0.0}
+
+            close = bars["close"].astype(float)
+            high = bars["high"].astype(float)
+            low = bars["low"].astype(float)
+            vol = bars["volume"].astype(float)
+            price = float(close.iloc[-1])
+
+            # ATR(14) on 5-min bars
+            atr_s = compute_atr(high, low, close, period=14)
+            atr = float(atr_s.iloc[-1]) if not np.isnan(float(atr_s.iloc[-1])) else 0.0
+
+            # Signal 1: close > VWAP(48) — ~4h VWAP
+            typical = (high + low + close) / 3
+            vwap_48 = (typical * vol).rolling(48).sum() / vol.rolling(48).sum().clip(lower=1)
+            vwap_bull = 1 if price > float(vwap_48.iloc[-1]) else 0
+
+            # Signal 2: 4-hour momentum (ret_48bar > 0)
+            ret_48 = float(close.iloc[-1] / close.iloc[-48] - 1) if len(close) >= 48 else 0.0
+            mom_bull = 1 if ret_48 > 0 else 0
+
+            # Signal 3: close > EMA(20) on 5-min bars
+            ema_20 = close.ewm(span=20, adjust=False).mean()
+            ema_bull = 1 if price > float(ema_20.iloc[-1]) else 0
+
+            # Majority vote: >=2 bullish → trend = +1, else -1
+            bull_votes = vwap_bull + mom_bull + ema_bull
+            trend = 1.0 if bull_votes >= 2 else -1.0
+
+            # Realized vol (annualized from 5-min bars)
+            rv = float(close.pct_change().rolling(48).std().iloc[-1]) * np.sqrt(288 * 365)
+
+            return {
+                "atr":    atr,
+                "trend":  trend,
+                "rv_30d": rv if not np.isnan(rv) else 0.0,
+                "price":  price,
+            }
+        except Exception as exc:
+            log.warning("Intraday market context failed for %s: %s", symbol, exc)
             return {"atr": 0.0, "trend": 0.0, "rv_30d": 0.0, "price": 0.0}
 
     # -- Trading logic (one symbol) ------------------------------------
@@ -1437,10 +1508,33 @@ class AlpacaPaperTrader:
                 return (f"SKIP  (price fetch failed for entry)  "
                         f"ML: {direction} E[r]={expected_return:+.4f}")
 
-            # Signal-proportional sizing using risk config
+            # --- Position sizing: half-Kelly × signal strength, capped by risk limits ---
+            # Size from TOTAL equity (not per-symbol sub-allocation).
             risk = self._risk_config
+            try:
+                account = self.get_account_summary()
+                equity = account["equity"]
+            except Exception:
+                equity = allocation  # fallback
+
             signal_pct = min(1.0, max(0.1, abs(expected_return) / self.target_return))
-            sizing_pct = risk.position_pct * signal_pct
+
+            # Half-Kelly from rolling trade history (falls back to position_pct)
+            derisk_key = symbol.replace("/", "-")
+            derisk_state = self._derisk_states.get(derisk_key)
+            kelly_f = None
+            if derisk_state is not None:
+                kelly_f = derisk_state.half_kelly(
+                    window=risk.kelly_window, min_trades=risk.kelly_min_trades
+                )
+            if kelly_f is not None:
+                base_frac = min(kelly_f, risk.kelly_cap)
+                size_source = f"kelly={kelly_f:.3f}"
+            else:
+                base_frac = risk.position_pct
+                size_source = "fixed"
+
+            sizing_pct = base_frac * signal_pct
             sizing_pct = min(sizing_pct, risk.max_position_pct)
 
             # --- Per-symbol cap (OOS Sharpe-tiered) ---
@@ -1463,11 +1557,10 @@ class AlpacaPaperTrader:
                 sizing_pct *= rank_scalar
 
             # --- Auto de-risking check ---
-            size_note = ""
-            derisk_key = symbol.replace("/", "-")
-            if derisk_key in self._derisk_states:
+            size_note = f" [{size_source}]"
+            if derisk_state is not None:
                 derisk_action, derisk_reason = evaluate_derisk(
-                    self._derisk_states[derisk_key],
+                    derisk_state,
                     window=50,
                 )
                 if derisk_action == "disable":
@@ -1484,7 +1577,7 @@ class AlpacaPaperTrader:
                     sizing_pct *= self.post_loss_size_mult
                     size_note += f" [post-loss {self.post_loss_size_mult:.0%}]"
 
-            invest = allocation * sizing_pct
+            invest = equity * sizing_pct
             qty = invest / current_price
             if is_crypto:
                 qty = round(qty, 6)
@@ -1493,10 +1586,8 @@ class AlpacaPaperTrader:
             if qty <= 0:
                 return f"SKIP  (insufficient allocation)  ML: {direction} E[r]={expected_return:+.4f}"
 
-            # Portfolio constraint check
+            # Portfolio constraint check (equity already fetched above)
             try:
-                account = self.get_account_summary()
-                equity = account["equity"]
                 allowed, constraint_reason = check_position_allowed(
                     symbol, invest, equity, positions, risk
                 )

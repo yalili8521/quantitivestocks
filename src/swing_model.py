@@ -1323,13 +1323,15 @@ class SwingPredictor:
         self._xgb_feature_names: Optional[List[str]] = None  # from model config
         self._spy_adapter    = None   # lazy-loaded for relative momentum
 
-        # Dynamic ensemble weighting: track rolling prediction errors
+        # Dynamic ensemble weighting: track rolling prediction errors.
+        # Predictions are buffered for 10 days before comparing to realized
+        # return, since the model predicts 10-day forward return.
         from collections import deque
         self._xgb_errors: deque = deque(maxlen=self._ENSEMBLE_WINDOW)
         self._tft_errors: deque = deque(maxlen=self._ENSEMBLE_WINDOW)
-        self._last_xgb_pred: Optional[float] = None
-        self._last_tft_pred: Optional[float] = None
+        self._pending_preds: deque = deque(maxlen=50)  # (date, xgb_pred, tft_pred, entry_price)
         self._tft_weight = _TFT_WEIGHT  # start at default, then adapt
+        self._MIN_OBS_FOR_DYNAMIC = 20  # require 20 completed observations
 
         self._load()
 
@@ -1428,15 +1430,25 @@ class SwingPredictor:
         xgb_ret = float(self.model.predict(x)[0])
 
         # --- Dynamic ensemble weighting ---
-        # Update error tracking: compare last prediction to realized return
-        if self._last_xgb_pred is not None and len(bars_df) >= 2:
-            realized = float(bars_df["close"].iloc[-1]) / float(bars_df["close"].iloc[-2]) - 1
-            self._xgb_errors.append(abs(self._last_xgb_pred - realized))
-            if self._last_tft_pred is not None:
-                self._tft_errors.append(abs(self._last_tft_pred - realized))
-
-        self._last_xgb_pred = xgb_ret
-        self._last_tft_pred = None
+        # Evaluate pending predictions where 10 days have elapsed.
+        current_price = float(bars_df["close"].iloc[-1])
+        current_date = bars_df.index[-1] if hasattr(bars_df.index[-1], 'date') else None
+        if current_date is not None:
+            resolved = []
+            for pp in self._pending_preds:
+                pred_date, xgb_p, tft_p, entry_px = pp
+                try:
+                    days_elapsed = (current_date - pred_date).days
+                except (TypeError, AttributeError):
+                    continue
+                if days_elapsed >= 10 and entry_px > 0:
+                    realized_10d = current_price / entry_px - 1
+                    self._xgb_errors.append(abs(xgb_p - realized_10d))
+                    if tft_p is not None:
+                        self._tft_errors.append(abs(tft_p - realized_10d))
+                    resolved.append(pp)
+            for pp in resolved:
+                self._pending_preds.remove(pp)
 
         # Compute dynamic weights from rolling MAE (inverse error weighting)
         tft_ret = None
@@ -1457,11 +1469,10 @@ class SwingPredictor:
                     xt = torch.FloatTensor(window).unsqueeze(0)   # (1, seq, n_feat)
                     with torch.no_grad():
                         tft_ret = self._tft(xt).item()
-                    self._last_tft_pred = tft_ret
 
-                    # Dynamic weight calculation
-                    if (len(self._xgb_errors) >= 10 and
-                            len(self._tft_errors) >= 10):
+                    # Dynamic weight calculation (require 20 completed obs)
+                    if (len(self._xgb_errors) >= self._MIN_OBS_FOR_DYNAMIC and
+                            len(self._tft_errors) >= self._MIN_OBS_FOR_DYNAMIC):
                         xgb_mae = sum(self._xgb_errors) / len(self._xgb_errors)
                         tft_mae = sum(self._tft_errors) / len(self._tft_errors)
                         # Inverse MAE weighting (lower error → higher weight)
@@ -1478,6 +1489,12 @@ class SwingPredictor:
             except Exception as exc:
                 log.warning("[TFT] predict failed for %s: %s — XGB only.", self.symbol, exc)
                 expected_return = xgb_ret
+
+        # Queue this prediction for 10-day evaluation
+        if current_date is not None:
+            self._pending_preds.append(
+                (current_date, xgb_ret, tft_ret, current_price)
+            )
 
         if expected_return > COST_THRESHOLD:
             direction = "UP"

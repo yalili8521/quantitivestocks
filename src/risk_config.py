@@ -190,7 +190,7 @@ CRYPTO_INTRADAY_RISK = RiskConfig(
     max_sector_pct=0.12,
     max_total_exposure=0.12,
     max_positions=6,                  # selector picks top-6
-    cost_threshold=0.003,             # 30bps (matches model's COST_THRESHOLD)
+    cost_threshold=0.005,             # 50bps (Kraken taker ~26bps RT; 50bps gives margin)
     target_return=0.01,               # 1% for full size (1-hour horizon)
     disaster_stop_atr_mult=3.0,
     disaster_stop_max_pct=0.02,       # 2% hard stop (tight for intraday)
@@ -501,6 +501,31 @@ class DeRiskState:
         if len(recent) < 10:
             return None
         return sum(1 for r in recent if r > 0) / len(recent)
+
+    def half_kelly(self, window: int = 60, min_trades: int = 20) -> Optional[float]:
+        """Compute half-Kelly fraction from rolling trade returns.
+
+        f* = (b*p - q) / b   where p = win rate, q = 1-p, b = avg_win/avg_loss
+        Returns f*/2 (half-Kelly) or None if insufficient data.
+        """
+        recent = self.returns[-window:]
+        if len(recent) < min_trades:
+            return None
+        wins = [r for r in recent if r > 0]
+        losses = [abs(r) for r in recent if r <= 0]
+        if not wins or not losses:
+            return None
+        p = len(wins) / len(recent)
+        q = 1.0 - p
+        avg_win = sum(wins) / len(wins)
+        avg_loss = sum(losses) / len(losses)
+        if avg_loss < 1e-10:
+            return None
+        b = avg_win / avg_loss  # payoff ratio
+        full_kelly = (b * p - q) / b
+        if full_kelly <= 0:
+            return 0.0
+        return full_kelly / 2.0
 
     def drawdown_from_peak(self) -> float:
         if self.peak_equity <= 0:

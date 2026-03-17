@@ -47,6 +47,14 @@ VOLUME_FEATURES = [
     "volume_trend",             # SMA5(vol) / SMA20(vol)
 ]
 
+# Volume-profile support/resistance features (added for crypto swing)
+VOLUME_PROFILE_FEATURES = [
+    "vpoc_distance",            # (close - VPOC) / close: distance from volume point of control
+    "vol_support_strength",     # volume concentration below price (higher = stronger support)
+    "vol_resistance_strength",  # volume concentration above price (higher = stronger resistance)
+    "vol_sr_imbalance",         # support_strength - resistance_strength (+ve = net support)
+]
+
 VRP_FEATURES = [
     "iv_rv_spread",             # VIX/100 - vol20 (annualized)
     "iv_rv_zscore",             # Z-score of iv_rv_spread over 60d
@@ -69,8 +77,9 @@ BREADTH_FEATURES = [
 ]
 
 ALL_MARKET_FEATURES = (
-    VOLUME_FEATURES + VRP_FEATURES + CALENDAR_FEATURES + BREADTH_FEATURES
-)  # 16 total
+    VOLUME_FEATURES + VOLUME_PROFILE_FEATURES + VRP_FEATURES
+    + CALENDAR_FEATURES + BREADTH_FEATURES
+)  # 20 total
 
 ALL_SYMBOLS = [
     "SPY", "QQQ", "IWM", "SOXX",
@@ -312,6 +321,9 @@ class MarketSignalBuilder:
         # === G1: Abnormal Volume ==========================================
         self._build_volume(df, close, volume)
 
+        # === G1b: Volume Profile Support/Resistance =======================
+        self._build_volume_profile(df, close, bars_df)
+
         # === G2: Variance Risk Premium ====================================
         self._build_vrp(df, close, bar_dates, bars_df.index, n)
 
@@ -352,6 +364,90 @@ class MarketSignalBuilder:
             df["volume_trend"] = vol_sma5 / vol_sma20.replace(0, np.nan)
         except Exception as exc:
             log.warning("Volume features failed: %s", exc)
+
+    # --------------------------------------------------------------------- #
+    #  G1b: Volume Profile — Support/Resistance from volume concentration
+    # --------------------------------------------------------------------- #
+    def _build_volume_profile(self, df: pd.DataFrame,
+                              close: pd.Series, bars_df: pd.DataFrame) -> None:
+        """Build volume-weighted support/resistance features.
+
+        Uses a rolling 30-day window. Divides the price range into bins,
+        assigns volume to each bin, then measures:
+        - VPOC (Volume Point of Control): price level with most volume
+        - Support strength: volume below current price
+        - Resistance strength: volume above current price
+        """
+        try:
+            high = bars_df["high"].astype(float) if "high" in bars_df.columns else close
+            low = bars_df["low"].astype(float) if "low" in bars_df.columns else close
+            volume = bars_df["volume"].astype(float) if "volume" in bars_df.columns else pd.Series(1.0, index=close.index)
+
+            window = 30  # 30-day lookback for volume profile
+            n_bins = 20  # price bins
+
+            vpoc_dist = pd.Series(np.nan, index=close.index)
+            support_str = pd.Series(np.nan, index=close.index)
+            resist_str = pd.Series(np.nan, index=close.index)
+
+            for i in range(window, len(close)):
+                sl = slice(i - window, i)
+                c_window = close.iloc[sl].values
+                h_window = high.iloc[sl].values
+                l_window = low.iloc[sl].values
+                v_window = volume.iloc[sl].values
+
+                price_min = float(np.nanmin(l_window))
+                price_max = float(np.nanmax(h_window))
+                if price_max <= price_min or price_max == 0:
+                    continue
+
+                # Create price bins and assign volume
+                bin_edges = np.linspace(price_min, price_max, n_bins + 1)
+                bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+                bin_volume = np.zeros(n_bins)
+
+                # Distribute each bar's volume across bins it touches
+                for j in range(len(v_window)):
+                    bar_low = l_window[j]
+                    bar_high = h_window[j]
+                    bar_vol = v_window[j]
+                    if np.isnan(bar_vol) or bar_vol <= 0:
+                        continue
+                    # Which bins does this bar span?
+                    for b in range(n_bins):
+                        if bin_edges[b + 1] >= bar_low and bin_edges[b] <= bar_high:
+                            bin_volume[b] += bar_vol
+
+                total_vol = bin_volume.sum()
+                if total_vol <= 0:
+                    continue
+
+                # VPOC: bin with maximum volume
+                vpoc_idx = int(np.argmax(bin_volume))
+                vpoc_price = bin_centers[vpoc_idx]
+                current_price = float(close.iloc[i])
+
+                vpoc_dist.iloc[i] = (current_price - vpoc_price) / current_price
+
+                # Support: fraction of volume below current price
+                # Resistance: fraction of volume above current price
+                below_mask = bin_centers < current_price
+                above_mask = bin_centers > current_price
+
+                vol_below = bin_volume[below_mask].sum() / total_vol
+                vol_above = bin_volume[above_mask].sum() / total_vol
+
+                support_str.iloc[i] = vol_below
+                resist_str.iloc[i] = vol_above
+
+            df["vpoc_distance"] = vpoc_dist
+            df["vol_support_strength"] = support_str
+            df["vol_resistance_strength"] = resist_str
+            df["vol_sr_imbalance"] = support_str - resist_str
+
+        except Exception as exc:
+            log.warning("Volume profile features failed: %s", exc)
 
     # --------------------------------------------------------------------- #
     #  G2: Variance Risk Premium

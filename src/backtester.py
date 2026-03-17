@@ -1005,19 +1005,18 @@ class Backtester:
         """
         equity = self._current_equity(portfolio, price)
 
-        # Signal-proportional sizing
+        # Signal-proportional sizing (v3: size from total equity, cap by max_position_pct)
         signal_pct = min(1.0, max(0.1, abs(expected_return) / self.target_return))
         base_pct = self.position_pct * signal_pct
-        base_pct = min(base_pct, 0.98)
 
-        # Apply per-position cap (max 15% of equity per position)
+        # Apply per-position cap directly as fraction of equity
         try:
             from risk_config import get_risk_config
             group = "intraday" if self.mode == "intraday" else "swing"
             risk = get_risk_config(group)
-            base_pct = min(base_pct, risk.max_position_pct / self.position_pct)
+            base_pct = min(base_pct, risk.max_position_pct)
         except ImportError:
-            pass
+            base_pct = min(base_pct, 0.15)
 
         invest = equity * base_pct
         # Apply cost model to entry price

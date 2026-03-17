@@ -25,6 +25,7 @@ DEFAULT_MODEL_DIR  = os.path.join(PROJECT_ROOT, "models")          # legacy LSTM
 SWING_MODEL_DIR    = os.path.join(PROJECT_ROOT, "models", "swing")
 INTRADAY_MODEL_DIR = os.path.join(PROJECT_ROOT, "models", "intraday")
 CRYPTO_MODEL_DIR   = os.path.join(PROJECT_ROOT, "models", "crypto")
+CRYPTO_INTRADAY_MODEL_DIR = os.path.join(PROJECT_ROOT, "models", "crypto_intraday")
 
 # Output directories
 OUTPUT_DIR         = os.path.join(PROJECT_ROOT, "outputs")
@@ -44,6 +45,7 @@ def get_model_dir(group: str | None = None) -> str:
         "swing": SWING_MODEL_DIR,
         "intraday": INTRADAY_MODEL_DIR,
         "crypto": CRYPTO_MODEL_DIR,
+        "crypto_intraday": CRYPTO_INTRADAY_MODEL_DIR,
     }
     return dirs.get(group, DEFAULT_MODEL_DIR)
 

@@ -121,7 +121,7 @@
             "lgb_intraday_crypto"
         ],
         "interval": "5min",
-        "cost_threshold": 0.003,
+        "cost_threshold": 0.005,
         "target_return": 0.01,
         "disaster_stop_mult": 3.0,
         "disaster_stop_max_pct": 0.02,
