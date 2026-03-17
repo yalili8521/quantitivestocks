@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import numpy as np
 import pytest
+import warnings
 
 
 # ===================================================================
@@ -249,3 +250,19 @@ class TestModelMonitor:
         should_pause, reason = monitor.should_pause_model("BAD")
         assert should_pause
         assert "hit_rate" in reason or "IC" in reason
+
+    def test_constant_inputs_keep_ic_zero_without_warnings(self, tmp_path):
+        from model_monitor import ModelMonitor
+
+        monitor = ModelMonitor(output_dir=str(tmp_path), window=50)
+        for _ in range(35):
+            monitor.record_prediction("CONST", 0.01, model_type="lstm")
+            monitor.record_realized("CONST", -0.02)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            health = monitor.compute_health("CONST")
+
+        assert health.rolling_ic == 0.0
+        assert not any("ConstantInputWarning" in str(w.category.__name__) for w in caught)
+
