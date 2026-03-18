@@ -326,52 +326,6 @@ section,.section-wrap{padding:80px 0}
 .research-list li{font-size:13px;color:var(--text-sec);padding:4px 0;padding-left:16px;position:relative}
 .research-list li::before{content:'';position:absolute;left:0;top:11px;width:4px;height:4px;border-radius:50%;background:var(--accent)}
 
-/* ============ PIPELINE ============ */
-.pipeline-flow{display:flex;align-items:center;gap:0;overflow-x:auto;padding:16px 0}
-@media(max-width:768px){.pipeline-flow{flex-direction:column}}
-.pipe-stage{flex:1;min-width:160px;padding:24px 16px;text-align:center}
-.pipe-icon{font-size:24px;margin-bottom:8px;color:var(--accent)}
-.pipe-stage h4{font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px}
-.pipe-stage p{font-size:11px;color:var(--text-muted)}
-.pipe-conn{display:flex;align-items:center;width:40px;justify-content:center;flex-shrink:0}
-@media(max-width:768px){.pipe-conn{width:auto;height:24px;transform:rotate(90deg)}}
-.pipe-conn-line{width:40px;height:2px;background:linear-gradient(90deg,var(--border),var(--accent),var(--border))}
-
-/* ============ CONTACT ============ */
-.contact-box{max-width:800px;margin:0 auto}
-.giscus{margin-top:16px}
-.contact-form{margin-top:40px;padding-top:32px;border-top:1px solid var(--border-muted)}
-.contact-form h3{font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px}
-.contact-form p{font-size:13px;color:var(--text-muted);margin-bottom:20px}
-.cf-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
-@media(max-width:600px){.cf-row{grid-template-columns:1fr}}
-.cf-field{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
-.cf-field label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted)}
-.cf-field input,.cf-field textarea,.cf-field select{
-  background:rgba(255,255,255,0.04);border:1px solid var(--border-muted);border-radius:8px;
-  padding:10px 14px;font-size:13px;color:var(--text);font-family:inherit;outline:none;
-  transition:border-color .2s;
-}
-.cf-field input:focus,.cf-field textarea:focus{border-color:var(--accent)}
-.cf-field textarea{resize:vertical;min-height:100px}
-.cf-submit{background:var(--accent);color:#fff;border:none;border-radius:8px;
-  padding:10px 24px;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .2s}
-.cf-submit:hover{opacity:.85}
-.cf-sent{display:none;padding:14px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);
-  border-radius:8px;font-size:13px;color:#22c55e;margin-top:12px;text-align:center}
-
-/* ============ FAQ ============ */
-.faq-list{max-width:800px;margin:0 auto;display:flex;flex-direction:column;gap:8px}
-.faq-item{border-radius:var(--radius);overflow:hidden}
-.faq-item summary{
-  cursor:pointer;padding:16px 20px;font-size:14px;font-weight:600;color:var(--text);
-  list-style:none;display:flex;justify-content:space-between;align-items:center;
-}
-.faq-item summary::-webkit-details-marker{display:none}
-.faq-item summary::after{content:'+';font-size:18px;color:var(--text-muted);transition:transform .2s}
-.faq-item[open] summary::after{content:'-'}
-.faq-answer{padding:0 20px 16px;font-size:13px;color:var(--text-sec);line-height:1.7}
-
 /* ============ FOOTER ============ */
 footer{border-top:1px solid var(--border);padding:40px 0}
 .footer-content{text-align:center}
@@ -430,9 +384,6 @@ footer{border-top:1px solid var(--border);padding:40px 0}
     <a href="#strategies">Strategies</a>
     <a href="#models">Models</a>
     <a href="#research">Research</a>
-    <a href="#pipeline">Pipeline</a>
-    <a href="#contact">Contact</a>
-    <a href="#faq">FAQ</a>
   </div>
 </nav>
 
@@ -444,7 +395,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
     <p class="hero-eyebrow" style="background: rgba(34, 197, 94, 0.1); color: #4ade80; padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(34, 197, 94, 0.2); backdrop-filter: blur(4px);">AI-NATIVE QUANTITATIVE TRADING</p>
     <h1 class="hero-title" style="margin-top: 16px;">Quantitative Stocks</h1>
     <p class="hero-tagline">Result-driven systematic trading across equity and commodity ETFs, powered by LSTM neural networks with temporal attention.</p>
-    <p style="margin-top: 12px; font-size: 11px; color: var(--text-muted); opacity: 0.7; font-family: var(--mono);">Latest Build: 2026-02-25 15:10:00</p>
+    <p style="margin-top: 12px; font-size: 11px; color: var(--text-muted); opacity: 0.7; font-family: var(--mono);">Latest Build: 2026-03-17</p>
   </div>
   <script>
     (function() {
@@ -676,7 +627,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
     </div>
 
     <div id="live-footer" style="font-size:10px;color:var(--text-dim);text-align:center">
-      Live &bull; Alpaca + Kraken Paper Trading (4 accounts) &bull; Auto-refreshes every 60s
+      Live &bull; Alpaca + Kraken Paper Trading (3 accounts) &bull; Auto-refreshes every 60s
     </div>
   </div>
 </section>
@@ -1981,168 +1932,10 @@ function setTVSymbol(sym, btn) {
       </div>
     </div>
 
-    <!-- Placeholder for old lstm-diagram that the grid still needs -->
-    <div class="research-grid" style="display:none">
-      <div class="glass" style="padding:32px;display:flex;flex-direction:column;align-items:center">
-        <div class="lstm-diagram">
-          <div class="lstm-layer input-layer">
-            <span class="layer-label">Input + LayerNorm</span>
-            <span class="layer-detail mono">20 &times; 21 features</span>
-          </div>
-          <div class="lstm-arrow"></div>
-          <div class="lstm-layer">
-            <span class="layer-label">LSTM Layer 1</span>
-            <span class="layer-detail mono">hidden = 96</span>
-          </div>
-          <div class="lstm-arrow"></div>
-          <div class="lstm-layer">
-            <span class="layer-label">LSTM Layer 2</span>
-            <span class="layer-detail mono">hidden = 96, dropout 0.25</span>
-          </div>
-          <div class="lstm-arrow"></div>
-          <div class="lstm-layer" style="border-color: var(--accent);">
-            <span class="layer-label">Temporal Attention</span>
-            <span class="layer-detail mono">soft attention over all steps</span>
-          </div>
-          <div class="lstm-arrow"></div>
-          <div class="lstm-layer">
-            <span class="layer-label">Fully Connected</span>
-            <span class="layer-detail mono">96 &rarr; 48 &rarr; ReLU</span>
-          </div>
-        </div>
-      </div>
-    </div><!-- end hidden -->
   </div>
 </section>
 
 
-<!-- PIPELINE -->
-<section id="pipeline" class="section-wrap reveal">
-  <div class="container">
-    <div class="sec-label">INFRASTRUCTURE</div>
-    <h2 class="sec-title">Data Pipeline</h2>
-    <div class="pipeline-flow">
-
-      <div class="pipe-stage glass">
-        <div class="pipe-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.66 3.58 3 8 3s8-1.34 8-3V6"/><path d="M4 12v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg></div>
-        <h4>Data Sources</h4>
-        <p>Yahoo Finance (swing/daily) · Alpaca Markets (intraday 5-min) · FRED VIX</p>
-      </div><div class="pipe-conn"><div class="pipe-conn-line"></div></div>
-      <div class="pipe-stage glass">
-        <div class="pipe-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.38.17.63.54.68.94V10a2 2 0 0 1 0 4v.09c-.05.4-.3.77-.68.94Z"/></svg></div>
-        <h4>Feature Engineering</h4>
-        <p>13 intraday features (5-min bars) · 40–50 swing features (daily)</p>
-      </div><div class="pipe-conn"><div class="pipe-conn-line"></div></div>
-      <div class="pipe-stage glass">
-        <div class="pipe-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 3 2 5.5 4 7l1 1.5V20h4v-2.5L15 16c2-1.5 4-4 4-7a7 7 0 0 0-7-7Z"/><path d="M9 20h6M10 23h4"/></svg></div>
-        <h4>ML Models</h4>
-        <p>LightGBM (intraday) · XGBoost (swing)</p>
-      </div><div class="pipe-conn"><div class="pipe-conn-line"></div></div>
-      <div class="pipe-stage glass">
-        <div class="pipe-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M2 20h.01M7 20v-4M12 20v-8M17 20V8M22 20V4"/></svg></div>
-        <h4>Signal Generation</h4>
-        <p>Direction confidence (intraday) · Expected 10-day return (swing)</p>
-      </div><div class="pipe-conn"><div class="pipe-conn-line"></div></div>
-      <div class="pipe-stage glass">
-        <div class="pipe-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>
-        <h4>Execution</h4>
-        <p>2 separate Alpaca paper accounts · intraday / swing</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-
-<!-- CONTACT -->
-<section id="contact" class="section-wrap reveal">
-  <div class="container">
-    <div class="sec-label">FEEDBACK</div>
-    <h2 class="sec-title">Comments & Contact</h2>
-    <div class="contact-box">
-      <script src="https://giscus.app/client.js"
-        data-repo="yalili8521/quantitivestocks"
-        data-repo-id="R_kgDORNpWdQ"
-        data-category="General"
-        data-category-id="DIC_kwDORNpWdc4C2qL-"
-        data-mapping="pathname"
-        data-strict="0"
-        data-reactions-enabled="1"
-        data-emit-metadata="0"
-        data-input-position="top"
-        data-theme="dark_dimmed"
-        data-lang="en"
-        crossorigin="anonymous"
-        async>
-      </script>
-      <div class="contact-form">
-        <h3>Send a Message</h3>
-        <p>I'll reply by email — usually within 24 hours.</p>
-        <form id="contact-form" action="https://formspree.io/f/xojkvnby" method="POST">
-          <div class="cf-row">
-            <div class="cf-field">
-              <label for="cf-name">Name</label>
-              <input type="text" id="cf-name" name="name" placeholder="Your name" required>
-            </div>
-            <div class="cf-field">
-              <label for="cf-email">Email</label>
-              <input type="email" id="cf-email" name="email" placeholder="you@example.com" required>
-            </div>
-          </div>
-          <div class="cf-field">
-            <label for="cf-subject">Subject</label>
-            <input type="text" id="cf-subject" name="subject" placeholder="Question, feedback, collaboration…">
-          </div>
-          <div class="cf-field">
-            <label for="cf-msg">Message</label>
-            <textarea id="cf-msg" name="message" placeholder="Write your message here…" required></textarea>
-          </div>
-          <button type="submit" class="cf-submit">Send Message</button>
-          <div class="cf-sent" id="cf-sent">✓ Message sent — I'll get back to you soon.</div>
-        </form>
-      </div>
-    </div>
-  </div>
-</section>
-
-
-<!-- FAQ -->
-<section id="faq" class="section-wrap reveal">
-  <div class="container">
-    <div class="sec-label">FAQ</div>
-    <h2 class="sec-title">Frequently Asked Questions</h2>
-    <div class="faq-list">
-
-      <details class="faq-item glass">
-        <summary>What strategies does the system run?</summary>
-        <div class="faq-answer"><p>Two independent strategies run simultaneously: <strong>Intraday</strong> (LightGBM on 5-minute bars, 6 symbols, same-day exit) and <strong>Swing</strong> (XGBoost regressor on daily bars, 9 symbols, holds days-to-weeks). Each strategy trades on a separate Alpaca paper account.</p></div>
-      </details>
-      <details class="faq-item glass">
-        <summary>How does the intraday model work?</summary>
-        <div class="faq-answer"><p>A LightGBM classifier processes 13 technical features computed from 5-minute bars (ADX, ATR%, VIX, momentum, Bollinger Bands, log dollar volume, and more). A RandomForest meta-model acts as a second gate to filter low-quality signals. Positions are always closed by end-of-day. Universe: SMH, IWM, IGV, QQQ, EWT, SOXX.</p></div>
-      </details>
-      <details class="faq-item glass">
-        <summary>How does the swing model work?</summary>
-        <div class="faq-answer"><p>An XGBoost regressor predicts the expected 10-day forward return for each symbol using 40–50 daily features (returns, volatility regimes, RSI, MACD, Bollinger Bands, ADX, VIX, and sector momentum). Positions are sized proportional to the predicted return and held until a signal-decay threshold is crossed, a disaster stop fires, or the signal reverses. Universe: GDX, SLV, IGV, QQQ, GLD, SMH, XLK, MCHI, IBIT.</p></div>
-      </details>
-      <details class="faq-item glass">
-        <summary>What data sources are used?</summary>
-        <div class="faq-answer"><p>Yahoo Finance (swing daily OHLCV), Alpaca Markets (intraday 5-minute bars for real-time trading), and the CBOE Volatility Index (VIX) via the FRED API. All data is fetched fresh for each prediction cycle.</p></div>
-      </details>
-      <details class="faq-item glass">
-        <summary>Is this live money?</summary>
-        <div class="faq-answer"><p>No. All performance metrics shown are derived from <strong>historical backtests</strong> and <strong>Alpaca paper trading</strong> (simulated execution, <code>paper=True</code> hardcoded). No real capital is at risk. Past performance does not indicate future results.</p></div>
-      </details>
-      <details class="faq-item glass">
-        <summary>How are positions sized?</summary>
-        <div class="faq-answer"><p>Each strategy uses a different sizing approach: <strong>Swing</strong> — signal-proportional (larger predicted return = larger position), adjusted by dynamic Kelly and a vol-scaling factor; <strong>Intraday</strong> — volatility-adjusted targeting 15% annualized vol per trade, scaled by meta-model confidence; <strong>Range</strong> — fixed fractional sizing. A correlated-position penalty (1/√N) reduces exposure when multiple same-direction positions are open.</p></div>
-      </details>
-      <details class="faq-item glass">
-        <summary>What is the full trading universe?</summary>
-        <div class="faq-answer"><p><strong>Intraday (6):</strong> SMH, IWM, IGV, QQQ, EWT, SOXX &mdash; validated on out-of-sample 2022–2023 data. <strong>Swing (9):</strong> GDX, SLV, IGV, QQQ, GLD, SMH, XLK, MCHI, IBIT &mdash; equity, sector, commodity, and crypto ETFs.</p></div>
-      </details>
-    </div>
-  </div>
-</section>
 
 
 <!-- FOOTER -->
@@ -2159,9 +1952,8 @@ function setTVSymbol(sym, btn) {
         Past performance does not indicate future results.
       </div>
       <div class="footer-meta">
-        <span class="mono">2026-02-25 15:10</span>
-        <span>7 symbols</span>
-        <span>68 backtest trades</span>
+        <span>3 groups: Intraday + Swing + Crypto</span>
+        <span>Paper trading on Alpaca + Kraken</span>
       </div>
     </div>
   </div>
@@ -2385,34 +2177,6 @@ document.addEventListener('DOMContentLoaded', function() {
       margin: { l: 0, r: 0, t: 0, b: 0 }, height: 64
     }, { responsive: true, displayModeBar: false, staticPlot: true });
   });
-
-  // ---- Contact form (Formspree AJAX) ----
-  var cf = document.getElementById('contact-form');
-  if (cf) {
-    cf.addEventListener('submit', function(e) {
-      e.preventDefault();
-      var btn = cf.querySelector('.cf-submit');
-      btn.textContent = 'Sending…';
-      btn.disabled = true;
-      fetch(cf.action, {
-        method: 'POST',
-        body: new FormData(cf),
-        headers: { 'Accept': 'application/json' }
-      }).then(function(r) {
-        if (r.ok) {
-          cf.reset();
-          document.getElementById('cf-sent').style.display = 'block';
-          btn.style.display = 'none';
-        } else {
-          btn.textContent = 'Error — try again';
-          btn.disabled = false;
-        }
-      }).catch(function() {
-        btn.textContent = 'Error — try again';
-        btn.disabled = false;
-      });
-    });
-  }
 
   // ---- Smooth scroll for nav links ----
   document.querySelectorAll('.topnav-links a').forEach(function(a) {

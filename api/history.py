@@ -1,9 +1,12 @@
 """Vercel serverless function: GET /api/history
 
-Returns portfolio equity history + filled orders for all four account groups.
+Returns portfolio equity history + filled orders for all account groups.
+- Intraday + Swing: Alpaca paper API
+- Crypto: Kraken paper state from GitHub Gist (trade log)
 """
 
 from http.server import BaseHTTPRequestHandler
+from datetime import datetime, timedelta, timezone
 import json
 import os
 
@@ -24,22 +27,10 @@ ACCOUNTS = [
         "key_env": "ALPACA_SWING_KEY",
         "secret_env": "ALPACA_SWING_SECRET",
     },
-    {
-        "name": "Crypto",
-        "group": "crypto",
-        "key_env": "ALPACA_CRYPTO_KEY",
-        "secret_env": "ALPACA_CRYPTO_SECRET",
-    },
-    {
-        "name": "Crypto Intraday",
-        "group": "crypto_intraday",
-        "key_env": "ALPACA_CRYPTO_INTRADAY_KEY",
-        "secret_env": "ALPACA_CRYPTO_INTRADAY_SECRET",
-    },
 ]
 
 
-def _fetch(api_key: str, api_secret: str) -> dict:
+def _fetch_alpaca(api_key: str, api_secret: str) -> dict:
     if not api_key or not api_secret:
         return {"portfolio": {}, "orders": [], "traded_symbols": []}
 
@@ -106,26 +97,77 @@ def _fetch(api_key: str, api_secret: str) -> dict:
     }
 
 
+def _fetch_kraken_history(state_filename: str = "kraken_paper_state.json") -> dict:
+    """Read Kraken paper trade log from GitHub Gist."""
+    gist_id = os.environ.get("KRAKEN_STATE_GIST_ID", "")
+    if not gist_id:
+        return {"portfolio": {}, "orders": []}
+
+    try:
+        resp = req.get(
+            f"https://api.github.com/gists/{gist_id}",
+            headers={"Accept": "application/vnd.github.v3+json"},
+            timeout=10,
+        )
+        if not resp.ok:
+            return {"portfolio": {}, "orders": []}
+
+        gist_data = resp.json()
+
+        # Read trade log if it exists
+        trade_log_content = gist_data.get("files", {}).get("kraken_trade_log.json", {}).get("content", "[]")
+        trade_log = json.loads(trade_log_content) if trade_log_content else []
+
+        orders = []
+        for t in trade_log:
+            orders.append({
+                "symbol":    t.get("symbol", ""),
+                "side":      t.get("side", ""),
+                "qty":       str(t.get("qty", "0")),
+                "price":     str(t.get("price", "0")),
+                "filled_at": t.get("time", ""),
+                "intent":    t.get("intent", ""),
+            })
+
+    except Exception:
+        return {"portfolio": {}, "orders": []}
+
+    return {
+        "portfolio": {},
+        "orders": orders,
+    }
+
+
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         accounts = []
         all_symbols: list[str] = []
 
+        # Alpaca groups (intraday, swing)
         for cfg in ACCOUNTS:
             key    = os.environ.get(cfg["key_env"], "")
             secret = os.environ.get(cfg["secret_env"], "")
-            data   = _fetch(key, secret)
+            data   = _fetch_alpaca(key, secret)
             accounts.append({
                 "name":      cfg["name"],
                 "group":     cfg["group"],
                 "portfolio": data["portfolio"],
                 "orders":    data["orders"],
             })
-            for sym in data["traded_symbols"]:
+            for sym in data.get("traded_symbols", []):
                 if sym not in all_symbols:
                     all_symbols.append(sym)
 
-        # Fetch price bars for traded symbols (use intraday creds for data API)
+        # Crypto group — Kraken paper trade log from Gist
+        crypto_data = _fetch_kraken_history("kraken_paper_state.json")
+        accounts.append({
+            "name":      "Crypto",
+            "group":     "crypto",
+            "portfolio": crypto_data["portfolio"],
+            "orders":    crypto_data["orders"],
+        })
+
+        # Fetch price bars for traded symbols (use data API key)
         api_key    = os.environ.get("ALPACA_API_KEY", "")
         api_secret = os.environ.get("ALPACA_API_SECRET", "")
         data_headers = {
@@ -133,20 +175,19 @@ class handler(BaseHTTPRequestHandler):
             "APCA-API-SECRET-KEY": api_secret,
         }
 
-        symbol_start  = {"SPY": "2026-02-11T00:00:00Z"}
-        default_start = "2026-02-17T00:00:00Z"
-        data_base     = "https://data.alpaca.markets/v2"
+        # Dynamic start date: 30 days ago
+        default_start = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT00:00:00Z")
+        data_base = "https://data.alpaca.markets/v2"
 
         bars: dict = {}
         for sym in all_symbols[:8]:
-            start_dt = symbol_start.get(sym, default_start)
             try:
                 resp = req.get(
                     f"{data_base}/stocks/{sym}/bars",
                     headers=data_headers,
                     params={
                         "timeframe": "15Min",
-                        "start": start_dt,
+                        "start": default_start,
                         "limit": "1000",
                         "sort": "asc",
                         "feed": "iex",
