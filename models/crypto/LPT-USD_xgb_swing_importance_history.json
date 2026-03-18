@@ -684,5 +684,95 @@
         0.054212
       ]
     ]
+  },
+  {
+    "symbol": "LPT-USD",
+    "trained_at": "2026-03-18",
+    "feature_cols": [
+      "ret5",
+      "ret63",
+      "dv_accel",
+      "ret252",
+      "bb_bandwidth",
+      "rsi14",
+      "vpoc_distance",
+      "spy_trend_strength",
+      "yield_curve_3m10y",
+      "factor_momentum",
+      "volume_trend",
+      "risk_appetite_ratio",
+      "macd_hist_norm",
+      "iv_rv_spread",
+      "adx",
+      "vix_pctrank",
+      "ret21",
+      "okx_long_short_ratio",
+      "btc_realized_vol_30",
+      "btc_trend_strength"
+    ],
+    "importances": [
+      0.022757,
+      0.089019,
+      0.069837,
+      0.060515,
+      0.024196,
+      0.007481,
+      0.066741,
+      0.075814,
+      0.04576,
+      0.021113,
+      0.036697,
+      0.032833,
+      0.070065,
+      0.051469,
+      0.060751,
+      0.07078,
+      0.016895,
+      0.0,
+      0.093507,
+      0.083771
+    ],
+    "top_10": [
+      [
+        "btc_realized_vol_30",
+        0.093507
+      ],
+      [
+        "ret63",
+        0.089019
+      ],
+      [
+        "btc_trend_strength",
+        0.083771
+      ],
+      [
+        "spy_trend_strength",
+        0.075814
+      ],
+      [
+        "vix_pctrank",
+        0.07078
+      ],
+      [
+        "macd_hist_norm",
+        0.070065
+      ],
+      [
+        "dv_accel",
+        0.069837
+      ],
+      [
+        "vpoc_distance",
+        0.066741
+      ],
+      [
+        "adx",
+        0.060751
+      ],
+      [
+        "ret252",
+        0.060515
+      ]
+    ]
   }
 ]

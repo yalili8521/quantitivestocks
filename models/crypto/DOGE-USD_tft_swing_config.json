@@ -1,12 +1,12 @@
 {
-  "symbol": "QNT-USD",
+  "symbol": "DOGE-USD",
   "model_type": "tft_swing",
   "n_features": 20,
   "seq_len": 20,
   "hidden": 32,
   "n_heads": 4,
-  "val_mse": 0.02920654,
-  "val_direction_accuracy": 0.6064,
+  "val_mse": 0.02290667,
+  "val_direction_accuracy": 0.6489,
   "n_train": 374,
   "n_val": 94
 }

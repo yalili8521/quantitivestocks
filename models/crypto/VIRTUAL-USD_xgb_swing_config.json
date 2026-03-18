@@ -4,9 +4,9 @@
   "horizon": "10d",
   "model_version": "v4_regression_regime",
   "target": "forward_10d_return",
-  "val_rmse": 0.1616214,
+  "val_rmse": 0.16240477,
   "val_direction_accuracy": 0.8871,
-  "n_train": 246,
+  "n_train": 248,
   "n_val": 62,
   "n_features": 20,
   "feature_names": [
@@ -31,7 +31,7 @@
     "btc_realized_vol_30",
     "btc_trend_strength"
   ],
-  "train_end": "2025-09-07",
+  "train_end": "2025-09-09",
   "train_mode": "walk_forward_75_25",
-  "label_mean_removed": 0.13817743
+  "label_mean_removed": 0.13703319
 }

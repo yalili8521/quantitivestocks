@@ -5,8 +5,8 @@
   "seq_len": 20,
   "hidden": 32,
   "n_heads": 4,
-  "val_mse": 0.00959152,
-  "val_direction_accuracy": 0.5426,
+  "val_mse": 0.03766057,
+  "val_direction_accuracy": 0.6596,
   "n_train": 372,
   "n_val": 94
 }

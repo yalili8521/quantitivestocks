@@ -157,7 +157,7 @@ _TFT_SEQ_LEN = 20    # 20-day lookback window
 _TFT_HIDDEN  = 32    # small — N~800 samples, regularisation-first
 _TFT_HEADS   = 4     # must divide _TFT_HIDDEN
 _TFT_DROPOUT = 0.25  # high dropout combats small-dataset overfitting
-_TFT_WEIGHT  = 0.60  # TFT contribution in ensemble (XGBoost = 1 - this)
+_TFT_WEIGHT  = 0.30  # TFT contribution in ensemble (XGBoost = 1 - this)
 
 
 # ---------------------------------------------------------------------------
@@ -874,7 +874,10 @@ class TFTSwingModel(nn.Module):
         a, _ = self.attn(h, h, h)                       # (B, T, H)
         a = self.attn_norm(a + h)                        # skip + norm
         out = self.out_grn(a[:, -1, :])                  # last timestep
-        return self.head(out).squeeze(-1)                # (B,)
+        # Safety clamp — prevents extreme predictions from small-dataset
+        # overfitting (N~800). Training labels are 1st/99th pctile winsorized
+        # (typically ±3-8%), so ±15% is a loose safety net.
+        return torch.clamp(self.head(out).squeeze(-1), -0.15, 0.15)
 
 
 def _prepare_sequence_regression(
@@ -887,7 +890,10 @@ def _prepare_sequence_regression(
 
     For each valid bar i (i >= seq_len, i + forward_days < len(bars)):
         X[i] = features_norm[i-seq_len : i]   shape: (seq_len, n_features)
-        y[i] = forward 10-day return at bar i, winsorized ±10%
+        y[i] = forward 10-day return at bar i
+
+    Labels are winsorized to 1st/99th percentile (same as XGBoost) to ensure
+    both models train on the same target scale.
     """
     full_close     = bars_df["close"].astype(float).values
     bar_positions  = bars_df.index.get_indexer(features_norm.index)
@@ -903,12 +909,18 @@ def _prepare_sequence_regression(
         if entry_price <= 0:
             continue
         fwd_ret = (full_close[bar_pos + forward_days] - entry_price) / entry_price
-        fwd_ret = max(-0.10, min(0.10, fwd_ret))
         X_list.append(feature_values[i - seq_len:i])
         y_list.append(fwd_ret)
 
-    return (np.array(X_list, dtype=np.float32),
-            np.array(y_list, dtype=np.float32))
+    y_arr = np.array(y_list, dtype=np.float32)
+
+    # Percentile-based Winsorization (1st/99th) — same as XGBoost labels
+    if len(y_arr) > 20:
+        p1, p99 = np.percentile(y_arr, [1, 99])
+        y_arr = np.clip(y_arr, p1, p99)
+        log.info("[TFT] Label Winsorization: clipped to [%.4f, %.4f] (1st/99th pctile)", p1, p99)
+
+    return (np.array(X_list, dtype=np.float32), y_arr)
 
 
 def train_tft_swing_model(
@@ -1474,35 +1486,50 @@ class SwingPredictor:
             try:
                 seq = self._tft_seq_len
                 n   = self._tft_n_features
+                window = None  # set explicitly so we can guard below
                 if len(features_norm) >= seq:
                     # Select TFT features by name (same as XGBoost training order)
-                    # to handle new features added after model was trained
                     if self._xgb_feature_names and len(self._xgb_feature_names) == n:
                         tft_cols = [c for c in self._xgb_feature_names
                                     if c in features_norm.columns]
-                        window = features_norm[tft_cols].iloc[-seq:].values.astype(np.float32)
+                        # Guard: skip TFT if available features < expected (model trained
+                        # on different feature set, e.g. 71-feat model vs 25-feat config)
+                        if len(tft_cols) < n:
+                            log.warning("[TFT] %s: feature mismatch — need %d, have %d. "
+                                        "XGBoost only.", self.symbol, n, len(tft_cols))
+                        else:
+                            window = features_norm[tft_cols].iloc[-seq:].values.astype(np.float32)
                     else:
                         window = features_norm.iloc[-seq:].values[:, :n].astype(np.float32)
-                    xt = torch.FloatTensor(window).unsqueeze(0)   # (1, seq, n_feat)
-                    with torch.no_grad():
-                        tft_ret = self._tft(xt).item()
 
-                    # Dynamic weight calculation (require 20 completed obs)
-                    if (len(self._xgb_errors) >= self._MIN_OBS_FOR_DYNAMIC and
-                            len(self._tft_errors) >= self._MIN_OBS_FOR_DYNAMIC):
-                        xgb_mae = sum(self._xgb_errors) / len(self._xgb_errors)
-                        tft_mae = sum(self._tft_errors) / len(self._tft_errors)
-                        # Inverse MAE weighting (lower error → higher weight)
-                        if xgb_mae > 0 and tft_mae > 0:
-                            w_tft = (1 / tft_mae) / (1 / tft_mae + 1 / xgb_mae)
-                            w_tft = max(self._MIN_WEIGHT, min(self._MAX_WEIGHT, w_tft))
-                            self._tft_weight = w_tft
-                        # else keep previous weight
-                    # else: not enough history, use default _TFT_WEIGHT
+                    if window is not None:
+                        xt = torch.FloatTensor(window).unsqueeze(0)   # (1, seq, n_feat)
+                        with torch.no_grad():
+                            tft_ret = self._tft(xt).item()
 
-                    expected_return = self._tft_weight * tft_ret + (1 - self._tft_weight) * xgb_ret
-                    log.debug("[TFT] %s: xgb=%.4f tft=%.4f w_tft=%.2f blend=%.4f",
-                              self.symbol, xgb_ret, tft_ret, self._tft_weight, expected_return)
+                        # NaN guard — fall back to XGBoost if TFT produced NaN
+                        if np.isnan(tft_ret) or np.isinf(tft_ret):
+                            log.warning("[TFT] %s: NaN/Inf prediction — XGBoost only.",
+                                        self.symbol)
+                            tft_ret = None
+
+                    if tft_ret is not None:
+                        # Dynamic weight calculation (require 20 completed obs)
+                        if (len(self._xgb_errors) >= self._MIN_OBS_FOR_DYNAMIC and
+                                len(self._tft_errors) >= self._MIN_OBS_FOR_DYNAMIC):
+                            xgb_mae = sum(self._xgb_errors) / len(self._xgb_errors)
+                            tft_mae = sum(self._tft_errors) / len(self._tft_errors)
+                            # Inverse MAE weighting (lower error → higher weight)
+                            if xgb_mae > 0 and tft_mae > 0:
+                                w_tft = (1 / tft_mae) / (1 / tft_mae + 1 / xgb_mae)
+                                w_tft = max(self._MIN_WEIGHT, min(self._MAX_WEIGHT, w_tft))
+                                self._tft_weight = w_tft
+                            # else keep previous weight
+                        # else: not enough history, use default _TFT_WEIGHT
+
+                        expected_return = self._tft_weight * tft_ret + (1 - self._tft_weight) * xgb_ret
+                        log.debug("[TFT] %s: xgb=%.4f tft=%.4f w_tft=%.2f blend=%.4f",
+                                  self.symbol, xgb_ret, tft_ret, self._tft_weight, expected_return)
             except Exception as exc:
                 log.warning("[TFT] predict failed for %s: %s — XGB only.", self.symbol, exc)
                 expected_return = xgb_ret
@@ -1521,7 +1548,9 @@ class SwingPredictor:
             direction = "FLAT"
 
         confidence  = min(1.0, abs(expected_return) / TARGET_RETURN)
-        probability = max(0.05, min(0.95, 0.5 + expected_return * 10))
+        # Derive display probability from confidence (regression model has no natural prob)
+        prob_sign = 1 if expected_return >= 0 else -1
+        probability = min(0.95, max(0.05, 0.5 + confidence * 0.45 * prob_sign))
 
         return {
             "expected_return": round(expected_return, 6),

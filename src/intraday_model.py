@@ -725,10 +725,16 @@ class IntradayPredictor:
         # Confidence in LSTM-compatible format
         confidence = max(0.0, (prob - 0.5) * 2)
 
+        # Bridge classification prob → expected_return for paper_trader entry gate
+        # prob=0.5 → E[r]=0 (coin flip), prob=0.6 → |E[r]|=0.003, prob=0.7 → |E[r]|=0.006
+        sign = 1 if direction == "UP" else -1
+        expected_return = sign * (prob - 0.5) * 0.03
+
         return {
             "direction": direction,
             "probability": round(prob, 4),
             "confidence": round(confidence, 4),
+            "expected_return": round(expected_return, 6),
             "meta_confidence": 1.0,
             "tradeable": prob >= self.threshold,
         }

@@ -559,6 +559,8 @@ class AlpacaPaperTrader:
         self._vol_tier_last_update: Optional[datetime] = None
         self._breakeven_floor: Dict[str, float] = {}  # symbol → floor price (entry or higher)
         self._signal_flip_counts: Dict[str, int] = {}  # consecutive signal flips
+        self._bars_held: Dict[str, int] = {}  # checks since entry (for min_hold_bars)
+        self._ci_bars_held: Dict[str, int] = {}  # crypto_intraday: 5-min bars since entry
         self._classify_vol_tiers()
 
     # -- Volatility tier classification -----------------------------------
@@ -1032,71 +1034,66 @@ class AlpacaPaperTrader:
     def _check_regime(self) -> tuple:
         """Return (regime_ok: bool, reason: str).
 
-        Equities:
-          Gate 1 — SPY SMA(200): only trade in bull market (SPY close > 200-day MA).
-          Gate 2 — VIX threshold: swing < 30 (skip for intraday — model handles vol).
-        Crypto:
-          Gate 1 — BTC tiered SMA: pass if BTC > SMA(20), or BTC > SMA(50)
-                   with positive 14-day momentum, or 14d bounce > 5%.
-                   Crypto is far more volatile than equities — 200/100-day
-                   SMAs are too slow and miss valid recovery entries.
-          Gate 2 — Skipped (VIX doesn't apply to crypto).
-        All groups:
-          Gate 3 — Rolling win rate: pause 7 days if last 20 trades win rate < 50%.
+        By default, hardcoded SMA/VIX gates are DISABLED — the model's own
+        regime features (btc_sma200_flag, spy_trend_strength, vix_regime, etc.)
+        handle regime-dependent behavior.  Set ``use_hardcoded_regime_gates``
+        in RiskConfig to re-enable the old gates for A/B testing.
 
-        Returns True only when ALL gates pass.
+        Gate that always remains active:
+          Rolling win rate: pause 7 days if last 20 trades win rate < 50%.
         """
-        if self.group == "crypto":
-            # Crypto regime: tiered SMA with momentum recovery
-            try:
-                btc_bars = self.adapter.fetch_daily("BTC-USD", 210)
-                btc_close = float(btc_bars["close"].iloc[-1])
-                btc_sma20 = float(btc_bars["close"].rolling(20).mean().iloc[-1])
-                btc_sma50 = float(btc_bars["close"].rolling(50).mean().iloc[-1])
-                btc_ret14 = float(btc_bars["close"].pct_change(14).iloc[-1])
+        risk = self._risk_config
 
-                if btc_close > btc_sma20:
-                    pass  # Short-term uptrend — fully open
-                elif btc_close > btc_sma50 and btc_ret14 > 0:
-                    pass  # Above SMA(50) with positive 14d momentum — allow
-                elif btc_close > btc_sma50:
-                    return False, (f"BTC between SMA(20)/SMA(50) but negative momentum: "
-                                   f"{btc_close:,.0f}, SMA20={btc_sma20:,.0f}, "
-                                   f"SMA50={btc_sma50:,.0f}, ret14={btc_ret14:+.2%}")
-                else:
-                    # Below SMA(50) but allow if strong positive momentum (bounce entry)
-                    if btc_ret14 > 0.05:
-                        pass  # 5%+ bounce in 14 days — allow cautious entries
-                    else:
-                        return False, (f"BTC below SMA(50): {btc_close:,.0f} <= "
-                                       f"{btc_sma50:,.0f}, ret14={btc_ret14:+.2%}")
-            except Exception as exc:
-                log.warning("Regime BTC check failed (defaulting open): %s", exc)
-        else:
-            # Gate 1: SPY SMA(200)
-            try:
-                spy_bars = self.adapter.fetch_daily("SPY", 210)
-                spy_close = float(spy_bars["close"].iloc[-1])
-                spy_sma200 = float(spy_bars["close"].rolling(200).mean().iloc[-1])
-                if spy_close <= spy_sma200:
-                    return False, f"SPY below SMA(200): {spy_close:.2f} <= {spy_sma200:.2f}"
-            except Exception as exc:
-                log.warning("Regime SPY check failed (defaulting open): %s", exc)
-
-            # Gate 2: VIX — skip for intraday (short holds benefit from vol),
-            #               block swing only above 30 (real panic, not routine vol)
-            if self.mode != "intraday":
+        if risk.use_hardcoded_regime_gates:
+            # --- Legacy hardcoded gates (disabled by default) ---
+            if self.group == "crypto":
                 try:
-                    vix_df = self._vix_cache if self._vix_cache is not None else self._get_vix_df()
-                    if not vix_df.empty:
-                        vix_now = float(vix_df.iloc[-1].iloc[0] if vix_df.shape[1] == 1
-                                        else vix_df["vix"].iloc[-1])
-                        if vix_now >= 30.0:
-                            return False, f"VIX elevated: {vix_now:.1f} >= 30"
-                except Exception as exc:
-                    log.warning("Regime VIX check failed (defaulting open): %s", exc)
+                    btc_bars = self.adapter.fetch_daily("BTC-USD", 210)
+                    btc_close = float(btc_bars["close"].iloc[-1])
+                    btc_sma20 = float(btc_bars["close"].rolling(20).mean().iloc[-1])
+                    btc_sma50 = float(btc_bars["close"].rolling(50).mean().iloc[-1])
+                    btc_ret14 = float(btc_bars["close"].pct_change(14).iloc[-1])
 
-        # Gate 3: rolling 20-trade win rate cooldown
+                    if btc_close > btc_sma20:
+                        pass
+                    elif btc_close > btc_sma50 and btc_ret14 > 0:
+                        pass
+                    elif btc_close > btc_sma50:
+                        return False, (f"BTC between SMA(20)/SMA(50) but negative momentum: "
+                                       f"{btc_close:,.0f}, SMA20={btc_sma20:,.0f}, "
+                                       f"SMA50={btc_sma50:,.0f}, ret14={btc_ret14:+.2%}")
+                    else:
+                        if btc_ret14 > 0.05:
+                            pass
+                        else:
+                            return False, (f"BTC below SMA(50): {btc_close:,.0f} <= "
+                                           f"{btc_sma50:,.0f}, ret14={btc_ret14:+.2%}")
+                except Exception as exc:
+                    log.warning("Regime BTC check failed (defaulting open): %s", exc)
+            else:
+                try:
+                    spy_bars = self.adapter.fetch_daily("SPY", 210)
+                    spy_close = float(spy_bars["close"].iloc[-1])
+                    spy_sma200 = float(spy_bars["close"].rolling(200).mean().iloc[-1])
+                    if spy_close <= spy_sma200:
+                        return False, f"SPY below SMA(200): {spy_close:.2f} <= {spy_sma200:.2f}"
+                except Exception as exc:
+                    log.warning("Regime SPY check failed (defaulting open): %s", exc)
+
+                if self.mode != "intraday":
+                    try:
+                        vix_df = self._vix_cache if self._vix_cache is not None else self._get_vix_df()
+                        if not vix_df.empty:
+                            vix_now = float(vix_df.iloc[-1].iloc[0] if vix_df.shape[1] == 1
+                                            else vix_df["vix"].iloc[-1])
+                            if vix_now >= 30.0:
+                                return False, f"VIX elevated: {vix_now:.1f} >= 30"
+                    except Exception as exc:
+                        log.warning("Regime VIX check failed (defaulting open): %s", exc)
+        else:
+            log.debug("Hardcoded regime gates disabled — model features drive entry decisions.")
+
+        # Rolling 20-trade win rate cooldown (always active)
         import datetime as _dt
         now = _dt.datetime.now(timezone.utc)
         if self._regime_cooldown_until is not None:
@@ -1154,7 +1151,15 @@ class AlpacaPaperTrader:
             return {"direction": "UNKNOWN", "confidence": 0.0, "probability": 0.5}
 
     def _get_crypto_intraday_prediction(self, symbol: str, predictor) -> dict:
-        """Fetch 5-min bars from Kraken and run CryptoIntradayPredictor."""
+        """Fetch 5-min bars from Kraken and run CryptoIntradayPredictor.
+
+        Each call = one new 5-min bar cycle (check_interval is already 5 min).
+        Increments the bar counter for horizon-aware hold tracking.
+        """
+        # Increment bar counter on every call (1 call ≈ 1 five-min bar)
+        if symbol in self._ci_bars_held:
+            self._ci_bars_held[symbol] += 1
+
         if self._crypto_intraday_data is None:
             from crypto_intraday_data import CryptoIntradayData
             self._crypto_intraday_data = CryptoIntradayData()
@@ -1473,10 +1478,15 @@ class AlpacaPaperTrader:
                 profit_lock_armed = self._profit_lock_active.get(symbol, False)
 
                 if profit_lock_armed:
-                    # 2a: Profit-lock armed + model flips + still profitable → exit immediately
+                    # 2a: Profit-lock armed + model flips + still profitable → exit
+                    # For crypto_intraday: only after min hold bars elapsed
+                    ci_min_hold_ok = True
+                    if self.group == "crypto_intraday":
+                        from src.risk_config import CRYPTO_INTRADAY_MIN_HOLD_BARS
+                        ci_min_hold_ok = self._ci_bars_held.get(symbol, 0) >= CRYPTO_INTRADAY_MIN_HOLD_BARS
                     signal_flipped = ((side == "LONG" and expected_return <= 0)
                                       or (side == "SHORT" and expected_return >= 0))
-                    if signal_flipped and pnl_pct > 0:
+                    if signal_flipped and pnl_pct > 0 and ci_min_hold_ok:
                         reason = (f"profit_lock+signal_decay (armed, E[r]={expected_return:+.4f}, "
                                   f"PnL={pnl_pct:+.2%})")
                         result = _do_exit(reason, "profit_lock+signal")
@@ -1495,32 +1505,79 @@ class AlpacaPaperTrader:
                             return f"EXIT-DEFERRED  (profit-lock trail, market closed)"
                         return result
 
-            # ===== LAYER 3: Model-state exits (signal decay) =====
+            # ===== LAYER 3: Model-state exits =====
             if not use_legacy_stops:
-                signal_flipped = ((side == "LONG" and expected_return <= 0)
-                                  or (side == "SHORT" and expected_return >= 0))
-                if signal_flipped:
-                    self._signal_flip_counts[symbol] = self._signal_flip_counts.get(symbol, 0) + 1
+                if self.group == "crypto_intraday":
+                    # --- Crypto intraday: horizon-aware hold ---
+                    # Bar counter incremented in _get_crypto_intraday_prediction()
+                    from src.risk_config import (CRYPTO_INTRADAY_MIN_HOLD_BARS,
+                                                 CRYPTO_INTRADAY_MAX_HOLD_BARS,
+                                                 CRYPTO_INTRADAY_SIGNAL_REVERSAL_COOLDOWN_BARS,
+                                                 CRYPTO_INTRADAY_BAR_SECONDS)
+                    ci_bars = self._ci_bars_held.get(symbol, 0)
+
+                    # Max hold: force exit at 48 bars (4 hours)
+                    if ci_bars >= CRYPTO_INTRADAY_MAX_HOLD_BARS:
+                        reason = (f"max_hold_expired ({ci_bars} bars = "
+                                  f"{ci_bars * 5 / 60:.1f}h, PnL={pnl_pct:+.2%})")
+                        result = _do_exit(reason, "time")
+                        if result is None:
+                            return f"EXIT-DEFERRED  (max hold {ci_bars} bars)"
+                        log.info("[CryptoIntraday] %s: exit after %d bars, reason=%s, pnl=%.4f%%",
+                                 symbol, ci_bars, "max_hold_expired", pnl_pct * 100)
+                        return result
+
+                    # Before 12 bars (1 hour): hold — no model reassessment
+                    if ci_bars < CRYPTO_INTRADAY_MIN_HOLD_BARS:
+                        pass  # only disaster stop and profit lock can exit (checked above)
+                    else:
+                        # After 12 bars: reassess — exit on signal reversal
+                        signal_flipped = ((side == "LONG" and expected_return <= 0)
+                                          or (side == "SHORT" and expected_return >= 0))
+                        if signal_flipped:
+                            reason = (f"signal_reversal_post_horizon (E[r]={expected_return:+.4f}, "
+                                      f"bars={ci_bars}, PnL={pnl_pct:+.2%})")
+                            result = _do_exit(reason, "signal_reversal")
+                            if result is None:
+                                return (f"EXIT-DEFERRED  (signal reversal E[r]={expected_return:+.4f}, "
+                                        f"market closed)")
+                            log.info("[CryptoIntraday] %s: exit after %d bars, reason=%s, pnl=%.4f%%",
+                                     symbol, ci_bars, "signal_reversal_post_horizon", pnl_pct * 100)
+                            # 3-bar (15-min) cooldown after reversal exits
+                            cooldown_secs = CRYPTO_INTRADAY_SIGNAL_REVERSAL_COOLDOWN_BARS * CRYPTO_INTRADAY_BAR_SECONDS
+                            self._decay_cooldown_until[symbol] = (
+                                datetime.now(timezone.utc) + timedelta(seconds=cooldown_secs))
+                            return result
                 else:
-                    self._signal_flip_counts[symbol] = 0
+                    # --- Non-crypto-intraday: original signal decay logic ---
+                    bars_held = self._bars_held.get(symbol, 0) + 1
+                    self._bars_held[symbol] = bars_held
 
-                flip_count = self._signal_flip_counts.get(symbol, 0)
-                required_flips = ep.signal_flip_consecutive
+                    signal_flipped = ((side == "LONG" and expected_return <= 0)
+                                      or (side == "SHORT" and expected_return >= 0))
+                    if signal_flipped:
+                        self._signal_flip_counts[symbol] = self._signal_flip_counts.get(symbol, 0) + 1
+                    else:
+                        self._signal_flip_counts[symbol] = 0
 
-                if flip_count >= required_flips:
-                    reason = (f"signal_decay (E[r]={expected_return:+.4f}, "
-                              f"flips={flip_count}/{required_flips})")
-                    result = _do_exit(reason, "signal_decay")
-                    if result is None:
-                        return (f"EXIT-DEFERRED  (signal decay E[r]={expected_return:+.4f}, "
-                                f"P&L={pnl_pct:+.2%}, market closed)")
-                    self._decay_cooldown_until[symbol] = (
-                        datetime.now(timezone.utc) + timedelta(seconds=2 * self.check_interval))
-                    return result
+                    flip_count = self._signal_flip_counts.get(symbol, 0)
+                    required_flips = ep.signal_flip_consecutive
+                    min_hold = getattr(ep, "min_hold_bars", 0)
+
+                    if bars_held >= min_hold and flip_count >= required_flips:
+                        reason = (f"signal_decay (E[r]={expected_return:+.4f}, "
+                                  f"flips={flip_count}/{required_flips}, held={bars_held})")
+                        result = _do_exit(reason, "signal_decay")
+                        if result is None:
+                            return (f"EXIT-DEFERRED  (signal decay E[r]={expected_return:+.4f}, "
+                                    f"P&L={pnl_pct:+.2%}, market closed)")
+                        self._decay_cooldown_until[symbol] = (
+                            datetime.now(timezone.utc) + timedelta(seconds=2 * self.check_interval))
+                        return result
 
             # ===== LAYER 4: Time exits =====
-            # 4a: Max underwater duration
-            if not use_legacy_stops and ep.max_underwater_days > 0:
+            # 4a: Max underwater duration (non-crypto-intraday only; CI uses bar-based max hold above)
+            if not use_legacy_stops and ep.max_underwater_days > 0 and self.group != "crypto_intraday":
                 entry_time = self._entry_times.get(symbol)
                 if entry_time and pnl_pct < 0:
                     days_held = (datetime.now(timezone.utc) - entry_time).days
@@ -1532,25 +1589,15 @@ class AlpacaPaperTrader:
                             return f"EXIT-DEFERRED  (max underwater {days_held}d, market closed)"
                         return result
 
-            # 4b: Max hold hours (crypto_intraday: 4h max hold)
-            if self.group == "crypto_intraday":
-                entry_time = self._entry_times.get(symbol)
-                max_hold_hours = 4.0
-                if entry_time:
-                    hours_held = (datetime.now(timezone.utc) - entry_time).total_seconds() / 3600
-                    if hours_held >= max_hold_hours:
-                        reason = f"max_hold_{max_hold_hours}h (held {hours_held:.1f}h, PnL={pnl_pct:+.2%})"
-                        result = _do_exit(reason, "time")
-                        if result is None:
-                            return f"EXIT-DEFERRED  (max hold {hours_held:.1f}h)"
-                        return result
-
             # HOLD
             hold_extras = []
             if self._profit_lock_active.get(symbol, False):
                 hold_extras.append("PL=armed")
             if symbol in self._breakeven_floor:
                 hold_extras.append(f"BE=${self._breakeven_floor[symbol]:.2f}")
+            if self.group == "crypto_intraday":
+                ci_bars = self._ci_bars_held.get(symbol, 0)
+                hold_extras.append(f"bars={ci_bars}/48")
             extras_str = f"  [{', '.join(hold_extras)}]" if hold_extras else ""
             return (f"HOLD  ({side} {qty_display} sh @ ${entry_price:.2f}, "
                     f"P&L: {pnl_pct:+.2%})  "
@@ -1575,7 +1622,11 @@ class AlpacaPaperTrader:
             return f"MODEL-PAUSED  ({pause_reason})  ML: {direction} E[r]={expected_return:+.4f}"
 
         # Determine entry direction
+        # Respect model's own quality gate (e.g. LightGBM calibrated threshold)
         enter_dir = None
+        if not pred.get("tradeable", True):
+            return (f"SKIP  (model gate: not tradeable)  ML: {direction} "
+                    f"E[r]={expected_return:+.4f}")
         if expected_return > self.cost_threshold and bar_trend > 0:
             enter_dir = "LONG"
         elif expected_return < -self.cost_threshold and bar_trend < 0:
@@ -1641,7 +1692,8 @@ class AlpacaPaperTrader:
             except Exception:
                 equity = getattr(self, '_last_known_equity', self.initial_capital)
 
-            signal_pct = min(1.0, max(0.1, abs(expected_return) / self.target_return))
+            signal_pct = min(1.0, max(risk.min_signal_scale,
+                                      abs(expected_return) / self.target_return))
 
             # Half-Kelly from rolling trade history (falls back to position_pct)
             derisk_key = symbol.replace("/", "-")
@@ -1660,6 +1712,13 @@ class AlpacaPaperTrader:
 
             sizing_pct = base_frac * signal_pct
             sizing_pct = min(sizing_pct, risk.max_position_pct)
+
+            if is_crypto:
+                log.debug("Crypto sizing %s: base=%.3f signal=%.3f max_pos=%.2f "
+                          "max_exp=%.2f sizing=%.3f",
+                          symbol, base_frac, signal_pct,
+                          risk.max_position_pct, risk.max_total_exposure,
+                          sizing_pct)
 
             # --- Per-symbol cap (OOS Sharpe-tiered) ---
             sym_cap = get_symbol_cap(symbol, self.group or "swing")
@@ -1701,6 +1760,29 @@ class AlpacaPaperTrader:
                     sizing_pct *= self.post_loss_size_mult
                     size_note += f" [post-loss {self.post_loss_size_mult:.0%}]"
 
+            # --- Soft regime scaling (reduce size, never block) ---
+            if risk.use_soft_regime_scaling and not is_crypto:
+                try:
+                    spy_bars = self.adapter.fetch_daily("SPY", 210)
+                    _spy_c = float(spy_bars["close"].iloc[-1])
+                    _spy_sma = float(spy_bars["close"].rolling(200).mean().iloc[-1])
+                    if _spy_c <= _spy_sma:
+                        sizing_pct *= risk.bear_scaling_factor
+                        size_note += f" [bear-regime {risk.bear_scaling_factor:.0%}]"
+                except Exception:
+                    pass
+                if self.mode != "intraday":
+                    try:
+                        vix_df = self._vix_cache if self._vix_cache is not None else self._get_vix_df()
+                        if not vix_df.empty:
+                            _vix = float(vix_df.iloc[-1].iloc[0] if vix_df.shape[1] == 1
+                                         else vix_df["vix"].iloc[-1])
+                            if _vix >= risk.vix_threshold:
+                                sizing_pct *= risk.high_vix_scaling_factor
+                                size_note += f" [high-vix {risk.high_vix_scaling_factor:.0%}]"
+                    except Exception:
+                        pass
+
             invest = equity * sizing_pct
             qty = invest / current_price
             if is_crypto:
@@ -1737,6 +1819,8 @@ class AlpacaPaperTrader:
             self._entry_atrs[symbol] = bar_atr
             self._entry_times[symbol] = datetime.now(timezone.utc)
             self._profit_lock_active[symbol] = False
+            if self.group == "crypto_intraday":
+                self._ci_bars_held[symbol] = 0
 
             # Monitor: record prediction at entry
             model_type = getattr(self.predictors.get(symbol), 'model_type', 'lstm')
@@ -1794,6 +1878,8 @@ class AlpacaPaperTrader:
         self._profit_lock_active.pop(symbol, None)
         self._breakeven_floor.pop(symbol, None)
         self._signal_flip_counts.pop(symbol, None)
+        self._bars_held.pop(symbol, None)
+        self._ci_bars_held.pop(symbol, None)
         # Note: _decay_cooldown_until is intentionally NOT cleared here —
         # signal-decay exits set it after calling this method.
 

@@ -1,12 +1,12 @@
 {
-  "symbol": "ADA-USD",
+  "symbol": "DOT-USD",
   "model_type": "tft_swing",
   "n_features": 20,
   "seq_len": 20,
   "hidden": 32,
   "n_heads": 4,
-  "val_mse": 0.00568608,
-  "val_direction_accuracy": 0.6809,
+  "val_mse": 0.01636815,
+  "val_direction_accuracy": 0.7447,
   "n_train": 374,
   "n_val": 94
 }

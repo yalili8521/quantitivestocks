@@ -1,12 +1,12 @@
 {
-  "symbol": "LINK-USD",
+  "symbol": "BCH-USD",
   "model_type": "tft_swing",
   "n_features": 20,
   "seq_len": 20,
   "hidden": 32,
   "n_heads": 4,
-  "val_mse": 0.00349068,
-  "val_direction_accuracy": 0.6489,
+  "val_mse": 0.01207888,
+  "val_direction_accuracy": 0.8191,
   "n_train": 374,
   "n_val": 94
 }
