@@ -167,6 +167,15 @@ class handler(BaseHTTPRequestHandler):
             "orders":    crypto_data["orders"],
         })
 
+        # Crypto Intraday group — separate Kraken paper state
+        crypto_intraday_data = _fetch_kraken_history("kraken_intraday_paper_state.json")
+        accounts.append({
+            "name":      "Crypto Intraday",
+            "group":     "crypto_intraday",
+            "portfolio": crypto_intraday_data["portfolio"],
+            "orders":    crypto_intraday_data["orders"],
+        })
+
         # Fetch price bars for traded symbols (use data API key)
         api_key    = os.environ.get("ALPACA_API_KEY", "")
         api_secret = os.environ.get("ALPACA_API_SECRET", "")
