@@ -1821,6 +1821,67 @@ class AlpacaPaperTrader:
             log.debug("Failed to write daily trade log: %s", exc)
 
     # -- Main loop -----------------------------------------------------
+    # -- Startup reconciliation ----------------------------------------
+    def _reconcile_positions(self) -> None:
+        """Close positions that don't belong to this group's symbol set.
+
+        Runs once at startup to prevent stale/misaligned positions from
+        accumulating across restarts.  Covers two cases:
+        1. Symbols removed from SYMBOL_GROUPS or the coin selector universe.
+        2. Cross-account contamination (e.g. crypto on Alpaca intraday).
+        """
+        try:
+            positions = self.get_positions()
+        except Exception as exc:
+            log.warning("Reconciliation skipped — could not fetch positions: %s", exc)
+            return
+
+        if not positions:
+            return
+
+        # Build the valid symbol set for this group
+        valid_symbols: set = set(self.symbols)
+        # For crypto groups with a selector, also include the full selector universe
+        # (positions might belong to coins not selected *this* cycle but still valid)
+        if self.group in ("crypto", "crypto_intraday") and self._selector_universe:
+            # Normalize: universe uses "BTC-USD", positions use "BTC/USD"
+            for s in self._selector_universe:
+                valid_symbols.add(s)
+                valid_symbols.add(s.replace("-", "/"))
+
+        stale: list = []
+        for sym, pos in positions.items():
+            if pos.get("qty", 0) == 0:
+                continue
+            if _is_option_symbol(sym):
+                continue  # don't touch option positions
+            if sym not in valid_symbols:
+                stale.append((sym, pos))
+
+        if not stale:
+            log.info("Reconciliation OK — all %d positions belong to this group",
+                     len(positions))
+            return
+
+        print(f"\n  [RECONCILE] Found {len(stale)} position(s) not in "
+              f"'{self.group}' symbol set — closing:")
+        for sym, pos in stale:
+            qty = pos["qty"]
+            side = pos["side"]
+            entry = pos.get("entry_price", 0)
+            pnl = pos.get("unrealized_pnl", 0)
+            print(f"    {sym:>10s}  {side:5s}  qty={qty}  "
+                  f"entry=${entry:.4f}  pnl=${pnl:+.2f}")
+            try:
+                if side == "LONG":
+                    self.sell(sym, qty, reason="reconcile_stale")
+                else:
+                    self.buy_to_cover(sym, qty, reason="reconcile_stale")
+                log.info("Reconciled %s %s %.6f (stale position closed)", side, sym, qty)
+            except Exception as exc:
+                log.error("Failed to close stale position %s: %s", sym, exc)
+        print()
+
     def run_loop(self) -> None:
         """Main continuous trading loop."""
         if not self.symbols:
@@ -1839,6 +1900,9 @@ class AlpacaPaperTrader:
                  self.post_loss_size_mult * 100, self.post_loss_size_hours,
                  self.same_dir_confidence_mult)
         print()
+
+        # Reconcile stale positions before entering the main loop
+        self._reconcile_positions()
 
         # Graceful shutdown
         def handle_signal(sig, frame):
