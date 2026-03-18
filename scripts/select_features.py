@@ -101,6 +101,17 @@ FACTOR_TAXONOMY: Dict[str, List[str]] = {
         "fear_greed_index", "fear_greed_zscore",
         "polymarket_btc_bullish",
     ],
+    "cross_asset": [
+        "real_yield_spread", "gold_silver_ratio",
+        "crude_ret5", "crude_ret20",
+        "usdjpy_ret5", "usdjpy_ret20",
+        "usd_strength_ret5", "usd_strength_ret20",
+        "t10y3m_slope", "hy_credit_spread",
+        "eurusd_ret5", "eurusd_ret20",
+        "gbpusd_ret5", "gbpusd_ret20",
+        "copper_ret5",
+        # treasury_slope excluded — already in "macro" group
+    ],
 }
 
 # Reverse lookup: feature -> group
@@ -111,7 +122,7 @@ for group, feats in FACTOR_TAXONOMY.items():
 
 ALL_FEATURES = list(FEATURE_TO_GROUP.keys())
 
-# Coin group classification
+# Coin group classification (crypto)
 COIN_GROUPS = {
     "majors": ["BTC-USD", "ETH-USD"],
     "large_caps": [
@@ -121,8 +132,27 @@ COIN_GROUPS = {
     "meme": ["DOGE-USD", "SHIB-USD", "WIF-USD"],
 }
 
-# Groups that MUST have at least 1 surviving feature
-REQUIRED_GROUPS = ["momentum", "volatility", "technical", "microstructure", "regime", "macro"]
+# ETF group classification (equity)
+ETF_GROUPS = {
+    "us_factor": [
+        "SPY", "QQQ", "IWM", "IWF", "VTV", "IWB", "QUAL", "USMV", "MTUM", "VBR",
+    ],
+    "us_sector": [
+        "XLE", "SMH", "XLK", "XLF", "XLI", "XLV", "XLP", "XLY", "XLU",
+        "XLB", "XLRE", "IGV", "SOXX", "ARKK", "CIBR",
+    ],
+    "commodities": ["GLD", "SLV", "USO", "GDX", "GDXJ", "IAU", "PDBC", "URNM"],
+    "fixed_income": ["TLT", "IEF", "SHY", "BND", "TIP", "LQD", "HYG", "EMB"],
+    "intl_em": ["EEM", "EWY", "EWZ", "EWT", "INDA", "MCHI", "EWW", "VWO"],
+    "intl_developed": ["EWJ", "VGK", "EWA", "EWC", "EWH", "EWU", "EWG"],
+    "crypto_etf": ["IBIT", "ETHA", "FBTC"],
+}
+
+# Groups that MUST have at least 1 surviving feature (per asset class)
+REQUIRED_GROUPS = {
+    "crypto_swing": ["momentum", "volatility", "technical", "microstructure", "regime", "macro"],
+    "equity_swing": ["momentum", "volatility", "technical", "microstructure", "regime", "macro", "cross_asset"],
+}
 
 # ---------------------------------------------------------------------------
 # Domain priors: per-asset-class group weights
@@ -164,6 +194,7 @@ DOMAIN_WEIGHTS: Dict[str, Dict[str, float]] = {
         "cboe_options":  0.4,   # equity options market
         "breadth":       0.5,   # equity-centric
         "sentiment":     0.8,   # OKX/Fear&Greed somewhat useful but unreliable
+        "cross_asset":   0.3,   # FRED/FX signals not useful for crypto
     },
     "equity_swing": {
         "momentum":      1.0,
@@ -178,6 +209,7 @@ DOMAIN_WEIGHTS: Dict[str, Dict[str, float]] = {
         "cboe_options":  1.1,   # vol surface is informative
         "breadth":       1.0,
         "sentiment":     0.5,   # crypto sentiment not relevant
+        "cross_asset":   1.3,   # FX/commodity/yield drivers are core for ETFs
     },
 }
 
@@ -198,6 +230,7 @@ GROUP_SLOTS: Dict[str, Dict[str, Dict[str, int]]] = {
         "cboe_options":  {"min": 0, "max": 1},
         "breadth":       {"min": 0, "max": 1},
         "sentiment":     {"min": 0, "max": 1},
+        "cross_asset":   {"min": 0, "max": 1},   # not useful for crypto
     },
     "equity_swing": {
         "momentum":      {"min": 2, "max": 4},
@@ -212,6 +245,7 @@ GROUP_SLOTS: Dict[str, Dict[str, Dict[str, int]]] = {
         "cboe_options":  {"min": 1, "max": 3},
         "breadth":       {"min": 0, "max": 2},
         "sentiment":     {"min": 0, "max": 1},
+        "cross_asset":   {"min": 2, "max": 5},   # FX/commodity/yield — core for ETFs
     },
 }
 
@@ -658,6 +692,17 @@ def build_config(
     asset_class: str = "crypto_swing",
 ) -> Dict:
     """Build the feature config JSON structure."""
+    if asset_class == "equity_swing":
+        return _build_equity_config(selected_features, metadata)
+    return _build_crypto_config(selected_features, metadata, asset_class)
+
+
+def _build_crypto_config(
+    selected_features: List[str],
+    metadata: Dict,
+    asset_class: str = "crypto_swing",
+) -> Dict:
+    """Build crypto-specific feature config."""
     # Separate core (non-crypto-regime) from crypto-regime features
     crypto_regime_feats = {
         "btc_sma200_flag", "btc_realized_vol_30", "btc_drawdown",
@@ -699,8 +744,55 @@ def build_config(
         "selection_metadata": metadata,
     }
 
-    samples_est = 188  # approximate training samples for crypto
+    samples_est = 188
     n_feats = len(selected_features)
+    config["selection_metadata"]["samples_per_feature_ratio"] = round(samples_est / n_feats, 1) if n_feats > 0 else 0
+
+    return config
+
+
+def _build_equity_config(
+    selected_features: List[str],
+    metadata: Dict,
+) -> Dict:
+    """Build equity-specific feature config.
+
+    All selected features go to core_features — XGBoost handles irrelevant
+    features by not splitting on them. Per-category overrides can be added
+    manually after reviewing IC results if desired.
+    """
+    # Crypto-specific features that should never be in equity config
+    crypto_only = {
+        "btc_sma200_flag", "btc_realized_vol_30", "btc_drawdown",
+        "eth_btc_ratio_zscore", "btc_ret5", "btc_ret21",
+        "btc_trend_strength", "btc_momentum_accel",
+        "okx_long_short_ratio", "okx_ls_zscore",
+        "fear_greed_index", "fear_greed_zscore",
+        "polymarket_btc_bullish",
+    }
+    core = [f for f in selected_features if f not in crypto_only]
+
+    config = {
+        "version": "3.0",
+        "asset_class": "equity_swing",
+        "created_at": datetime.now().strftime("%Y-%m-%d"),
+        "target_horizon": "10d",
+        "design_notes": (
+            "v3: domain-weighted selection. Scoring = (0.4*IC + 0.6*XGB_imp) × domain_weight. "
+            "Asset class 'equity_swing' uses group weights and slot constraints "
+            "to enforce domain priors while letting data rank within groups. "
+            "Cross-asset features (FX, commodity, yield signals) selected by IC."
+        ),
+        "core_features": core,
+        "group_overrides": {},
+        "per_coin_overrides": {},
+        "coin_groups": ETF_GROUPS,
+        "factor_taxonomy": FACTOR_TAXONOMY,
+        "selection_metadata": metadata,
+    }
+
+    samples_est = 500  # ETFs have ~2yr daily = ~500 training samples
+    n_feats = len(core)
     config["selection_metadata"]["samples_per_feature_ratio"] = round(samples_est / n_feats, 1) if n_feats > 0 else 0
 
     return config
@@ -768,14 +860,49 @@ def main():
     parser.add_argument("--symbols", default=None, help="Comma-separated symbols for IC analysis (default: top coins from importance files)")
     args = parser.parse_args()
 
-    model_dir = PROJECT_ROOT / "models" / "crypto"
+    if args.asset_class == "equity_swing":
+        model_dir = PROJECT_ROOT / "models" / "swing"
+    else:
+        model_dir = PROJECT_ROOT / "models" / "crypto"
     config_dir = PROJECT_ROOT / "config"
 
     # Determine symbols for IC analysis
     if args.symbols:
         symbols = [s.strip() for s in args.symbols.split(",")]
+    elif args.asset_class == "equity_swing":
+        # Use symbols from etf_universe.json if available, else hardcoded priority
+        importance_data = load_importance_data(model_dir)
+        universe_path = model_dir / "etf_universe.json"
+        if universe_path.exists():
+            try:
+                with open(universe_path) as f:
+                    universe = json.load(f)
+                all_etfs = [c["symbol"] for c in universe.get("coins", [])]
+                # Prefer symbols with importance data, then fill from universe
+                with_imp = [s for s in all_etfs if s in importance_data]
+                without_imp = [s for s in all_etfs if s not in importance_data]
+                symbols = with_imp + without_imp
+                # Cap at 30 to keep runtime reasonable
+                symbols = symbols[:30]
+                log.info("Loaded %d ETF symbols from etf_universe.json (%d with importance data)",
+                         len(symbols), len(with_imp))
+            except (json.JSONDecodeError, KeyError):
+                symbols = []
+        if not symbols:
+            # Hardcoded priority: diverse ETF set covering all categories
+            priority = [
+                "SPY", "QQQ", "IWM", "GLD", "SLV", "XLE", "XLF", "TLT",
+                "EWJ", "EEM", "EWT", "SMH", "SOXX", "IGV", "GDX", "HYG",
+                "VGK", "EWZ", "IBIT", "INDA",
+            ]
+            if importance_data:
+                symbols = [s for s in priority if s in importance_data]
+                if len(symbols) < 10:
+                    symbols = list(importance_data.keys())[:20]
+            else:
+                symbols = priority
     else:
-        # Use symbols that have importance files (already trained)
+        # Crypto: use symbols that have importance files (already trained)
         importance_data = load_importance_data(model_dir)
         # Pick a representative subset (top coins by market cap + diversity)
         priority = [

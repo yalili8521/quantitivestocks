@@ -61,6 +61,7 @@ def main() -> None:
     rank-coins       Rank coins using trained selector and show today's top-K
     screen-universe  Layer 0: discover tradeable coins from full market (CoinGecko × Kraken)
     screen-etf-universe  Layer 0: discover tradeable ETFs from broad ETF market (yfinance)
+    select-features  IC-based feature selection pipeline (--asset-class equity_swing|crypto_swing)
     batch-backtest   Batch train + OOS backtest ETF universe → promoted_symbols.json
     lock-status      Show whether intraday (or other group) paper trader lock is present; tells you if it's safe to start
     weekly-pipeline  Run weekly crypto maintenance: screen → train selector → train models → select symbols → health check
@@ -237,6 +238,11 @@ def main() -> None:
         from etf_screener import main as etf_screener_main
         etf_screener_main()
 
+    elif command == "select-features":
+        # IC-based feature selection pipeline
+        import scripts.select_features as sel_feat
+        sel_feat.main()
+
     elif command == "batch-backtest":
         # Batch train + OOS backtest for ETF universe → promoted_symbols.json
         import scripts.batch_etf_backtest as batch_bt
@@ -264,7 +270,7 @@ def main() -> None:
         print("                      predict, backtest, backtest-portfolio, trade, report, training-tables,")
         print("                      divergence-report, select-symbols, check-positions, stop-paper-trader,")
         print("                      lock-status, model-health, validate-risk, train-selector, rank-coins,")
-        print("                      screen-universe, screen-etf-universe, batch-backtest, weekly-pipeline")
+        print("                      screen-universe, screen-etf-universe, select-features, batch-backtest, weekly-pipeline")
         print("  Run `python main.py --help` for usage.\n")
         sys.exit(1)
 

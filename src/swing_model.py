@@ -467,20 +467,20 @@ class SwingFeatureEngine:
             for col in supp_df.columns:
                 df[col] = supp_df[col]
 
-        # --- Cross-asset features ---
-        if symbol:
-            try:
-                if self._cross_builder is None:
-                    self._cross_builder = CrossAssetFeatureBuilder(
-                        fred_key=fred_key or os.environ.get("FRED_API_KEY"))
-                cross_df = self._cross_builder.build_features(bars_df, symbol)
-                for col in cross_df.columns:
-                    df[col] = cross_df[col]
-            except Exception as exc:
-                log.warning("Cross-asset features failed for %s: %s", symbol, exc)
-                for col in get_cross_asset_features(symbol):
-                    if col not in df.columns:
-                        df[col] = np.nan
+        # --- Cross-asset features (full superset — let config/IC filter decide) ---
+        try:
+            if self._cross_builder is None:
+                self._cross_builder = CrossAssetFeatureBuilder(
+                    fred_key=fred_key or os.environ.get("FRED_API_KEY"))
+            cross_df = self._cross_builder.build_all_features(bars_df)
+            for col in cross_df.columns:
+                df[col] = cross_df[col]
+        except Exception as exc:
+            log.warning("Cross-asset features failed for %s: %s", symbol, exc)
+            from cross_asset_signals import ALL_CROSS_ASSET_FEATURES as _ALL_CA
+            for col in _ALL_CA:
+                if col not in df.columns:
+                    df[col] = np.nan
 
         # --- Options flow features (stubbed — options_flow module removed) ---
         for col in OPTIONS_FLOW_FEATURES:

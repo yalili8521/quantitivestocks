@@ -1,0 +1,13 @@
+{
+  "symbol": "TLT",
+  "start_date": "2023-08-18",
+  "end_date": "2026-03-17",
+  "total_return_pct": 2.76,
+  "annualized_return_pct": 1.06,
+  "sharpe_ratio": 1.043,
+  "max_drawdown_pct": -0.94,
+  "total_trades": 28,
+  "win_rate": 0.714,
+  "profit_factor": 3.46,
+  "avg_trade_duration_days": 15.3
+}

@@ -1,0 +1,672 @@
+{
+  "version": "3.0",
+  "asset_class": "equity_swing",
+  "created_at": "2026-03-17",
+  "target_horizon": "10d",
+  "design_notes": "v3: domain-weighted selection. Scoring = (0.4*IC + 0.6*XGB_imp) \u00d7 domain_weight. Asset class 'equity_swing' uses group weights and slot constraints to enforce domain priors while letting data rank within groups. Cross-asset features (FX, commodity, yield signals) selected by IC.",
+  "core_features": [
+    "ret252",
+    "rel_momentum_vs_spy_252",
+    "bb_bandwidth",
+    "vol20",
+    "rsi14",
+    "macd_hist_norm",
+    "vpoc_distance",
+    "spy_trend_strength",
+    "fed_funds_rate",
+    "real_yield_10y",
+    "risk_appetite_ratio",
+    "beta_mkt",
+    "cboe_skew",
+    "t10y3m_slope",
+    "gold_silver_ratio",
+    "correlation_regime",
+    "beta_rmw",
+    "month_cos",
+    "breakeven_inflation_5y",
+    "beta_smb",
+    "vix_regime",
+    "ret21",
+    "ret63",
+    "credit_spread_zscore",
+    "sector_breadth"
+  ],
+  "group_overrides": {},
+  "per_coin_overrides": {},
+  "coin_groups": {
+    "us_factor": [
+      "SPY",
+      "QQQ",
+      "IWM",
+      "IWF",
+      "VTV",
+      "IWB",
+      "QUAL",
+      "USMV",
+      "MTUM",
+      "VBR"
+    ],
+    "us_sector": [
+      "XLE",
+      "SMH",
+      "XLK",
+      "XLF",
+      "XLI",
+      "XLV",
+      "XLP",
+      "XLY",
+      "XLU",
+      "XLB",
+      "XLRE",
+      "IGV",
+      "SOXX",
+      "ARKK",
+      "CIBR"
+    ],
+    "commodities": [
+      "GLD",
+      "SLV",
+      "USO",
+      "GDX",
+      "GDXJ",
+      "IAU",
+      "PDBC",
+      "URNM"
+    ],
+    "fixed_income": [
+      "TLT",
+      "IEF",
+      "SHY",
+      "BND",
+      "TIP",
+      "LQD",
+      "HYG",
+      "EMB"
+    ],
+    "intl_em": [
+      "EEM",
+      "EWY",
+      "EWZ",
+      "EWT",
+      "INDA",
+      "MCHI",
+      "EWW",
+      "VWO"
+    ],
+    "intl_developed": [
+      "EWJ",
+      "VGK",
+      "EWA",
+      "EWC",
+      "EWH",
+      "EWU",
+      "EWG"
+    ],
+    "crypto_etf": [
+      "IBIT",
+      "ETHA",
+      "FBTC"
+    ]
+  },
+  "factor_taxonomy": {
+    "momentum": [
+      "ret252",
+      "ret63",
+      "ret21",
+      "ret5",
+      "rel_momentum_vs_spy_63",
+      "rel_momentum_vs_spy_252",
+      "momentum_quality",
+      "factor_momentum"
+    ],
+    "volatility": [
+      "vol20",
+      "vol_regime",
+      "bb_bandwidth",
+      "btc_realized_vol_30",
+      "iv_rv_spread",
+      "iv_rv_zscore",
+      "vvix_level",
+      "sector_dispersion"
+    ],
+    "technical": [
+      "rsi14",
+      "bb_pct_b",
+      "macd_hist_norm",
+      "ibs",
+      "adx",
+      "dv_accel"
+    ],
+    "microstructure": [
+      "volume_zscore",
+      "volume_spike",
+      "price_volume_divergence",
+      "volume_trend",
+      "vpoc_distance",
+      "vol_support_strength",
+      "vol_resistance_strength",
+      "vol_sr_imbalance"
+    ],
+    "regime": [
+      "spy_above_sma200",
+      "spy_trend_strength",
+      "vix_regime",
+      "vix_zscore",
+      "vix_pctrank",
+      "sector_etf_rel_spy_21",
+      "btc_sma200_flag",
+      "btc_drawdown",
+      "eth_btc_ratio_zscore",
+      "btc_ret5",
+      "btc_ret21",
+      "btc_trend_strength",
+      "btc_momentum_accel"
+    ],
+    "macro": [
+      "treasury_slope",
+      "yield_curve_3m10y",
+      "real_yield_10y",
+      "breakeven_inflation_5y",
+      "fed_funds_rate",
+      "credit_spread",
+      "credit_spread_chg5",
+      "credit_spread_zscore"
+    ],
+    "risk_appetite": [
+      "risk_appetite_ratio",
+      "risk_appetite_trend",
+      "smallcap_rotation",
+      "equity_carry",
+      "correlation_regime"
+    ],
+    "fama_french": [
+      "beta_mkt",
+      "beta_smb",
+      "beta_hml",
+      "beta_rmw",
+      "beta_cma",
+      "beta_mom"
+    ],
+    "calendar": [
+      "day_of_week",
+      "turn_of_month",
+      "month_sin",
+      "month_cos",
+      "fomc_proximity"
+    ],
+    "cboe_options": [
+      "pc_volume_ratio",
+      "pc_oi_ratio",
+      "vix_term_ratio",
+      "vix_term_inverted",
+      "cboe_vix_term_spread",
+      "cboe_vix_term_ratio",
+      "cboe_vix9d_ratio",
+      "cboe_skew",
+      "cboe_vix_percentile"
+    ],
+    "breadth": [
+      "sector_breadth",
+      "breadth_momentum"
+    ],
+    "sentiment": [
+      "okx_long_short_ratio",
+      "okx_ls_zscore",
+      "fear_greed_index",
+      "fear_greed_zscore",
+      "polymarket_btc_bullish"
+    ],
+    "cross_asset": [
+      "real_yield_spread",
+      "gold_silver_ratio",
+      "crude_ret5",
+      "crude_ret20",
+      "usdjpy_ret5",
+      "usdjpy_ret20",
+      "usd_strength_ret5",
+      "usd_strength_ret20",
+      "t10y3m_slope",
+      "hy_credit_spread",
+      "eurusd_ret5",
+      "eurusd_ret20",
+      "gbpusd_ret5",
+      "gbpusd_ret20",
+      "copper_ret5"
+    ]
+  },
+  "selection_metadata": {
+    "total_features_analyzed": 98,
+    "features_selected": 25,
+    "dead_features_removed": [
+      "btc_drawdown",
+      "btc_momentum_accel",
+      "btc_realized_vol_30",
+      "btc_ret21",
+      "btc_ret5",
+      "btc_sma200_flag",
+      "btc_trend_strength",
+      "day_of_week",
+      "eth_btc_ratio_zscore",
+      "fear_greed_index",
+      "fear_greed_zscore",
+      "okx_long_short_ratio",
+      "okx_ls_zscore",
+      "pc_oi_ratio",
+      "pc_volume_ratio",
+      "polymarket_btc_bullish",
+      "price_volume_divergence",
+      "vix_term_inverted",
+      "vix_term_ratio",
+      "volume_spike"
+    ],
+    "redundant_pairs_removed": [
+      {
+        "kept": "rsi14",
+        "dropped": "bb_pct_b",
+        "group": "technical",
+        "corr": 0.919
+      },
+      {
+        "kept": "vol_resistance_strength",
+        "dropped": "vol_sr_imbalance",
+        "group": "microstructure",
+        "corr": -1.0
+      },
+      {
+        "kept": "vol_support_strength",
+        "dropped": "vol_resistance_strength",
+        "group": "microstructure",
+        "corr": -1.0
+      },
+      {
+        "kept": "vpoc_distance",
+        "dropped": "vol_resistance_strength",
+        "group": "microstructure",
+        "corr": -0.831
+      },
+      {
+        "kept": "vpoc_distance",
+        "dropped": "vol_support_strength",
+        "group": "microstructure",
+        "corr": 0.831
+      },
+      {
+        "kept": "vix_pctrank",
+        "dropped": "vix_zscore",
+        "group": "regime",
+        "corr": 0.823
+      },
+      {
+        "kept": "yield_curve_3m10y",
+        "dropped": "credit_spread",
+        "group": "macro",
+        "corr": -0.816
+      },
+      {
+        "kept": "fed_funds_rate",
+        "dropped": "treasury_slope",
+        "group": "macro",
+        "corr": -0.93
+      },
+      {
+        "kept": "fed_funds_rate",
+        "dropped": "yield_curve_3m10y",
+        "group": "macro",
+        "corr": -0.917
+      },
+      {
+        "kept": "cboe_vix_term_ratio",
+        "dropped": "cboe_vix_percentile",
+        "group": "cboe_options",
+        "corr": 0.867
+      },
+      {
+        "kept": "cboe_vix_term_spread",
+        "dropped": "cboe_vix_term_ratio",
+        "group": "cboe_options",
+        "corr": 0.968
+      },
+      {
+        "kept": "gbpusd_ret20",
+        "dropped": "eurusd_ret20",
+        "group": "cross_asset",
+        "corr": 0.83
+      },
+      {
+        "kept": "usd_strength_ret20",
+        "dropped": "eurusd_ret20",
+        "group": "cross_asset",
+        "corr": -0.919
+      },
+      {
+        "kept": "gbpusd_ret20",
+        "dropped": "usd_strength_ret20",
+        "group": "cross_asset",
+        "corr": -0.806
+      }
+    ],
+    "scoring_formula": "0.4 * IC_score + 0.6 * IMP_score \u00d7 domain_weight",
+    "domain_weights_used": {
+      "momentum": 1.0,
+      "volatility": 1.0,
+      "technical": 1.0,
+      "microstructure": 1.0,
+      "regime": 1.0,
+      "macro": 1.2,
+      "risk_appetite": 1.1,
+      "fama_french": 1.2,
+      "calendar": 1.0,
+      "cboe_options": 1.1,
+      "breadth": 1.0,
+      "sentiment": 0.5,
+      "cross_asset": 1.3
+    },
+    "group_slots_used": {
+      "momentum": {
+        "min": 2,
+        "max": 4
+      },
+      "volatility": {
+        "min": 2,
+        "max": 4
+      },
+      "technical": {
+        "min": 2,
+        "max": 4
+      },
+      "microstructure": {
+        "min": 1,
+        "max": 3
+      },
+      "regime": {
+        "min": 1,
+        "max": 3
+      },
+      "macro": {
+        "min": 2,
+        "max": 4
+      },
+      "risk_appetite": {
+        "min": 1,
+        "max": 2
+      },
+      "fama_french": {
+        "min": 1,
+        "max": 3
+      },
+      "calendar": {
+        "min": 0,
+        "max": 2
+      },
+      "cboe_options": {
+        "min": 1,
+        "max": 3
+      },
+      "breadth": {
+        "min": 0,
+        "max": 2
+      },
+      "sentiment": {
+        "min": 0,
+        "max": 1
+      },
+      "cross_asset": {
+        "min": 2,
+        "max": 5
+      }
+    },
+    "ic_summary": {
+      "ret252": {
+        "mean_abs_ic": 0.1489,
+        "mean_ic_ir": 1.1562,
+        "mean_dir_consistency": 0.72,
+        "mean_xgb_importance": 0.0247,
+        "raw_score": 0.925,
+        "domain_weight": 1.0,
+        "composite_score": 0.925,
+        "group": "momentum"
+      },
+      "fed_funds_rate": {
+        "mean_abs_ic": 0.1257,
+        "mean_ic_ir": 0.0,
+        "mean_dir_consistency": 0.5435,
+        "mean_xgb_importance": 0.0197,
+        "raw_score": 0.7516,
+        "domain_weight": 1.2,
+        "composite_score": 0.9019,
+        "group": "macro"
+      },
+      "risk_appetite_ratio": {
+        "mean_abs_ic": 0.1393,
+        "mean_ic_ir": 0.5425,
+        "mean_dir_consistency": 0.6147,
+        "mean_xgb_importance": 0.0197,
+        "raw_score": 0.7817,
+        "domain_weight": 1.1,
+        "composite_score": 0.8599,
+        "group": "risk_appetite"
+      },
+      "beta_mkt": {
+        "mean_abs_ic": 0.1325,
+        "mean_ic_ir": 0.2374,
+        "mean_dir_consistency": 0.553,
+        "mean_xgb_importance": 0.017,
+        "raw_score": 0.7013,
+        "domain_weight": 1.2,
+        "composite_score": 0.8416,
+        "group": "fama_french"
+      },
+      "correlation_regime": {
+        "mean_abs_ic": 0.1519,
+        "mean_ic_ir": 0.5056,
+        "mean_dir_consistency": 0.6277,
+        "mean_xgb_importance": 0.0171,
+        "raw_score": 0.7466,
+        "domain_weight": 1.1,
+        "composite_score": 0.8213,
+        "group": "risk_appetite"
+      },
+      "beta_rmw": {
+        "mean_abs_ic": 0.1599,
+        "mean_ic_ir": 0.4907,
+        "mean_dir_consistency": 0.6653,
+        "mean_xgb_importance": 0.0119,
+        "raw_score": 0.637,
+        "domain_weight": 1.2,
+        "composite_score": 0.7645,
+        "group": "fama_french"
+      },
+      "rel_momentum_vs_spy_252": {
+        "mean_abs_ic": 0.0952,
+        "mean_ic_ir": 0.6683,
+        "mean_dir_consistency": 0.5561,
+        "mean_xgb_importance": 0.022,
+        "raw_score": 0.7423,
+        "domain_weight": 1.0,
+        "composite_score": 0.7423,
+        "group": "momentum"
+      },
+      "real_yield_10y": {
+        "mean_abs_ic": 0.1314,
+        "mean_ic_ir": 0.6029,
+        "mean_dir_consistency": 0.6649,
+        "mean_xgb_importance": 0.0109,
+        "raw_score": 0.5521,
+        "domain_weight": 1.2,
+        "composite_score": 0.6626,
+        "group": "macro"
+      },
+      "month_cos": {
+        "mean_abs_ic": 0.1348,
+        "mean_ic_ir": 0.1393,
+        "mean_dir_consistency": 0.5061,
+        "mean_xgb_importance": 0.0143,
+        "raw_score": 0.6411,
+        "domain_weight": 1.0,
+        "composite_score": 0.6411,
+        "group": "calendar"
+      },
+      "spy_trend_strength": {
+        "mean_abs_ic": 0.1833,
+        "mean_ic_ir": 1.0579,
+        "mean_dir_consistency": 0.7855,
+        "mean_xgb_importance": 0.0098,
+        "raw_score": 0.638,
+        "domain_weight": 1.0,
+        "composite_score": 0.638,
+        "group": "regime"
+      },
+      "breakeven_inflation_5y": {
+        "mean_abs_ic": 0.1527,
+        "mean_ic_ir": 0.6279,
+        "mean_dir_consistency": 0.6737,
+        "mean_xgb_importance": 0.0075,
+        "raw_score": 0.515,
+        "domain_weight": 1.2,
+        "composite_score": 0.618,
+        "group": "macro"
+      },
+      "rsi14": {
+        "mean_abs_ic": 0.1366,
+        "mean_ic_ir": 1.6457,
+        "mean_dir_consistency": 0.8442,
+        "mean_xgb_importance": 0.0128,
+        "raw_score": 0.6076,
+        "domain_weight": 1.0,
+        "composite_score": 0.6076,
+        "group": "technical"
+      },
+      "beta_smb": {
+        "mean_abs_ic": 0.117,
+        "mean_ic_ir": 0.2404,
+        "mean_dir_consistency": 0.5543,
+        "mean_xgb_importance": 0.0079,
+        "raw_score": 0.448,
+        "domain_weight": 1.2,
+        "composite_score": 0.5376,
+        "group": "fama_french"
+      },
+      "vix_regime": {
+        "mean_abs_ic": 0.1434,
+        "mean_ic_ir": 0.8829,
+        "mean_dir_consistency": 0.7367,
+        "mean_xgb_importance": 0.0087,
+        "raw_score": 0.5233,
+        "domain_weight": 1.0,
+        "composite_score": 0.5233,
+        "group": "regime"
+      },
+      "ret21": {
+        "mean_abs_ic": 0.111,
+        "mean_ic_ir": 1.3615,
+        "mean_dir_consistency": 0.7862,
+        "mean_xgb_importance": 0.0115,
+        "raw_score": 0.5221,
+        "domain_weight": 1.0,
+        "composite_score": 0.5221,
+        "group": "momentum"
+      },
+      "cboe_skew": {
+        "mean_abs_ic": 0.1511,
+        "mean_ic_ir": 0.4305,
+        "mean_dir_consistency": 0.6272,
+        "mean_xgb_importance": 0.0055,
+        "raw_score": 0.4644,
+        "domain_weight": 1.1,
+        "composite_score": 0.5109,
+        "group": "cboe_options"
+      },
+      "macd_hist_norm": {
+        "mean_abs_ic": 0.1085,
+        "mean_ic_ir": 0.8833,
+        "mean_dir_consistency": 0.7273,
+        "mean_xgb_importance": 0.0105,
+        "raw_score": 0.4926,
+        "domain_weight": 1.0,
+        "composite_score": 0.4926,
+        "group": "technical"
+      },
+      "t10y3m_slope": {
+        "mean_abs_ic": 0.1734,
+        "mean_ic_ir": 0.5798,
+        "mean_dir_consistency": 0.6737,
+        "mean_xgb_importance": 0.0,
+        "raw_score": 0.3785,
+        "domain_weight": 1.3,
+        "composite_score": 0.492,
+        "group": "cross_asset"
+      },
+      "ret63": {
+        "mean_abs_ic": 0.1332,
+        "mean_ic_ir": 1.514,
+        "mean_dir_consistency": 0.8137,
+        "mean_xgb_importance": 0.0081,
+        "raw_score": 0.4879,
+        "domain_weight": 1.0,
+        "composite_score": 0.4879,
+        "group": "momentum"
+      },
+      "bb_bandwidth": {
+        "mean_abs_ic": 0.1298,
+        "mean_ic_ir": 0.4204,
+        "mean_dir_consistency": 0.6349,
+        "mean_xgb_importance": 0.0077,
+        "raw_score": 0.4696,
+        "domain_weight": 1.0,
+        "composite_score": 0.4696,
+        "group": "volatility"
+      },
+      "vol20": {
+        "mean_abs_ic": 0.128,
+        "mean_ic_ir": 0.4798,
+        "mean_dir_consistency": 0.649,
+        "mean_xgb_importance": 0.0072,
+        "raw_score": 0.4542,
+        "domain_weight": 1.0,
+        "composite_score": 0.4542,
+        "group": "volatility"
+      },
+      "gold_silver_ratio": {
+        "mean_abs_ic": 0.1183,
+        "mean_ic_ir": 0.4931,
+        "mean_dir_consistency": 0.6381,
+        "mean_xgb_importance": 0.0033,
+        "raw_score": 0.3375,
+        "domain_weight": 1.3,
+        "composite_score": 0.4387,
+        "group": "cross_asset"
+      },
+      "credit_spread_zscore": {
+        "mean_abs_ic": 0.0697,
+        "mean_ic_ir": 0.3575,
+        "mean_dir_consistency": 0.6146,
+        "mean_xgb_importance": 0.008,
+        "raw_score": 0.3458,
+        "domain_weight": 1.2,
+        "composite_score": 0.415,
+        "group": "macro"
+      },
+      "sector_breadth": {
+        "mean_abs_ic": 0.1405,
+        "mean_ic_ir": 0.8797,
+        "mean_dir_consistency": 0.7419,
+        "mean_xgb_importance": 0.0044,
+        "raw_score": 0.4144,
+        "domain_weight": 1.0,
+        "composite_score": 0.4144,
+        "group": "breadth"
+      },
+      "vpoc_distance": {
+        "mean_abs_ic": 0.1092,
+        "mean_ic_ir": 1.3201,
+        "mean_dir_consistency": 0.7735,
+        "mean_xgb_importance": 0.0054,
+        "raw_score": 0.3704,
+        "domain_weight": 1.0,
+        "composite_score": 0.3704,
+        "group": "microstructure"
+      }
+    },
+    "samples_per_feature_ratio": 20.0
+  }
+}

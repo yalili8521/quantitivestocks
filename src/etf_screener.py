@@ -57,7 +57,7 @@ DEFAULT_MAX_EXPENSE_RATIO = 0.0075      # 0.75% max expense ratio
 DEFAULT_MIN_HISTORY_DAYS = 504          # 2 years (252*2)
 DEFAULT_MAX_FLASH_CRASH_DAYS = 3
 UNIVERSE_FILE = "etf_universe.json"
-MAX_CORRELATION = 0.98                  # dedup threshold (high — only drop near-duplicates like IAU/GLD, FBTC/IBIT)
+MAX_CORRELATION = 0.92                  # drops SOXX/SMH, IAU/GLD, FBTC/IBIT but keeps QQQ/IWM, EEM/EWT
 CACHE_MAX_AGE_DAYS = 90                 # reuse cache if < 90 days old
 
 # Volatility sanity bounds (annualized, equity)

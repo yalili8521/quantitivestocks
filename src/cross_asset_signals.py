@@ -5,16 +5,21 @@ Cross-Asset Signals
 FRED macro data and cross-market tickers as additional ML features.
 
 Provides per-symbol cross-asset features based on economic relationships:
-    - GLD/SLV: real yield spread, gold/silver ratio, treasury slope
-    - XLE: crude oil momentum, treasury slope
+    - GLD/SLV/IAU: real yield spread, gold/silver ratio, treasury slope
+    - XLE/USO/PDBC: crude oil momentum, copper, USD strength, treasury slope
     - EWJ: USD/JPY momentum, treasury slope
-    - EWT/EEM/EWS/INDA: USD strength (DXY) momentum, treasury slope
+    - EWT/EEM/EWS/INDA/EWY/EWH: USD strength (DXY) momentum, treasury slope
+    - EWZ/MCHI/VWO/EWW: USD strength, copper, crude
+    - VGK/EWG: EUR/USD momentum; EWU: GBP/USD momentum; EWA/EWC: USD strength
+    - TLT/IEF/BND/SHY/TIP: real yield spread, 10Y-3M slope
+    - HYG/LQD/EMB: HY credit spread (OAS)
+    - XLF/XLRE: real yield spread, 10Y-3M slope
     - SPY/QQQ/IWM/SOXX: treasury slope only
 
 Data sources:
-    - FRED API: DGS10 (10Y yield), DFII10 (10Y TIPS), T10Y2Y (yield curve slope)
+    - FRED API: DGS10, DFII10, T10Y2Y, T10Y3M, BAMLH0A0HYM2 (HY OAS)
     - yfinance: CL=F (crude), JPY=X (USD/JPY), DX-Y.NYB (dollar index),
-                GC=F (gold), SI=F (silver)
+                GC=F (gold), SI=F (silver), EURUSD=X, GBPUSD=X, HG=F (copper)
 
 Usage:
     from cross_asset_signals import CrossAssetFeatureBuilder, CROSS_ASSET_MAP
@@ -48,7 +53,7 @@ log = logging.getLogger("cross_asset")
 CROSS_ASSET_MAP: Dict[str, List[str]] = {
     "GLD":  ["real_yield_spread", "gold_silver_ratio", "treasury_slope"],
     "SLV":  ["real_yield_spread", "gold_silver_ratio", "treasury_slope"],
-    "USO":  ["treasury_slope"],
+    "USO":  ["crude_ret5", "crude_ret20", "usd_strength_ret5", "treasury_slope"],
     "XLE":  ["crude_ret5", "crude_ret20", "treasury_slope"],
     "EWJ":  ["usdjpy_ret5", "usdjpy_ret20", "treasury_slope"],
     "EWT":  ["usd_strength_ret5", "usd_strength_ret20", "treasury_slope"],
@@ -59,6 +64,43 @@ CROSS_ASSET_MAP: Dict[str, List[str]] = {
     "QQQ":  ["treasury_slope"],
     "IWM":  ["treasury_slope"],           # small-cap: rate-sensitive
     "SOXX": ["treasury_slope"],           # semis: follows broad rate regime
+
+    # Bond ETFs — duration signal is real_yield_spread + t10y3m_slope
+    "TLT":  ["real_yield_spread", "t10y3m_slope", "treasury_slope"],
+    "IEF":  ["real_yield_spread", "t10y3m_slope", "treasury_slope"],
+    "SHY":  ["t10y3m_slope", "treasury_slope"],
+    "BND":  ["real_yield_spread", "t10y3m_slope", "treasury_slope"],
+    "TIP":  ["real_yield_spread", "treasury_slope"],
+    "HYG":  ["hy_credit_spread", "t10y3m_slope", "treasury_slope"],
+    "LQD":  ["hy_credit_spread", "real_yield_spread", "treasury_slope"],
+    "EMB":  ["hy_credit_spread", "usd_strength_ret5", "treasury_slope"],
+
+    # International developed — EUR/USD for Europe, USD/JPY already done for EWJ
+    "VGK":  ["eurusd_ret5", "eurusd_ret20", "treasury_slope"],
+    "EWG":  ["eurusd_ret5", "eurusd_ret20", "treasury_slope"],
+    "EWU":  ["gbpusd_ret5", "gbpusd_ret20", "treasury_slope"],
+    "EWA":  ["usd_strength_ret5", "usd_strength_ret20", "treasury_slope"],
+    "EWC":  ["usd_strength_ret5", "crude_ret5", "treasury_slope"],
+    "EWH":  ["usd_strength_ret5", "usd_strength_ret20", "treasury_slope"],
+
+    # International EM — all dollar-sensitive + copper proxy
+    "EWZ":  ["usd_strength_ret5", "copper_ret5", "crude_ret5", "treasury_slope"],
+    "EWY":  ["usd_strength_ret5", "usd_strength_ret20", "treasury_slope"],
+    "EWW":  ["usd_strength_ret5", "crude_ret5", "treasury_slope"],
+    "MCHI": ["usd_strength_ret5", "copper_ret5", "treasury_slope"],
+    "VWO":  ["usd_strength_ret5", "copper_ret5", "treasury_slope"],
+
+    # Gold tracker — same as GLD (tracks identical index)
+    "IAU":  ["real_yield_spread", "gold_silver_ratio", "treasury_slope"],
+
+    # Financials — treasury slope is the dominant driver of bank margins
+    "XLF":  ["real_yield_spread", "t10y3m_slope", "treasury_slope"],
+    "XLU":  ["real_yield_spread", "treasury_slope"],
+    "XLRE": ["real_yield_spread", "t10y3m_slope", "treasury_slope"],
+
+    # Commodity ETFs with explicit drivers
+    "PDBC": ["crude_ret5", "copper_ret5", "usd_strength_ret5", "treasury_slope"],
+    "URNM": ["treasury_slope"],
 }
 
 # All possible cross-asset feature names (union of all values)
@@ -86,9 +128,11 @@ class FREDMacroFetcher:
 
     # Series we need
     SERIES_IDS = {
-        "DGS10":  "dgs10",     # 10-Year Treasury Constant Maturity Rate
-        "DFII10": "dfii10",    # 10-Year TIPS (real yield)
-        "T10Y2Y": "t10y2y",    # 10Y-2Y Treasury spread (yield curve slope)
+        "DGS10":  "dgs10",         # 10-Year Treasury Constant Maturity Rate
+        "DFII10": "dfii10",        # 10-Year TIPS (real yield)
+        "T10Y2Y": "t10y2y",        # 10Y-2Y Treasury spread (yield curve slope)
+        "T10Y3M": "t10y3m",        # 10Y-3M Treasury spread (short-end slope)
+        "BAMLH0A0HYM2": "bamlh0a0hym2",  # ICE BofA US High Yield OAS
     }
 
     def __init__(self, api_key: Optional[str] = None):
@@ -164,11 +208,14 @@ class CrossMarketFetcher:
     """
 
     TICKERS = {
-        "crude":    "CL=F",
-        "usdjpy":   "JPY=X",
-        "dxy":      "DX-Y.NYB",
-        "gold_fut": "GC=F",
+        "crude":      "CL=F",
+        "usdjpy":     "JPY=X",
+        "dxy":        "DX-Y.NYB",
+        "gold_fut":   "GC=F",
         "silver_fut": "SI=F",
+        "eurusd":     "EURUSD=X",
+        "gbpusd":     "GBPUSD=X",
+        "copper":     "HG=F",
     }
 
     def __init__(self):
@@ -334,4 +381,112 @@ class CrossAssetFeatureBuilder:
             if "usd_strength_ret20" in feature_list:
                 df["usd_strength_ret20"] = dxy.pct_change(20)
 
+        # --- 10Y-3M slope (FRED T10Y3M) — for bond/financials ETFs ---
+        if "t10y3m_slope" in feature_list:
+            t10y3m = self._macro_data.get("T10Y3M", pd.DataFrame())
+            df["t10y3m_slope"] = self._align_series(t10y3m, bar_dates)
+
+        # --- HY credit spread (ICE BofA HY OAS) — for HYG/LQD/EMB ---
+        if "hy_credit_spread" in feature_list:
+            hy_oas = self._macro_data.get("BAMLH0A0HYM2", pd.DataFrame())
+            df["hy_credit_spread"] = self._align_series(hy_oas, bar_dates)
+
+        # --- EUR/USD momentum — for European ETFs ---
+        if "eurusd_ret5" in feature_list or "eurusd_ret20" in feature_list:
+            eurusd_df = self._cross_data.get("eurusd", pd.DataFrame())
+            eurusd = self._align_series(eurusd_df, bar_dates, "close")
+            if "eurusd_ret5" in feature_list:
+                df["eurusd_ret5"] = eurusd.pct_change(5)
+            if "eurusd_ret20" in feature_list:
+                df["eurusd_ret20"] = eurusd.pct_change(20)
+
+        # --- GBP/USD momentum — for UK ETF ---
+        if "gbpusd_ret5" in feature_list or "gbpusd_ret20" in feature_list:
+            gbpusd_df = self._cross_data.get("gbpusd", pd.DataFrame())
+            gbpusd = self._align_series(gbpusd_df, bar_dates, "close")
+            if "gbpusd_ret5" in feature_list:
+                df["gbpusd_ret5"] = gbpusd.pct_change(5)
+            if "gbpusd_ret20" in feature_list:
+                df["gbpusd_ret20"] = gbpusd.pct_change(20)
+
+        # --- Copper momentum — for EM/commodity ETFs ---
+        if "copper_ret5" in feature_list:
+            copper_df = self._cross_data.get("copper", pd.DataFrame())
+            copper = self._align_series(copper_df, bar_dates, "close")
+            df["copper_ret5"] = copper.pct_change(5)
+
         return df[feature_list]
+
+    def build_all_features(self, bars_df: pd.DataFrame,
+                           lookback_days: int = 500) -> pd.DataFrame:
+        """Build ALL cross-asset features regardless of symbol.
+
+        Used by the feature selection pipeline (IC analysis) and by
+        SwingFeatureEngine to provide the full cross-asset superset.
+        Features that aren't relevant for a given symbol will get near-zero
+        IC / XGBoost importance and be filtered out by the selection pipeline.
+        """
+        self._ensure_data(lookback_days)
+        bar_dates = pd.to_datetime(bars_df["ts"]).dt.date
+        df = pd.DataFrame(index=bars_df.index)
+
+        # Treasury slope (T10Y2Y)
+        t10y2y = self._macro_data.get("T10Y2Y", pd.DataFrame())
+        df["treasury_slope"] = self._align_series(t10y2y, bar_dates)
+
+        # Real yield spread (5-day change in TIPS yield)
+        dfii10 = self._macro_data.get("DFII10", pd.DataFrame())
+        real = self._align_series(dfii10, bar_dates)
+        df["real_yield_spread"] = real.diff(5)
+
+        # Gold/Silver ratio
+        gold_df = self._cross_data.get("gold_fut", pd.DataFrame())
+        silver_df = self._cross_data.get("silver_fut", pd.DataFrame())
+        gold = self._align_series(gold_df, bar_dates, "close")
+        silver = self._align_series(silver_df, bar_dates, "close")
+        df["gold_silver_ratio"] = gold / silver.replace(0, np.nan)
+
+        # Crude oil momentum
+        crude_df = self._cross_data.get("crude", pd.DataFrame())
+        crude = self._align_series(crude_df, bar_dates, "close")
+        df["crude_ret5"] = crude.pct_change(5)
+        df["crude_ret20"] = crude.pct_change(20)
+
+        # USD/JPY momentum
+        usdjpy_df = self._cross_data.get("usdjpy", pd.DataFrame())
+        usdjpy = self._align_series(usdjpy_df, bar_dates, "close")
+        df["usdjpy_ret5"] = usdjpy.pct_change(5)
+        df["usdjpy_ret20"] = usdjpy.pct_change(20)
+
+        # USD strength (DXY) momentum
+        dxy_df = self._cross_data.get("dxy", pd.DataFrame())
+        dxy = self._align_series(dxy_df, bar_dates, "close")
+        df["usd_strength_ret5"] = dxy.pct_change(5)
+        df["usd_strength_ret20"] = dxy.pct_change(20)
+
+        # 10Y-3M slope
+        t10y3m = self._macro_data.get("T10Y3M", pd.DataFrame())
+        df["t10y3m_slope"] = self._align_series(t10y3m, bar_dates)
+
+        # HY credit spread (OAS)
+        hy_oas = self._macro_data.get("BAMLH0A0HYM2", pd.DataFrame())
+        df["hy_credit_spread"] = self._align_series(hy_oas, bar_dates)
+
+        # EUR/USD momentum
+        eurusd_df = self._cross_data.get("eurusd", pd.DataFrame())
+        eurusd = self._align_series(eurusd_df, bar_dates, "close")
+        df["eurusd_ret5"] = eurusd.pct_change(5)
+        df["eurusd_ret20"] = eurusd.pct_change(20)
+
+        # GBP/USD momentum
+        gbpusd_df = self._cross_data.get("gbpusd", pd.DataFrame())
+        gbpusd = self._align_series(gbpusd_df, bar_dates, "close")
+        df["gbpusd_ret5"] = gbpusd.pct_change(5)
+        df["gbpusd_ret20"] = gbpusd.pct_change(20)
+
+        # Copper momentum
+        copper_df = self._cross_data.get("copper", pd.DataFrame())
+        copper = self._align_series(copper_df, bar_dates, "close")
+        df["copper_ret5"] = copper.pct_change(5)
+
+        return df[ALL_CROSS_ASSET_FEATURES]

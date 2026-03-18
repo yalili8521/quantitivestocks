@@ -1,0 +1,12 @@
+{
+  "symbol": "HYG",
+  "model_type": "tft_swing",
+  "n_features": 25,
+  "seq_len": 20,
+  "hidden": 32,
+  "n_heads": 4,
+  "val_mse": 0.00034804,
+  "val_direction_accuracy": 0.7568,
+  "n_train": 293,
+  "n_val": 74
+}
