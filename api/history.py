@@ -166,19 +166,22 @@ def _recent_orders(orders: list, days: int = 3) -> list:
 
 
 def _recent_trades(trades: list, max_days: int = 3) -> list:
-    """Return trades from the most recent N *traded* days (not calendar days)."""
+    """Return trades from the most recent N traded days within the last 7 calendar days."""
     if not trades:
         return []
-    # Collect unique traded dates (ET-ish: use UTC date as proxy, close enough)
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+    # Only consider trades within the last 7 calendar days
+    recent = [t for t in trades if (t.get("closed_at") or "")[:10] >= cutoff]
+    # Then pick the 3 most recent traded days from that window
     day_set: set = set()
-    for t in trades:
+    for t in recent:
         ca = t.get("closed_at", "")
         if ca:
-            day_set.add(ca[:10])  # "2026-03-20"
+            day_set.add(ca[:10])
     if not day_set:
         return []
     recent_days = sorted(day_set, reverse=True)[:max_days]
-    return [t for t in trades if (t.get("closed_at") or "")[:10] in recent_days]
+    return [t for t in recent if (t.get("closed_at") or "")[:10] in recent_days]
 
 
 def _build_equity_curve(trade_log: list, initial_balance: float) -> dict:
