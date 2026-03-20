@@ -188,6 +188,9 @@ class KrakenExecutor:
         gist_id = os.environ.get("KRAKEN_STATE_GIST_ID", "")
         gh_token = os.environ.get("GITHUB_TOKEN", "")
         if not gist_id or not gh_token:
+            # Try loading from secrets/alpaca.env as fallback
+            gist_id, gh_token = self._load_gist_env_fallback(gist_id, gh_token)
+        if not gist_id or not gh_token:
             return  # silently skip if not configured
         try:
             import requests
@@ -217,6 +220,34 @@ class KrakenExecutor:
                 log.warning("Gist sync failed (%d): %s", resp.status_code, resp.text[:200])
         except Exception as exc:
             log.warning("Gist sync error: %s", exc)
+
+    @staticmethod
+    def _load_gist_env_fallback(gist_id: str, gh_token: str) -> tuple:
+        """Load KRAKEN_STATE_GIST_ID / GITHUB_TOKEN from secrets/alpaca.env if missing."""
+        env_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "secrets", "alpaca.env"
+        )
+        if not os.path.isfile(env_path):
+            return gist_id, gh_token
+        try:
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" not in line:
+                        continue
+                    key, val = line.split("=", 1)
+                    key, val = key.strip(), val.strip().strip('"')
+                    if key == "KRAKEN_STATE_GIST_ID" and not gist_id:
+                        gist_id = val
+                    elif key == "GITHUB_TOKEN" and not gh_token:
+                        gh_token = val
+            if gist_id and gh_token:
+                log.info("Loaded Gist credentials from secrets/alpaca.env (env vars were missing)")
+        except OSError as exc:
+            log.warning("Failed to read secrets/alpaca.env for Gist fallback: %s", exc)
+        return gist_id, gh_token
 
     # -- Price fetching ----------------------------------------------------
 
