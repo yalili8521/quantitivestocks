@@ -33,6 +33,7 @@
         "max_total_exposure": 0.65,
         "max_positions": 5,
         "kelly_cap": 0.2,
+        "cross_group_kelly_discount": 0.5,
         "kelly_floor": 0.05,
         "blocked_windows": [
             "09:30-10:00",
@@ -68,8 +69,9 @@
         "max_position_pct": 0.12,
         "max_sector_pct": 0.35,
         "max_total_exposure": 0.75,
-        "max_positions": 6,
+        "max_positions": 5,
         "kelly_cap": 0.25,
+        "cross_group_kelly_discount": 0.5,
         "kelly_floor": 0.05
     },
     "crypto": {
@@ -94,12 +96,13 @@
         "same_dir_confidence_mult": 1.5,
         "trend_sma": 50,
         "position_pct": 0.15,
-        "max_position_pct": 0.05,
-        "max_sector_pct": 0.15,
-        "max_total_exposure": 0.15,
+        "max_position_pct": 0.10,
+        "max_sector_pct": 0.40,
+        "max_total_exposure": 0.40,
         "max_positions": 6,
         "max_btc_beta": 2.0,
         "kelly_cap": 0.1,
+        "cross_group_kelly_discount": 0.5,
         "kelly_floor": 0.02,
         "min_signal_threshold": 0.0,
         "use_ic_weighting": true,
@@ -115,7 +118,7 @@
     },
     "crypto_intraday": {
         "_comment": "Crypto intraday LGB+GRU 5-min models, 1-hour horizon, 4h max hold",
-        "mode": "daily",
+        "mode": "intraday",
         "horizon": "1h",
         "allowed_models": [
             "lgb_intraday_crypto"
@@ -138,9 +141,10 @@
         "max_position_pct": 0.04,
         "max_sector_pct": 0.12,
         "max_total_exposure": 0.12,
-        "max_positions": 6,
+        "max_positions": 3,
         "max_btc_beta": 2.0,
         "kelly_cap": 0.10,
+        "cross_group_kelly_discount": 0.5,
         "kelly_floor": 0.02,
         "selector": {
             "_comment": "Reuse swing coin selector for universe filtering",

@@ -42,6 +42,15 @@ from utils import (
     BACKTEST_DIR, TRADES_DIR, OUTPUT_DIR as _OUTPUT_DIR,
     _fetch_vix_for_training, COST_THRESHOLD, TARGET_RETURN, get_model_dir,
 )
+from risk_config import (
+    validate_model_mode,
+    get_risk_config,
+    get_symbol_cap,
+    get_confidence_multiplier,
+    get_effective_min_hold,
+    DeRiskState,
+    evaluate_derisk,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -68,6 +77,7 @@ class Trade:
     tp_trail_peak: float = 0.0   # highest P&L since TP activation
     breakeven_armed: bool = False  # breakeven ratchet activated
     signal_flip_count: int = 0     # consecutive signal flips for decay exit
+    bars_held: int = 0             # bars since entry for min-hold enforcement
     # MFE/MAE tracking (updated bar-by-bar)
     mfe_pct: float = 0.0          # max favorable excursion (best unrealized PnL %)
     mae_pct: float = 0.0          # max adverse excursion (worst unrealized PnL %, negative)
@@ -177,6 +187,25 @@ class Backtester:
         self.stress_cost_mult = stress_cost_mult
         self.use_cost_model = use_cost_model
         self.exit_variant = exit_variant
+        if self.model_type == "crypto_intraday":
+            self._risk_group = "crypto_intraday"
+        elif self.model_type == "intraday":
+            self._risk_group = "intraday"
+        elif self.symbol.endswith("-USD") or "/" in self.symbol:
+            self._risk_group = "crypto"
+        else:
+            self._risk_group = "swing"
+        self._derisk_state = DeRiskState()
+        self._max_loss_exit = None
+
+        if self.model_type == "intraday":
+            validate_model_mode("lgb_intraday", mode)
+        elif self.model_type == "crypto_intraday":
+            validate_model_mode("lgb_intraday_crypto", mode)
+        elif self.model_type == "swing":
+            validate_model_mode("tft_swing", mode)
+        else:
+            validate_model_mode(self.model_type, mode)
 
         # Validate cost threshold against estimated costs
         if use_cost_model:
@@ -264,24 +293,11 @@ class Backtester:
         log.info("Backtest window: %d trading days (%s → %s).",
                  len(data), start_dt, end_dt)
 
-        # --- Regime filter layer 1: SPY SMA(200) ---
-        # Only trade when SPY close > SMA(200) (bull regime).
-        spy_sma_lookup: dict = {}  # date -> bool (True = bull regime)
-        try:
-            from signals_engine import build_adapter as _build_yahoo
-            yahoo_adp = _build_yahoo("yahoo")
-            spy_df = yahoo_adp.fetch_daily("SPY", days_needed + 250)
-            if not spy_df.empty:
-                sma200 = spy_df["close"].rolling(200).mean()
-                for d, c, s in zip(spy_df.index, spy_df["close"], sma200):
-                    if not pd.isna(s):
-                        dk = d.date() if hasattr(d, "date") else d
-                        spy_sma_lookup[dk] = bool(c > s)
-            log.info("SPY SMA(200) regime lookup built (%d days).", len(spy_sma_lookup))
-        except Exception as exc:
-            log.warning("SPY SMA(200) regime filter unavailable: %s", exc)
+        # --- Regime filter: hardcoded SMA gates removed (model features handle regime) ---
+        # Rolling 20-trade win rate cooldown remains active.
+        log.info("Hardcoded regime gates disabled — model features drive entry decisions.")
 
-        # --- Regime filter layer 2: rolling 20-trade win rate cooldown ---
+        # --- Rolling 20-trade win rate cooldown ---
         from collections import deque
         from datetime import timedelta as _td
         recent_wins: deque = deque(maxlen=20)
@@ -290,7 +306,6 @@ class Backtester:
         # Simulate day-by-day
         portfolio = Portfolio(initial_capital=self.initial_capital, cash=self.initial_capital)
         price_rows = []
-        regime_skipped = 0
         cooldown_skipped = 0
 
         for _, row in data.iterrows():
@@ -304,14 +319,7 @@ class Backtester:
 
             price_rows.append({"date": day, "close": eod_close})
 
-            # Layer 1: regime gate — SPY SMA(200) (VIX gate skipped for intraday)
-            spy_bull = spy_sma_lookup.get(day, True)  # default open if data missing
-            if not spy_bull:
-                self._record_equity(portfolio, day, eod_close)
-                regime_skipped += 1
-                continue
-
-            # Layer 2: rolling win rate cooldown
+            # Rolling win rate cooldown
             if cooldown_until is not None:
                 if day < cooldown_until:
                     self._record_equity(portfolio, day, eod_close)
@@ -366,8 +374,7 @@ class Backtester:
 
             self._record_equity(portfolio, day, eod_close)
 
-        log.info("Regime filter skipped %d days; cooldown skipped %d days.",
-                 regime_skipped, cooldown_skipped)
+        log.info("Cooldown skipped %d days.", cooldown_skipped)
 
         price_df = pd.DataFrame(price_rows)
         return self._compute_results(portfolio, price_df)
@@ -462,27 +469,12 @@ class Backtester:
         log.info("Loaded LGB for %s (%d features, ct=%.4f, tr=%.4f).",
                  self.symbol, len(feature_cols), crypto_ct, crypto_tr)
 
-        # --- BTC SMA(200) regime filter (daily) ---
-        # Resample 5-min bars to daily close for SMA calculation
+        # --- Regime filter: hardcoded BTC SMA(200) gate removed ---
+        # Model features (btc_sma200_flag, btc_trend_strength, etc.) handle regime.
         bars_ts = pd.to_datetime(bars["ts"])
         if bars_ts.dt.tz is None:
             bars_ts = bars_ts.dt.tz_localize("UTC")
-        btc_regime_bars = btc_bars if btc_bars is not None else bars
-        btc_regime_ts = pd.to_datetime(btc_regime_bars["ts"])
-        if btc_regime_ts.dt.tz is None:
-            btc_regime_ts = btc_regime_ts.dt.tz_localize("UTC")
-        btc_daily = btc_regime_bars.copy()
-        btc_daily["date"] = btc_regime_ts.dt.date
-        btc_daily_close = btc_daily.groupby("date")["close"].last()
-        btc_sma200 = btc_daily_close.rolling(200).mean()
-
-        regime_lookup = {}
-        for d, c, s in zip(btc_daily_close.index, btc_daily_close.values, btc_sma200.values):
-            if not pd.isna(s):
-                regime_lookup[d] = bool(float(c) > float(s))
-        log.info("BTC SMA(200) regime lookup: %d days (%d bull).",
-                 len(regime_lookup),
-                 sum(1 for v in regime_lookup.values() if v))
+        log.info("Hardcoded BTC regime gate disabled — model features drive entry decisions.")
 
         # --- Walk-forward bar-by-bar ---
         from collections import deque
@@ -503,7 +495,6 @@ class Backtester:
         )
         recent_wins: deque = deque(maxlen=20)
         cooldown_until = None
-        regime_skipped = 0
         cooldown_skipped = 0
         bars_in_position = 0
         price_rows = []
@@ -594,13 +585,6 @@ class Backtester:
                 self._record_equity(portfolio, bar_date, bar_close)
                 continue
 
-            # Regime gate: BTC above SMA(200)
-            regime_ok = regime_lookup.get(bar_date, True)
-            if not regime_ok:
-                regime_skipped += 1
-                self._record_equity(portfolio, bar_date, bar_close)
-                continue
-
             # Cooldown gate
             if cooldown_until is not None:
                 if ts < cooldown_until:
@@ -643,9 +627,8 @@ class Backtester:
                                  "end_of_backtest")
             self._record_equity(portfolio, last_date, last_close)
 
-        log.info("Crypto intraday: %d trades, %d regime-skipped bars, "
-                 "%d cooldown-skipped bars.",
-                 len(portfolio.closed_trades), regime_skipped, cooldown_skipped)
+        log.info("Crypto intraday: %d trades, %d cooldown-skipped bars.",
+                 len(portfolio.closed_trades), cooldown_skipped)
 
         price_df = pd.DataFrame(price_rows)
         # Deduplicate prices (multiple 5-min bars per day)
@@ -687,7 +670,7 @@ class Backtester:
         # Build features and load model — varies by model_type
         model = None       # LSTM/PatchTST nn.Module (None for XGBoost)
         xgb_model = None   # XGBoost regressor (None for LSTM/PatchTST)
-        spy_bars = None    # SPY bars for regime filter (fetched by swing, None for LSTM)
+        spy_bars = None    # SPY bars for feature engineering (fetched by swing, None for LSTM)
         effective_seq_len = seq_len  # may change for PatchTST
 
         if self.model_type == "swing":
@@ -755,35 +738,16 @@ class Backtester:
         start_dt = pd.to_datetime(start_date).date()
         end_dt = pd.to_datetime(end_date).date() if end_date else datetime.now(timezone.utc).date()
 
-        # --- Regime filter: SPY SMA(200) + VIX < 30 + rolling win rate ---
-        # Layer 1: SPY SMA(200) — use already-fetched spy_bars if available
-        _spy_for_regime = spy_bars if (spy_bars is not None and not spy_bars.empty) else bars
-        _spy_close = _spy_for_regime["close"].astype(float)
-        _spy_sma200 = _spy_close.rolling(200).mean()
-        _spy_ts = pd.to_datetime(_spy_for_regime["ts"]).dt.date
-        swing_spy_sma_lookup: dict = {}
-        for _d, _c, _s in zip(_spy_ts, _spy_close, _spy_sma200):
-            if not pd.isna(_s):
-                swing_spy_sma_lookup[_d] = bool(_c > _s)
-        log.info("SPY SMA(200) regime lookup built for swing (%d days).", len(swing_spy_sma_lookup))
+        # --- Regime filter: hardcoded SMA/VIX gates removed ---
+        # Model features (spy_above_sma200, spy_trend_strength, vix_regime, etc.)
+        # handle regime-dependent behavior. Rolling win rate cooldown stays active.
+        log.info("Hardcoded regime gates disabled for swing — model features drive entry decisions.")
 
-        # Layer 2: VIX lookup from vix_df
-        swing_vix_lookup: dict = {}
-        if not vix_df.empty:
-            _vcol = vix_df.columns[0]
-            for _idx, _row in vix_df.iterrows():
-                _dk = _idx.date() if hasattr(_idx, "date") else _idx
-                try:
-                    swing_vix_lookup[_dk] = float(_row[_vcol])
-                except Exception:
-                    pass
-
-        # Layer 3: rolling 20-trade win rate cooldown
+        # Rolling 20-trade win rate cooldown
         from collections import deque
         from datetime import timedelta as _td
         swing_recent_wins: deque = deque(maxlen=20)
         swing_cooldown_until = None
-        swing_regime_skipped = 0
         swing_cooldown_skipped = 0
 
         portfolio = Portfolio(
@@ -913,11 +877,18 @@ class Backtester:
                 if unrealized_pct >= arm_pct:
                     pos.tp_activated = True
 
+                min_hold = get_effective_min_hold(
+                    ep.min_hold_bars,
+                    pos.atr_at_entry,
+                    bar_atr,
+                )
+                next_bars_held = pos.bars_held + 1
+
                 if pos.tp_activated:
                     # 2a: Armed + model flips + still profitable -> immediate exit
                     signal_flipped = ((pos.direction == "LONG" and expected_return <= 0)
                                       or (pos.direction == "SHORT" and expected_return >= 0))
-                    if signal_flipped and unrealized_pct > 0:
+                    if signal_flipped and unrealized_pct > 0 and next_bars_held >= min_hold:
                         pos.exit_layer = "profit_lock"
                         self._close_position(portfolio, bar_date, bar_close,
                                              "profit_lock+signal_decay", bar_time=bar_time)
@@ -932,6 +903,8 @@ class Backtester:
                         continue
 
                 # LAYER 3: Signal decay (consecutive flip requirement)
+                pos.bars_held = next_bars_held
+
                 signal_flipped = ((pos.direction == "LONG" and expected_return <= 0)
                                   or (pos.direction == "SHORT" and expected_return >= 0))
                 if signal_flipped:
@@ -939,7 +912,7 @@ class Backtester:
                 else:
                     pos.signal_flip_count = 0
 
-                if pos.signal_flip_count >= ep.signal_flip_consecutive:
+                if pos.bars_held >= min_hold and pos.signal_flip_count >= ep.signal_flip_consecutive:
                     pos.exit_layer = "signal_decay"
                     self._close_position(portfolio, bar_date, bar_close, "signal_decay", bar_time=bar_time)
                     if portfolio.closed_trades:
@@ -971,15 +944,8 @@ class Backtester:
                             self._record_equity(portfolio, bar_date, bar_close)
                             continue
 
-            # --- Entry logic (v2: trend filter + regime gate + signal-proportional sizing) ---
+            # --- Entry logic (v2: trend filter + signal-proportional sizing) ---
             if portfolio.position is None and not is_last_bar:
-                # Regime gate: SPY SMA(200) + VIX < 30
-                _spy_ok = swing_spy_sma_lookup.get(bar_date, True)
-                _vix_val = swing_vix_lookup.get(bar_date, 20.0)
-                if not _spy_ok or _vix_val >= 30.0:
-                    self._record_equity(portfolio, bar_date, bar_close)
-                    swing_regime_skipped += 1
-                    continue
                 # Rolling win rate cooldown
                 if swing_cooldown_until is not None:
                     if bar_date < swing_cooldown_until:
@@ -990,9 +956,9 @@ class Backtester:
                         swing_cooldown_until = None
 
                 enter_dir = None
-                if expected_return > self.cost_threshold and bar_trend > 0:
+                if expected_return > self.cost_threshold:
                     enter_dir = "LONG"
-                elif expected_return < -self.cost_threshold and bar_trend < 0:
+                elif expected_return < -self.cost_threshold:
                     enter_dir = "SHORT"
 
                 if enter_dir is not None:
@@ -1004,8 +970,7 @@ class Backtester:
 
             self._record_equity(portfolio, bar_date, bar_close)
 
-        log.info("Swing regime filter skipped %d days; cooldown skipped %d days.",
-                 swing_regime_skipped, swing_cooldown_skipped)
+        log.info("Swing cooldown skipped %d days.", swing_cooldown_skipped)
 
         # Close any open position at end
         if portfolio.position is not None:
@@ -1079,6 +1044,13 @@ class Backtester:
         except ImportError:
             return price, True
 
+    @staticmethod
+    def _hours_since(then, now) -> float:
+        try:
+            return max(0.0, (pd.Timestamp(now) - pd.Timestamp(then)).total_seconds() / 3600.0)
+        except Exception:
+            return float("inf")
+
     def _open_position(self, portfolio: Portfolio, date, price: float,
                        direction: str = "LONG", expected_return: float = 0.0,
                        bar_atr: float = 0.0, bar_time=None) -> bool:
@@ -1091,17 +1063,41 @@ class Backtester:
         equity = self._current_equity(portfolio, price)
 
         # Signal-proportional sizing (v3: size from total equity, cap by max_position_pct)
-        signal_pct = min(1.0, max(0.1, abs(expected_return) / self.target_return))
-        base_pct = self.position_pct * signal_pct
+        risk = get_risk_config(self._risk_group)
+        if self._max_loss_exit is not None:
+            loss_age_h = self._hours_since(self._max_loss_exit["time"], date)
+            if loss_age_h < risk.max_loss_cooldown_hours:
+                return False
+            if loss_age_h < 24 and direction == self._max_loss_exit["direction"]:
+                effective_threshold = self.cost_threshold * risk.same_dir_confidence_mult
+                if abs(expected_return) < effective_threshold:
+                    return False
+        signal_pct = min(1.0, max(risk.min_signal_scale, abs(expected_return) / self.target_return))
+        kelly_f = self._derisk_state.half_kelly(
+            window=risk.kelly_window,
+            min_trades=risk.kelly_min_trades,
+        )
+        if kelly_f is not None:
+            effective_cap = risk.kelly_cap * risk.cross_group_kelly_discount
+            base_frac = min(kelly_f * risk.cross_group_kelly_discount, effective_cap)
+        else:
+            base_frac = min(self.position_pct, risk.position_pct)
 
-        # Apply per-position cap directly as fraction of equity
-        try:
-            from risk_config import get_risk_config
-            group = "intraday" if self.mode == "intraday" else "swing"
-            risk = get_risk_config(group)
-            base_pct = min(base_pct, risk.max_position_pct)
-        except ImportError:
-            base_pct = min(base_pct, 0.15)
+        base_pct = base_frac * signal_pct
+        base_pct = min(base_pct, risk.max_position_pct)
+        base_pct = min(base_pct, get_symbol_cap(self.symbol, self._risk_group))
+        base_pct *= get_confidence_multiplier(self.symbol)
+        derisk_action, _ = evaluate_derisk(self._derisk_state, window=50)
+        if derisk_action == "disable":
+            return False
+        if derisk_action == "halfsize":
+            base_pct *= 0.5
+        if self._max_loss_exit is not None:
+            loss_age_h = self._hours_since(self._max_loss_exit["time"], date)
+            if loss_age_h < risk.post_loss_size_hours:
+                base_pct *= risk.post_loss_size_mult
+        if base_pct <= 0:
+            return False
 
         invest = equity * base_pct
         # Apply cost model to entry price
@@ -1138,6 +1134,11 @@ class Backtester:
             proceeds = trade.size * trade.entry_price + trade.pnl
         portfolio.cash += proceeds
         portfolio.closed_trades.append(trade)
+        if trade.entry_price > 0 and trade.size > 0:
+            pnl_pct = trade.pnl / (trade.size * trade.entry_price)
+            self._derisk_state.record_trade(float(pnl_pct))
+        if reason == "disaster_stop":
+            self._max_loss_exit = {"time": date, "direction": trade.direction}
         portfolio.position = None
 
     def _current_equity(self, portfolio: Portfolio, current_price: float) -> float:

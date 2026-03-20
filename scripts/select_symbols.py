@@ -39,6 +39,8 @@ OUTPUTS_DIR = os.path.join(PROJECT_ROOT, "outputs")
 CONFIG_PATH = os.path.join(PROJECT_ROOT, "config", "trading.json")
 PYTHON = os.path.join(PROJECT_ROOT, ".venv", "Scripts", "python.exe")
 MAIN_PY = os.path.join(PROJECT_ROOT, "main.py")
+TRAIN_TIMEOUT_SECONDS = int(os.environ.get("SELECT_SYMBOLS_TRAIN_TIMEOUT", "1800"))
+BACKTEST_TIMEOUT_SECONDS = int(os.environ.get("SELECT_SYMBOLS_BACKTEST_TIMEOUT", "1800"))
 
 # ---------------------------------------------------------------------------
 # Candidate symbol lists — extend these to screen new symbols
@@ -258,13 +260,19 @@ def train_symbol(symbol: str, sleeve: str) -> bool:
 
     log.info("Training %s (%s): %s", symbol, sleeve, " ".join(cmd))
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, cwd=PROJECT_ROOT)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=TRAIN_TIMEOUT_SECONDS,
+            cwd=PROJECT_ROOT,
+        )
         if result.returncode != 0:
             log.error("Training failed for %s: %s", symbol, result.stderr[-500:] if result.stderr else "")
             return False
         return True
     except subprocess.TimeoutExpired:
-        log.error("Training timed out for %s", symbol)
+        log.error("Training timed out for %s after %ss", symbol, TRAIN_TIMEOUT_SECONDS)
         return False
 
 
@@ -285,13 +293,19 @@ def backtest_symbol(symbol: str, sleeve: str) -> bool:
 
     log.info("Backtesting %s (%s): %s", symbol, sleeve, " ".join(cmd))
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, cwd=PROJECT_ROOT)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=BACKTEST_TIMEOUT_SECONDS,
+            cwd=PROJECT_ROOT,
+        )
         if result.returncode != 0:
             log.error("Backtest failed for %s: %s", symbol, result.stderr[-500:] if result.stderr else "")
             return False
         return True
     except subprocess.TimeoutExpired:
-        log.error("Backtest timed out for %s", symbol)
+        log.error("Backtest timed out for %s after %ss", symbol, BACKTEST_TIMEOUT_SECONDS)
         return False
 
 
@@ -479,6 +493,40 @@ def generate_config_snippet(results: List[SymbolResult], sleeve: str) -> dict:
     }
 
 
+def _backup_config() -> Optional[str]:
+    """Create a timestamped backup of trading.json before writing.
+
+    Keeps the last 4 weekly backups, deletes older ones.
+    Returns the backup path (or None if backup failed).
+    """
+    import glob
+    import shutil
+    from datetime import datetime
+
+    if not os.path.exists(CONFIG_PATH):
+        return None
+
+    config_dir = os.path.dirname(CONFIG_PATH)
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    backup_path = os.path.join(config_dir, f"trading_backup_{stamp}.json")
+
+    try:
+        shutil.copy2(CONFIG_PATH, backup_path)
+        log.info("Config backup: %s", backup_path)
+
+        # Prune old backups — keep last 4
+        pattern = os.path.join(config_dir, "trading_backup_*.json")
+        backups = sorted(glob.glob(pattern))
+        for old in backups[:-4]:
+            os.remove(old)
+            log.info("Pruned old backup: %s", os.path.basename(old))
+
+        return backup_path
+    except Exception as exc:
+        log.warning("Config backup failed: %s", exc)
+        return None
+
+
 def apply_to_config(snippet: dict, sleeve: str) -> None:
     """Merge the symbol_caps snippet into config/trading.json."""
     config_key = snippet["sleeve"]
@@ -489,6 +537,9 @@ def apply_to_config(snippet: dict, sleeve: str) -> None:
     except (FileNotFoundError, json.JSONDecodeError):
         log.error("Cannot read %s", CONFIG_PATH)
         return
+
+    # Backup before writing
+    _backup_config()
 
     # Update symbol_caps
     if "symbol_caps" not in config:

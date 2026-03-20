@@ -9,8 +9,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
+from functools import lru_cache
 from typing import Dict, List, Optional, Set, Tuple
 
 log = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ log = logging.getLogger(__name__)
 VALID_HORIZONS = {
     "10d":  {"mode": "daily",    "models": ["lstm", "xgb_swing", "tft_swing"]},
     "1d":   {"mode": "intraday", "models": ["lgb_intraday"]},
+    "1h":   {"mode": "intraday", "models": ["lgb_intraday_crypto"]},
 }
 
 # Model type → allowed horizons
@@ -29,7 +31,10 @@ MODEL_HORIZON_MAP = {
     "lstm":          "10d",
     "xgb_swing":     "10d",
     "tft_swing":     "10d",
+    "tft_xgb_swing": "10d",
     "lgb_intraday":  "1d",
+    "intraday_momentum": "1d",
+    "lgb_intraday_crypto": "1h",
 }
 
 
@@ -90,6 +95,16 @@ CRYPTO_BTC_BETA: Dict[str, float] = {
     "APT/USD": 1.9, "INJ/USD": 2.2,
 }
 
+# Correlation clusters — highly correlated pairs with a combined exposure cap.
+# More effective than sector labels for small universes (e.g. intraday 5-symbol).
+# Each entry: (frozenset of symbols, max combined exposure as fraction of equity)
+CORRELATION_CLUSTERS: List[Tuple[frozenset, float]] = [
+    # Semiconductors: SMH/SOXX corr ~0.92 — cap combined at 20%
+    (frozenset({"SMH", "SOXX"}), 0.20),
+    # Tech overlap: QQQ/IGV corr ~0.88 — cap combined at 25%
+    (frozenset({"QQQ", "IGV"}), 0.25),
+]
+
 
 # ---------------------------------------------------------------------------
 # Risk parameter dataclass — one source of truth
@@ -104,7 +119,8 @@ class RiskConfig:
     max_position_pct: float = 0.15      # hard cap per-position (% of equity)
     max_sector_pct: float = 0.40        # max exposure per sector
     max_total_exposure: float = 0.80    # max total invested (% of equity)
-    max_positions: int = 8              # max simultaneous positions
+    max_positions: int = 5              # max simultaneous positions
+    min_signal_scale: float = 0.1       # floor for signal_pct (crypto uses 0.2)
 
     # --- Cost thresholds ---
     cost_threshold: float = 0.001       # min |E[r]| to trade
@@ -132,10 +148,23 @@ class RiskConfig:
     regime_min_trades: int = 20
     regime_min_winrate: float = 0.50
 
+    # --- Regime gate vs soft scaling ---
+    # When False (default), hardcoded SMA/VIX gates are disabled and
+    # the model's own regime features drive entry decisions.
+    use_hardcoded_regime_gates: bool = False
+    # Soft regime scaling: reduce size (not block) in adverse regimes.
+    use_soft_regime_scaling: bool = True
+    bear_scaling_factor: float = 0.5    # size mult when SPY < SMA(200)
+    high_vix_scaling_factor: float = 0.5  # size mult when VIX >= 30
+
     # --- Kelly ---
     kelly_cap: float = 0.25            # max Kelly fraction
     kelly_min_trades: int = 20         # min trades before Kelly kicks in
     kelly_window: int = 60             # rolling window for Kelly
+    # Cross-group Kelly discount: with N concurrent strategies, each group's
+    # Kelly is scaled by 1/sqrt(N) (quarter-Kelly for N=4). Applied at sizing
+    # time to reduce correlated drawdown risk across the total portfolio.
+    cross_group_kelly_discount: float = 0.50  # 1/sqrt(4) ≈ 0.50 for 4 groups
 
     # --- Stress test multipliers ---
     stress_cost_mult: float = 1.0      # 1.0 = normal, 2.0 = stress
@@ -148,7 +177,7 @@ SWING_RISK = RiskConfig(
     max_position_pct=0.12,
     max_sector_pct=0.35,
     max_total_exposure=0.75,
-    max_positions=6,
+    max_positions=5,    # Kelly-focused: fewer slots = higher conviction per position
     cost_threshold=0.002,
     target_return=0.02,
     kelly_cap=0.25,
@@ -172,10 +201,11 @@ INTRADAY_RISK = RiskConfig(
 
 CRYPTO_RISK = RiskConfig(
     position_pct=0.15,
-    max_position_pct=0.05,
-    max_sector_pct=0.15,
-    max_total_exposure=0.15,
-    max_positions=6,              # up from 3 — selector picks top-6
+    max_position_pct=0.10,        # was 0.05 — allow 10% per coin
+    max_sector_pct=0.40,          # was 0.15
+    max_total_exposure=0.40,      # was 0.15 — deploy up to 40% of equity
+    max_positions=6,              # selector picks top-6
+    min_signal_scale=0.2,         # crypto floor: 20% of base (was 10%)
     cost_threshold=0.005,
     target_return=0.04,
     disaster_stop_atr_mult=4.0,   # wider stops for crypto vol
@@ -190,7 +220,7 @@ CRYPTO_INTRADAY_RISK = RiskConfig(
     max_position_pct=0.04,
     max_sector_pct=0.12,
     max_total_exposure=0.12,
-    max_positions=6,                  # selector picks top-6
+    max_positions=3,                  # 12% total / 4% max per-pos = 3 realistic slots
     cost_threshold=0.005,             # 50bps (Kraken taker ~26bps RT; 50bps gives margin)
     target_return=0.01,               # 1% for full size (1-hour horizon)
     disaster_stop_atr_mult=3.0,
@@ -211,11 +241,128 @@ GROUP_RISK_CONFIGS: Dict[str, RiskConfig] = {
 }
 
 
-def get_risk_config(group: Optional[str] = None) -> RiskConfig:
+GROUP_EXPECTED_METADATA: Dict[str, Dict[str, object]] = {
+    "swing": {
+        "mode": "daily",
+        "horizon": "10d",
+        "required_models": {"xgb_swing", "tft_swing"},
+    },
+    "intraday": {
+        "mode": "intraday",
+        "horizon": "1d",
+        "required_models": {"lgb_intraday"},
+    },
+    "crypto": {
+        "mode": "daily",
+        "horizon": "10d",
+        "required_models": {"xgb_swing", "tft_swing"},
+    },
+    "crypto_intraday": {
+        "mode": "intraday",
+        "horizon": "1h",
+        "required_models": {"lgb_intraday_crypto"},
+    },
+}
+
+CONFIG_TO_RISK_FIELD: Dict[str, str] = {
+    "position_pct": "position_pct",
+    "max_position_pct": "max_position_pct",
+    "max_sector_pct": "max_sector_pct",
+    "max_total_exposure": "max_total_exposure",
+    "max_positions": "max_positions",
+    "cost_threshold": "cost_threshold",
+    "target_return": "target_return",
+    "disaster_stop_mult": "disaster_stop_atr_mult",
+    "disaster_stop_max_pct": "disaster_stop_max_pct",
+    "profit_lock_atr_mult": "profit_lock_atr_mult",
+    "profit_lock_trail_atr_mult": "profit_lock_trail_atr_mult",
+    "max_underwater_days": "max_underwater_days",
+    "loss_cooldown_hours": "loss_cooldown_hours",
+    "max_loss_cooldown_hours": "max_loss_cooldown_hours",
+    "post_loss_size_mult": "post_loss_size_mult",
+    "post_loss_size_hours": "post_loss_size_hours",
+    "same_dir_confidence_mult": "same_dir_confidence_mult",
+    "trend_sma": "trend_sma_period",
+    "kelly_cap": "kelly_cap",
+    "cross_group_kelly_discount": "cross_group_kelly_discount",
+}
+
+
+def _default_config_path() -> str:
+    return os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "config",
+        "trading.json",
+    )
+
+
+def _get_config_path(config_path: Optional[str] = None) -> str:
+    if config_path:
+        return config_path
+    return os.environ.get("QUANT_STOCKS_CONFIG_PATH", _default_config_path())
+
+
+@lru_cache(maxsize=4)
+def _load_trading_config(config_path: str) -> dict:
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid trading config JSON at {config_path}: {exc}") from exc
+
+
+def _validate_group_metadata(group: str, group_cfg: dict, config_path: str) -> None:
+    expected = GROUP_EXPECTED_METADATA.get(group)
+    if not expected or not group_cfg:
+        return
+
+    mode = group_cfg.get("mode")
+    if mode is not None and mode != expected["mode"]:
+        raise ValueError(
+            f"{config_path} [{group}] mode={mode!r} does not match authoritative "
+            f"mode={expected['mode']!r}"
+        )
+
+    horizon = group_cfg.get("horizon")
+    if horizon is not None and horizon != expected["horizon"]:
+        raise ValueError(
+            f"{config_path} [{group}] horizon={horizon!r} does not match authoritative "
+            f"horizon={expected['horizon']!r}"
+        )
+
+    allowed_models = group_cfg.get("allowed_models")
+    if isinstance(allowed_models, list):
+        missing = set(expected["required_models"]) - set(allowed_models)
+        if missing:
+            raise ValueError(
+                f"{config_path} [{group}] allowed_models is missing required model(s): "
+                f"{sorted(missing)}"
+            )
+
+
+def _apply_group_overrides(group: str, base: RiskConfig, config_path: Optional[str] = None) -> RiskConfig:
+    path = _get_config_path(config_path)
+    cfg = _load_trading_config(path)
+    group_cfg = cfg.get(group, {})
+    if not isinstance(group_cfg, dict):
+        return base
+
+    _validate_group_metadata(group, group_cfg, path)
+
+    resolved = replace(base)
+    for cfg_key, risk_field in CONFIG_TO_RISK_FIELD.items():
+        if cfg_key in group_cfg:
+            setattr(resolved, risk_field, group_cfg[cfg_key])
+    return resolved
+
+
+def get_risk_config(group: Optional[str] = None, config_path: Optional[str] = None) -> RiskConfig:
     """Get risk config for a group, with fallback to swing defaults."""
-    if group and group in GROUP_RISK_CONFIGS:
-        return GROUP_RISK_CONFIGS[group]
-    return SWING_RISK
+    selected_group = group if group in GROUP_RISK_CONFIGS else "swing"
+    base = GROUP_RISK_CONFIGS[selected_group]
+    return _apply_group_overrides(selected_group, base, config_path=config_path)
 
 
 # ---------------------------------------------------------------------------
@@ -299,6 +446,21 @@ def check_position_allowed(
         max_btc_beta = 2.0  # max 2x BTC-equivalent exposure
         if new_beta > max_btc_beta:
             return False, (f"BTC beta exposure {new_beta:.2f} > max {max_btc_beta:.1f}")
+
+    # 6. Correlation cluster cap — limits combined exposure for highly correlated pairs.
+    # More effective than sector labels for small universes where corr > 0.85.
+    for cluster_symbols, max_combined in CORRELATION_CLUSTERS:
+        if symbol in cluster_symbols:
+            cluster_exposure = sum(
+                p["qty"] * p["current_price"] / equity
+                for s, p in positions.items()
+                if s in cluster_symbols and s != symbol
+            )
+            if cluster_exposure + position_pct > max_combined:
+                return False, (
+                    f"correlated cluster {cluster_symbols} exposure "
+                    f"{cluster_exposure + position_pct:.1%} > max {max_combined:.1%}"
+                )
 
     return True, "ok"
 
@@ -409,7 +571,9 @@ def get_confidence_multiplier(symbol: str) -> float:
     0.7 <= S < 1.5 → 0.75
     0.3 <= S < 0.7 → 0.50
     0.0 <= S < 0.3 → 0.25 (probe only)
-    S < 0.0        → 0.00 (disabled)
+    S < 0.0        → 0.00 (disabled) for ETFs
+                   → 0.30 for crypto (OOS Sharpe swings between quarters;
+                     ML signal does the real work, so keep coin tradeable)
     """
     lookup = symbol.replace("/", "-")
     sharpe = SYMBOL_OOS_SHARPE.get(lookup)
@@ -425,7 +589,13 @@ def get_confidence_multiplier(symbol: str) -> float:
     elif sharpe >= 0.0:
         return 0.25
     else:
-        return 0.0
+        # Negative OOS Sharpe: trade at reduced size, don't exclude.
+        # Ranking already handles priority; conf_mult blocking trades at 0.0
+        # violates the no-exclusion principle (ranking should sort, not gate).
+        # Crypto floor 0.30 (Sharpe swings between regimes).
+        # ETF floor 0.25 (probe size — ranking keeps it low priority).
+        is_crypto = "/" in symbol or (lookup.endswith("-USD") and len(lookup) >= 6)
+        return 0.30 if is_crypto else 0.25
 
 
 def compute_theme_exposure(
@@ -612,79 +782,120 @@ class ExitParams:
     trail_atr_mult: float = 1.5
     # Signal-decay interaction
     signal_flip_consecutive: int = 2  # require N consecutive flips before exit
+    min_hold_bars: int = 0            # minimum checks to hold before signal_decay can trigger
+
+
+def get_effective_min_hold(
+    base_min_hold: int,
+    entry_atr: float,
+    current_atr: float,
+) -> int:
+    """Return ATR-adaptive min hold clamped to [base/2, base*2]."""
+    if base_min_hold <= 0:
+        return 0
+    if entry_atr <= 0 or current_atr <= 0:
+        return base_min_hold
+
+    vol_ratio = current_atr / entry_atr
+    scaled = int(base_min_hold * vol_ratio)
+    return max(base_min_hold // 2, min(scaled, base_min_hold * 2))
+
+# Crypto intraday trade lifecycle (matched to crypto_intraday_model.py)
+CRYPTO_INTRADAY_MIN_HOLD_BARS = 12    # 1 hour — 1 full prediction horizon (FORWARD_BARS)
+CRYPTO_INTRADAY_MAX_HOLD_BARS = 48    # 4 hours — match model MAX_HOLD_BARS
+CRYPTO_INTRADAY_SIGNAL_REVERSAL_COOLDOWN_BARS = 3  # 15-min cooldown on flip exits
+CRYPTO_INTRADAY_BAR_SECONDS = 300     # 5-min bars = 300 seconds
 
 
 # Per-group, per-tier exit configs (calibrated from MFE/MAE analysis, 4040 trades)
 # EV breakeven at ~-3% MAE; equity recovery 0% past -10%; crypto ~44% to -8%
 EXIT_PARAMS: Dict[str, Dict[VolTier, ExitParams]] = {
     "swing": {
+        # Daily-horizon XGBoost+TFT checked every 5 min: min_hold=36 bars (3h)
+        # prevents intraday noise from killing multi-day swing positions.
         VolTier.MEDIUM: ExitParams(
             disaster_stop_pct=0.04, profit_lock_arm_pct=0.02,
             profit_lock_trail_pct=0.015, breakeven_ratchet_pct=0.015,
             max_underwater_days=90, use_atr=True,
             disaster_atr_mult=3.0, arm_atr_mult=2.0, trail_atr_mult=1.5,
-            signal_flip_consecutive=2,
+            signal_flip_consecutive=2, min_hold_bars=36,
         ),
         VolTier.HIGH: ExitParams(
             disaster_stop_pct=0.07, profit_lock_arm_pct=0.04,
             profit_lock_trail_pct=0.025, breakeven_ratchet_pct=0.02,
             max_underwater_days=60, signal_flip_consecutive=2,
+            min_hold_bars=36,
         ),
         VolTier.ULTRA: ExitParams(
             disaster_stop_pct=0.06, profit_lock_arm_pct=0.03,
             profit_lock_trail_pct=0.015, breakeven_ratchet_pct=0.015,
             max_underwater_days=45, signal_flip_consecutive=2,
+            min_hold_bars=36,
         ),
     },
     "intraday": {
+        # 5-min bars, 1-day horizon: min_hold=6 bars (30 min) prevents
+        # noise exits in the first confirmation window after entry.
         VolTier.MEDIUM: ExitParams(
             disaster_stop_pct=0.03, profit_lock_arm_pct=0.008,
             profit_lock_trail_pct=0.004, breakeven_ratchet_pct=0.005,
             max_underwater_days=1, signal_flip_consecutive=1,
+            min_hold_bars=6,
         ),
         VolTier.HIGH: ExitParams(
             disaster_stop_pct=0.04, profit_lock_arm_pct=0.012,
             profit_lock_trail_pct=0.006, breakeven_ratchet_pct=0.007,
             max_underwater_days=1, signal_flip_consecutive=1,
+            min_hold_bars=6,
         ),
         VolTier.ULTRA: ExitParams(
             disaster_stop_pct=0.04, profit_lock_arm_pct=0.012,
             profit_lock_trail_pct=0.006, breakeven_ratchet_pct=0.007,
             max_underwater_days=1, signal_flip_consecutive=1,
+            min_hold_bars=6,
         ),
     },
     "crypto": {
+        # Daily-horizon model checked every 5 min: min_hold=36 bars (3h)
+        # prevents noise-driven exits. signal_flip_consecutive=3 requires
+        # 15 min of sustained disagreement before exiting.
         VolTier.MEDIUM: ExitParams(
             disaster_stop_pct=0.08, profit_lock_arm_pct=0.04,
             profit_lock_trail_pct=0.02, breakeven_ratchet_pct=0.02,
-            max_underwater_days=30, signal_flip_consecutive=2,
+            max_underwater_days=30, signal_flip_consecutive=3,
+            min_hold_bars=36,
         ),
         VolTier.HIGH: ExitParams(
             disaster_stop_pct=0.08, profit_lock_arm_pct=0.04,
             profit_lock_trail_pct=0.02, breakeven_ratchet_pct=0.02,
-            max_underwater_days=30, signal_flip_consecutive=2,
+            max_underwater_days=30, signal_flip_consecutive=3,
+            min_hold_bars=36,
         ),
         VolTier.ULTRA: ExitParams(
             disaster_stop_pct=0.08, profit_lock_arm_pct=0.04,
             profit_lock_trail_pct=0.02, breakeven_ratchet_pct=0.02,
-            max_underwater_days=30, signal_flip_consecutive=2,
+            max_underwater_days=30, signal_flip_consecutive=3,
+            min_hold_bars=36,
         ),
     },
     "crypto_intraday": {
+        # signal_flip_consecutive and min_hold_bars are unused for this group —
+        # crypto_intraday uses horizon-aware hold logic (CRYPTO_INTRADAY_*_BARS)
+        # in paper_trader.py instead of generic signal_decay.
         VolTier.MEDIUM: ExitParams(
             disaster_stop_pct=0.03, profit_lock_arm_pct=0.007,
             profit_lock_trail_pct=0.004, breakeven_ratchet_pct=0.005,
-            max_underwater_days=0, signal_flip_consecutive=1,
+            max_underwater_days=0,
         ),
         VolTier.HIGH: ExitParams(
             disaster_stop_pct=0.03, profit_lock_arm_pct=0.007,
             profit_lock_trail_pct=0.004, breakeven_ratchet_pct=0.005,
-            max_underwater_days=0, signal_flip_consecutive=1,
+            max_underwater_days=0,
         ),
         VolTier.ULTRA: ExitParams(
             disaster_stop_pct=0.03, profit_lock_arm_pct=0.007,
             profit_lock_trail_pct=0.004, breakeven_ratchet_pct=0.005,
-            max_underwater_days=0, signal_flip_consecutive=1,
+            max_underwater_days=0,
         ),
     },
 }

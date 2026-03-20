@@ -1,0 +1,2 @@
+{"timestamp": "2026-03-19T00:14:17.881368+00:00", "symbol": "LDO-USD", "predicted_return": 0.038101, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-19T00:14:30.062288+00:00", "symbol": "LDO-USD", "predicted_return": 0.038101, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Quantitative Stocks — Unified CLI
-====================================
+Quantitative Stocks - Unified CLI
+=================================
 Single entry point for all modules: signals, train, predict, backtest, trade.
 
 Usage:
@@ -14,9 +14,9 @@ Usage:
     python main.py report --open                      # generate + open in browser
 
 Environment variables:
-    FRED_API_KEY      – FRED API key for VIX data
-    ALPACA_API_KEY    – Alpaca API key (for alpaca/hybrid provider and paper trading)
-    ALPACA_API_SECRET – Alpaca API secret
+    FRED_API_KEY      - FRED API key for VIX data
+    ALPACA_API_KEY    - Alpaca API key (for alpaca/hybrid provider and paper trading)
+    ALPACA_API_SECRET - Alpaca API secret
 """
 
 import os
@@ -30,66 +30,56 @@ for _p in (SRC_DIR, PROJECT_ROOT):
         sys.path.insert(0, _p)
 
 
-def main() -> None:
-    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
-        print("""
-  Quantitative Stocks — Unified CLI
-  ====================================
+def _help_text() -> str:
+    return """
+  Quantitative Stocks - Unified CLI
+  =================================
 
   Usage:
     python main.py <command> [options]
 
   Commands:
-    signals          Run the ETF sentiment signal engine
-    train            Train LSTM model for a symbol
-    train-meta       Train Random Forest meta-model (requires trained primary LSTM)
-    predict          Run ML prediction for a symbol
-    backtest         Walk-forward backtest with ML predictions
-    trade            Start Alpaca paper trading loop (stocks)
-    report           Generate HTML dashboard (outputs/report.html)
-    train-intraday   Train LightGBM intraday momentum model (replaces LSTM for intraday group)
-    train-swing      Train TFT+XGBoost swing model
-    train-crypto     Train swing models for crypto (BTC, ETH, SOL) → models/crypto/
-    train-crypto-intraday  Train LightGBM intraday model for crypto → models/crypto_intraday/
-    training-tables Generate CSV/HTML tables of training & backtest metrics
-    backtest-portfolio Portfolio-level multi-symbol backtest with shared capital
-    divergence-report Compare backtest vs live paper-trading results; flag divergences
-    check-positions Check paper account positions; recommend and run legacy handling for existing positions
-    stop-paper-trader Stop the running paper trader for a group (e.g. intraday) so you can restart with different flags
-    select-symbols   Screen candidate symbols: train, backtest, classify (core/secondary/disabled), update config
-    train-selector   Train cross-sectional coin selector (Layer 1 of crypto pipeline)
-    rank-coins       Rank coins using trained selector and show today's top-K
-    screen-universe  Layer 0: discover tradeable coins from full market (CoinGecko × Kraken)
-    screen-etf-universe  Layer 0: discover tradeable ETFs from broad ETF market (yfinance)
-    select-features  IC-based feature selection pipeline (--asset-class equity_swing|crypto_swing)
-    batch-backtest   Batch train + OOS backtest ETF universe → promoted_symbols.json
-    lock-status      Show whether intraday (or other group) paper trader lock is present; tells you if it's safe to start
-    weekly-pipeline  Run weekly crypto maintenance: screen → train selector → train models → select symbols → health check
+    signals             Run the ETF sentiment signal engine
+    train               Train LSTM model for a symbol
+    train-meta          Train Random Forest meta-model
+    predict             Run ML prediction for a symbol
+    backtest            Walk-forward backtest with ML predictions
+    trade               Start the paper trading loop
+    report              Generate the HTML dashboard
+    train-intraday      Train the intraday ETF model
+    train-swing         Train the swing ETF model
+    train-crypto        Train swing models for crypto -> models/crypto/
+    train-crypto-intraday Train intraday models for crypto -> models/crypto_intraday/
+    training-tables     Generate training and backtest tables
+    backtest-portfolio  Portfolio-level multi-symbol backtest
+    divergence-report   Compare backtest vs live paper trading
+    check-positions     Check paper account positions
+    stop-paper-trader   Stop a running paper trader group
+    select-symbols      Screen candidate symbols and update config
+    train-selector      Train the cross-sectional coin selector
+    rank-coins          Rank coins using the trained selector
+    screen-universe     Discover tradeable coins from the full market
+    screen-etf-universe Discover tradeable ETFs from the broad market
+    select-features     IC-based feature selection pipeline
+    batch-backtest      Batch train + OOS backtest ETF universe
+    lock-status         Show whether a group paper trader lock is present
+    weekly-pipeline     Run the weekly crypto maintenance pipeline
+    paused-models       Show persisted paused models
+    unpause             Clear a persisted paused-model state
 
   Examples:
-    python main.py signals              --provider yahoo --ml
-    python main.py train                --symbol SPY --epochs 50
-    python main.py train                --symbol SPY --mode intraday --interval 5min
-    python main.py train-meta           --symbol SPY
-    python main.py train-meta           --symbol ALL
-    python main.py predict              --symbol SPY
-    python main.py backtest             --symbol SPY --start 2024-01-01
-    python main.py backtest             --symbol SPY --start 2025-01-01 --mode intraday
-    python main.py trade                --confidence 0.01 --trailing-stop 0.05
-    python main.py trade                --group swing
-    python main.py trade                --group intraday
-    python main.py trade                --mode intraday --interval 5min
-    python main.py report
-    python main.py report               --open
-    python main.py training-tables      # outputs/training_results_*.csv and .html
-    python main.py train-intraday       --symbols SPY,QQQ,IWM,SOXX --provider alpaca
-    python main.py train-swing          --symbols EWT,GLD,EEM,SLV --provider yahoo
-    python main.py train-crypto                                    # BTC, ETH, SOL → models/crypto/
+    python main.py trade --group swing
+    python main.py train-swing --symbols EWT,GLD,EEM,SLV --provider yahoo
+    python main.py train-crypto
     python main.py backtest-portfolio --group swing --start 2024-01-01
-    python main.py backtest-portfolio --symbols SPY,QQQ,IWM --start 2024-01-01 --stress-cost-mult 2.0
 
   Run `python main.py <command> --help` for command-specific options.
-""")
+"""
+
+
+def main() -> None:
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        print(_help_text())
         sys.exit(0)
 
     command = sys.argv[1]
@@ -233,6 +223,37 @@ def main() -> None:
         monitor = ModelMonitor()
         print(monitor.generate_report())
 
+    elif command == "paused-models":
+        from model_monitor import ModelMonitor
+        monitor = ModelMonitor()
+        paused = monitor.get_paused_models()
+        if not paused:
+            print("\n  No paused models.\n")
+        else:
+            print("\n  Paused Models\n  " + "=" * 40)
+            for sym, health in sorted(paused.items()):
+                reason = health.warning_reason or "paused"
+                paused_at = health.paused_at or "unknown"
+                print(f"  {sym:>12} | paused_at={paused_at} | {reason}")
+            print()
+
+    elif command in ("unpause", "clear-model-pause"):
+        from model_monitor import ModelMonitor
+        import argparse
+
+        parser = argparse.ArgumentParser(description="Clear a persisted paused-model state.")
+        parser.add_argument("--symbol", required=True, help="Symbol to clear, e.g. SPY or BTC/USD")
+        parser.add_argument(
+            "--reason",
+            default="manual_clear",
+            help="Reason recorded in logs (default: manual_clear)",
+        )
+        args = parser.parse_args()
+
+        monitor = ModelMonitor()
+        monitor.clear_model_pause(args.symbol, reason=args.reason)
+        print(f"\n  Cleared paused state for {args.symbol} ({args.reason}).\n")
+
     elif command == "screen-etf-universe":
         # Layer 0: discover tradeable ETFs from the broad market
         from etf_screener import main as etf_screener_main
@@ -254,7 +275,7 @@ def main() -> None:
 
     elif command == "validate-risk":
         from risk_config import get_risk_config
-        for group in ("intraday", "swing", "crypto"):
+        for group in ("intraday", "swing", "crypto", "crypto_intraday"):
             risk = get_risk_config(group)
             print(f"\n  {group.upper()} risk config:")
             print(f"    position_pct:       {risk.position_pct:.0%}")
@@ -263,6 +284,8 @@ def main() -> None:
             print(f"    max_total_exposure: {risk.max_total_exposure:.0%}")
             print(f"    max_positions:      {risk.max_positions}")
             print(f"    kelly_cap:          {risk.kelly_cap:.0%}")
+            print(f"    cross_group_disc:   {risk.cross_group_kelly_discount:.2f}")
+            print(f"    effective_kelly:    {risk.kelly_cap * risk.cross_group_kelly_discount:.1%}")
 
     else:
         print(f"\n  Unknown command: {command!r}")
@@ -270,7 +293,8 @@ def main() -> None:
         print("                      predict, backtest, backtest-portfolio, trade, report, training-tables,")
         print("                      divergence-report, select-symbols, check-positions, stop-paper-trader,")
         print("                      lock-status, model-health, validate-risk, train-selector, rank-coins,")
-        print("                      screen-universe, screen-etf-universe, select-features, batch-backtest, weekly-pipeline")
+        print("                      screen-universe, screen-etf-universe, select-features, batch-backtest, weekly-pipeline,")
+        print("                      paused-models, unpause")
         print("  Run `python main.py --help` for usage.\n")
         sys.exit(1)
 

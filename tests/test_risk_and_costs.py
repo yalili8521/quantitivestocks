@@ -5,11 +5,15 @@ Run: .venv/Scripts/python.exe -m pytest tests/test_risk_and_costs.py -v
 """
 import sys
 import os
+import json
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import numpy as np
+import pandas as pd
 import pytest
 import warnings
+import shutil
+import uuid
 
 
 # ===================================================================
@@ -52,6 +56,68 @@ class TestRiskConfig:
         with pytest.raises(ValueError, match="cannot be used"):
             validate_model_mode("lgb_intraday", "daily")
 
+    def test_validate_model_mode_crypto_intraday_ok(self):
+        from risk_config import validate_model_mode
+        validate_model_mode("lgb_intraday_crypto", "intraday")
+
+    def test_validate_model_mode_crypto_intraday_daily_fails(self):
+        from risk_config import validate_model_mode
+        with pytest.raises(ValueError, match="cannot be used"):
+            validate_model_mode("lgb_intraday_crypto", "daily")
+
+    def test_get_risk_config_applies_config_overrides(self):
+        from risk_config import get_risk_config
+
+        temp_root = os.path.join(os.getcwd(), "outputs")
+        os.makedirs(temp_root, exist_ok=True)
+        temp_dir = os.path.join(temp_root, f"riskcfg_{uuid.uuid4().hex}")
+        os.makedirs(temp_dir, exist_ok=True)
+        cfg_path = os.path.join(temp_dir, "trading.json")
+        try:
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "swing": {
+                        "mode": "daily",
+                        "horizon": "10d",
+                        "allowed_models": ["lstm", "xgb_swing", "tft_swing"],
+                        "position_pct": 0.41,
+                        "max_positions": 7,
+                        "kelly_cap": 0.22,
+                        "cross_group_kelly_discount": 0.45,
+                    }
+                }, f)
+
+            cfg = get_risk_config("swing", config_path=cfg_path)
+            assert cfg.position_pct == 0.41
+            assert cfg.max_positions == 7
+            assert cfg.kelly_cap == 0.22
+            assert cfg.cross_group_kelly_discount == 0.45
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_get_risk_config_rejects_mode_mismatch(self):
+        from risk_config import get_risk_config
+
+        temp_root = os.path.join(os.getcwd(), "outputs")
+        os.makedirs(temp_root, exist_ok=True)
+        temp_dir = os.path.join(temp_root, f"riskcfg_{uuid.uuid4().hex}")
+        os.makedirs(temp_dir, exist_ok=True)
+        cfg_path = os.path.join(temp_dir, "trading.json")
+        try:
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "swing": {
+                        "mode": "intraday",
+                        "horizon": "10d",
+                        "allowed_models": ["lstm", "xgb_swing", "tft_swing"],
+                    }
+                }, f)
+
+            with pytest.raises(ValueError, match="mode="):
+                get_risk_config("swing", config_path=cfg_path)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_check_position_allowed_passes(self):
         from risk_config import check_position_allowed, SWING_RISK
         positions = {}
@@ -91,6 +157,18 @@ class TestRiskConfig:
         ok, reason = check_position_allowed("NEW", 1_000, 100_000, positions, INTRADAY_RISK)
         assert not ok
         assert "max positions" in reason
+
+    def test_effective_min_hold_defaults_to_base_without_atr(self):
+        from risk_config import get_effective_min_hold
+
+        assert get_effective_min_hold(12, 0.0, 1.0) == 12
+        assert get_effective_min_hold(12, 1.0, 0.0) == 12
+
+    def test_effective_min_hold_scales_and_clamps(self):
+        from risk_config import get_effective_min_hold
+
+        assert get_effective_min_hold(12, 2.0, 4.0) == 24
+        assert get_effective_min_hold(12, 4.0, 1.0) == 6
 
     def test_btc_beta_cap(self):
         from risk_config import check_position_allowed, compute_btc_beta_exposure, CRYPTO_RISK
@@ -237,19 +315,26 @@ class TestModelMonitor:
         assert health.rolling_hit_rate > 0.4  # should be decent with correlated pred/real
         assert health.symbol == "SPY"
 
-    def test_should_pause_on_bad_model(self, tmp_path):
+    def test_should_pause_on_bad_model(self):
         from model_monitor import ModelMonitor
-        monitor = ModelMonitor(output_dir=str(tmp_path), window=50)
+        temp_root = os.path.join(os.getcwd(), "outputs")
+        os.makedirs(temp_root, exist_ok=True)
+        temp_dir = os.path.join(temp_root, f"monitor_test_{uuid.uuid4().hex}")
+        os.makedirs(temp_dir, exist_ok=True)
+        try:
+            monitor = ModelMonitor(output_dir=temp_dir, window=50)
 
-        # Record terrible predictions (always wrong direction)
-        for i in range(35):
-            monitor.record_prediction("BAD", 0.01, model_type="lstm")
-            monitor.record_realized("BAD", -0.02)  # always opposite
+            # Record terrible predictions (always wrong direction)
+            for i in range(35):
+                monitor.record_prediction("BAD", 0.01, model_type="lstm")
+                monitor.record_realized("BAD", -0.02)  # always opposite
 
-        health = monitor.compute_health("BAD")
-        should_pause, reason = monitor.should_pause_model("BAD")
-        assert should_pause
-        assert "hit_rate" in reason or "IC" in reason
+            health = monitor.compute_health("BAD")
+            should_pause, reason = monitor.should_pause_model("BAD")
+            assert should_pause
+            assert "hit_rate" in reason or "IC" in reason
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test_constant_inputs_keep_ic_zero_without_warnings(self, tmp_path):
         from model_monitor import ModelMonitor
@@ -265,4 +350,352 @@ class TestModelMonitor:
 
         assert health.rolling_ic == 0.0
         assert not any("ConstantInputWarning" in str(w.category.__name__) for w in caught)
+
+    def test_pause_persists_across_restart_until_cleared(self):
+        from model_monitor import ModelMonitor, ModelHealth
+
+        temp_root = os.path.join(os.getcwd(), "outputs")
+        os.makedirs(temp_root, exist_ok=True)
+        temp_dir = os.path.join(temp_root, f"monitor_test_{uuid.uuid4().hex}")
+        os.makedirs(temp_dir, exist_ok=True)
+        try:
+            monitor = ModelMonitor(output_dir=temp_dir, window=50)
+            monitor._health["PAUSED"] = ModelHealth(
+                symbol="PAUSED",
+                model_type="lstm",
+                status="paused",
+                warning_reason="IC=-0.200 < -0.10",
+            )
+            monitor._save_state()
+
+            reloaded = ModelMonitor(output_dir=temp_dir, window=50)
+            should_pause, reason = reloaded.should_pause_model("PAUSED")
+            assert should_pause
+            assert "IC=" in reason
+
+            health = reloaded.compute_health("PAUSED")
+            assert health.status == "paused"
+            assert os.path.exists(os.path.join(temp_dir, "paused_models.json"))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_clear_model_pause_after_retrain(self):
+        from model_monitor import ModelMonitor, ModelHealth
+
+        temp_root = os.path.join(os.getcwd(), "outputs")
+        os.makedirs(temp_root, exist_ok=True)
+        temp_dir = os.path.join(temp_root, f"monitor_test_{uuid.uuid4().hex}")
+        os.makedirs(temp_dir, exist_ok=True)
+        try:
+            monitor = ModelMonitor(output_dir=temp_dir, window=50)
+            monitor._health["SPY"] = ModelHealth(
+                symbol="SPY",
+                model_type="tft_xgb_swing",
+                status="paused",
+                warning_reason="IC=-0.150 < -0.10",
+            )
+            monitor._save_state()
+
+            reloaded = ModelMonitor(output_dir=temp_dir, window=50)
+            reloaded.clear_model_pause("SPY", reason="retrained_swing_model")
+
+            should_pause, reason = reloaded.should_pause_model("SPY")
+            assert not should_pause
+            assert reason == "ok"
+            assert reloaded.get_all_health()["SPY"].status == "ok"
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_hit_rate_below_45_pauses_model(self):
+        from model_monitor import ModelMonitor
+
+        temp_root = os.path.join(os.getcwd(), "outputs")
+        os.makedirs(temp_root, exist_ok=True)
+        temp_dir = os.path.join(temp_root, f"monitor_test_{uuid.uuid4().hex}")
+        os.makedirs(temp_dir, exist_ok=True)
+        try:
+            monitor = ModelMonitor(output_dir=temp_dir, window=50)
+            for i in range(40):
+                pred = 0.01
+                realized = 0.02 if i < 16 else -0.02  # 40% hit rate
+                monitor.record_prediction("WEAK", pred, model_type="xgb_swing")
+                monitor.record_realized("WEAK", realized)
+
+            health = monitor.compute_health("WEAK")
+            assert health.rolling_hit_rate < 0.45
+            assert health.status == "paused"
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+class TestEntrySemantics:
+    def test_backtester_open_position_supports_short_without_trend_gate(self):
+        from backtester import Backtester, Portfolio
+
+        bt = Backtester(
+            symbol="SPY",
+            adapter=None,
+            mode="daily",
+            model_type="swing",
+            position_pct=0.5,
+            use_cost_model=False,
+        )
+        portfolio = Portfolio(initial_capital=100_000.0, cash=100_000.0)
+
+        opened = bt._open_position(
+            portfolio,
+            date="2025-01-02",
+            price=100.0,
+            direction="SHORT",
+            expected_return=-0.03,
+            bar_atr=1.0,
+        )
+
+        assert opened
+        assert portfolio.position is not None
+        assert portfolio.position.direction == "SHORT"
+
+    def test_backtester_close_position_records_derisk_return(self):
+        from backtester import Backtester, Portfolio, Trade
+
+        bt = Backtester(
+            symbol="SPY",
+            adapter=None,
+            mode="daily",
+            model_type="swing",
+            position_pct=0.5,
+            use_cost_model=False,
+        )
+        portfolio = Portfolio(initial_capital=100_000.0, cash=50_000.0)
+        portfolio.position = Trade(
+            entry_date="2025-01-02",
+            entry_price=100.0,
+            direction="LONG",
+            size=100.0,
+        )
+
+        bt._close_position(portfolio, date="2025-01-03", price=105.0, reason="test")
+
+        assert bt._derisk_state.returns
+        assert bt._derisk_state.returns[-1] > 0
+
+    def test_backtester_same_direction_reentry_can_be_blocked_after_disaster_stop(self):
+        from backtester import Backtester, Portfolio
+
+        bt = Backtester(
+            symbol="SPY",
+            adapter=None,
+            mode="daily",
+            model_type="swing",
+            position_pct=0.5,
+            use_cost_model=False,
+            cost_threshold=0.01,
+        )
+        bt._max_loss_exit = {"time": "2025-01-02", "direction": "LONG"}
+        portfolio = Portfolio(initial_capital=100_000.0, cash=100_000.0)
+
+        opened = bt._open_position(
+            portfolio,
+            date="2025-01-02 12:00:00",
+            price=100.0,
+            direction="LONG",
+            expected_return=0.012,
+            bar_atr=1.0,
+        )
+
+        assert not opened
+
+
+class TestPortfolioBacktesterParity:
+    def test_crypto_group_uses_btc_calendar(self):
+        from portfolio_backtester import PortfolioBacktester
+
+        bt = PortfolioBacktester(
+            symbols=["BTC/USD", "ETH/USD"],
+            adapter=None,
+            group="crypto",
+            model_type="swing",
+        )
+
+        assert bt._calendar_symbol() == "BTC-USD"
+
+    def test_etf_group_uses_spy_calendar(self):
+        from portfolio_backtester import PortfolioBacktester
+
+        bt = PortfolioBacktester(
+            symbols=["SMH", "QQQ"],
+            adapter=None,
+            group="swing",
+            model_type="swing",
+        )
+
+        assert bt._calendar_symbol() == "SPY"
+
+    def test_crypto_group_ignores_spy_vix_regime_scaling(self):
+        from portfolio_backtester import PortfolioBacktester
+
+        bt = PortfolioBacktester(
+            symbols=["BTC/USD", "ETH/USD"],
+            adapter=None,
+            group="crypto",
+            model_type="swing",
+        )
+
+        scalar = bt._regime_scalar(
+            day="2026-03-18",
+            spy_date_map={"2026-03-18": 500.0},
+            spy_sma200_map={"2026-03-18": 550.0},
+            vix_map={"2026-03-18": 40.0},
+        )
+
+        assert scalar == 1.0
+
+    def test_swing_group_uses_soft_regime_scaling(self):
+        from portfolio_backtester import PortfolioBacktester
+
+        bt = PortfolioBacktester(
+            symbols=["SMH", "QQQ"],
+            adapter=None,
+            group="swing",
+            model_type="swing",
+        )
+
+        scalar = bt._regime_scalar(
+            day="2026-03-18",
+            spy_date_map={"2026-03-18": 500.0},
+            spy_sma200_map={"2026-03-18": 550.0},
+            vix_map={"2026-03-18": 40.0},
+        )
+
+        assert scalar == 0.5
+
+    def test_portfolio_backtester_classifies_exit_params_from_bars(self):
+        from portfolio_backtester import PortfolioBacktester
+
+        bt = PortfolioBacktester(
+            symbols=["SMH", "QQQ"],
+            adapter=None,
+            group="swing",
+            model_type="swing",
+        )
+        bars = pd.DataFrame({
+            "high": np.linspace(101.0, 130.0, 40),
+            "low": np.linspace(99.0, 128.0, 40),
+            "close": np.linspace(100.0, 129.0, 40),
+        })
+
+        ep = bt._classify_exit_params(bars)
+
+        assert ep.min_hold_bars > 0
+        assert ep.signal_flip_consecutive >= 1
+
+    def test_portfolio_backtester_btc_correlation_keeps_anchors_unpenalized(self):
+        from portfolio_backtester import PortfolioBacktester
+
+        bt = PortfolioBacktester(
+            symbols=["BTC/USD", "ETH/USD", "AVAX/USD"],
+            adapter=None,
+            group="crypto",
+            model_type="swing",
+        )
+        btc = pd.DataFrame({"close": np.linspace(100, 140, 40)})
+        eth = pd.DataFrame({"close": np.linspace(200, 260, 40)})
+        avax = pd.DataFrame({"close": np.linspace(50, 70, 40)})
+
+        corr = bt._compute_btc_correlations({
+            "BTC/USD": btc,
+            "ETH/USD": eth,
+            "AVAX/USD": avax,
+        })
+
+        assert corr["BTC/USD"] == 0.0
+        assert corr["ETH/USD"] == 0.0
+        assert 0.0 <= corr["AVAX/USD"] <= 1.0
+
+    def test_portfolio_backtester_rank_scalar_increases_with_score(self):
+        from portfolio_backtester import PortfolioBacktester
+
+        bt = PortfolioBacktester(
+            symbols=["SMH", "QQQ", "GLD"],
+            adapter=None,
+            group="swing",
+            model_type="swing",
+        )
+
+        low = bt._rank_scalar_from_scores("GLD", {"SMH": 0.9, "QQQ": 0.6, "GLD": 0.3})
+        high = bt._rank_scalar_from_scores("SMH", {"SMH": 0.9, "QQQ": 0.6, "GLD": 0.3})
+
+        assert 0.5 <= low < high <= 1.0
+
+    def test_portfolio_backtester_crypto_composite_penalizes_btc_correlation(self):
+        from portfolio_backtester import PortfolioBacktester
+
+        bt = PortfolioBacktester(
+            symbols=["BTC/USD", "ETH/USD", "AVAX/USD"],
+            adapter=None,
+            group="crypto",
+            model_type="swing",
+        )
+
+        composite = bt._compute_composite_scores(
+            [("BTC-USD", 0.9), ("ETH-USD", 0.8), ("AVAX-USD", 0.7)],
+            {"BTC-USD": 0.5, "ETH-USD": 0.6, "AVAX-USD": 0.6},
+            {
+                "BTC-USD": {"win_rate": 0.55},
+                "ETH-USD": {"win_rate": 0.60},
+                "AVAX-USD": {"win_rate": 0.60},
+            },
+            btc_correlations={"BTC-USD": 0.0, "ETH-USD": 0.0, "AVAX-USD": 0.9},
+        )
+
+        assert composite["AVAX-USD"] < composite["ETH-USD"]
+
+    def test_portfolio_backtester_derisk_state_produces_half_kelly(self):
+        from portfolio_backtester import PortfolioBacktester
+        from risk_config import DeRiskState
+
+        bt = PortfolioBacktester(
+            symbols=["SMH", "QQQ"],
+            adapter=None,
+            group="swing",
+            model_type="swing",
+        )
+        state = DeRiskState()
+        for _ in range(25):
+            state.record_trade(0.03)
+        for _ in range(10):
+            state.record_trade(-0.01)
+
+        bt._derisk_states["SMH"] = state
+        kelly = bt._derisk_states["SMH"].half_kelly(
+            window=bt.risk.kelly_window,
+            min_trades=bt.risk.kelly_min_trades,
+        )
+
+        assert kelly is not None
+        assert kelly > 0
+
+    def test_portfolio_backtester_tracks_disaster_stop_for_reentry_controls(self):
+        from portfolio_backtester import PortfolioBacktester, PortfolioState, PortfolioTrade
+
+        bt = PortfolioBacktester(
+            symbols=["SMH", "QQQ"],
+            adapter=None,
+            group="swing",
+            model_type="swing",
+        )
+        portfolio = PortfolioState(initial_capital=100_000.0, cash=90_000.0)
+        portfolio.positions["SMH"] = PortfolioTrade(
+            symbol="SMH",
+            entry_date=pd.Timestamp("2025-01-02"),
+            entry_price=100.0,
+            direction="LONG",
+            size=10.0,
+            peak_price=100.0,
+        )
+
+        bt._close_position(portfolio, "SMH", pd.Timestamp("2025-01-03"), 95.0, "disaster_stop")
+
+        assert "SMH" in bt._max_loss_exits
+        assert bt._max_loss_exits["SMH"]["direction"] == "LONG"
 

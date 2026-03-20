@@ -1,0 +1,2 @@
+{"timestamp": "2026-03-19T00:12:52.568004+00:00", "symbol": "FIL-USD", "predicted_return": 0.049452, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-19T00:13:04.817530+00:00", "symbol": "FIL-USD", "predicted_return": 0.049452, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}

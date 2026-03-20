@@ -1,0 +1,2 @@
+{"timestamp": "2026-03-19T00:15:25.503737+00:00", "symbol": "FET-USD", "predicted_return": 0.029642, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-19T00:15:37.326900+00:00", "symbol": "FET-USD", "predicted_return": 0.029642, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}

@@ -1,0 +1,22 @@
+{
+  "symbol": "CRV-USD",
+  "mode": "daily",
+  "intraday_interval": "5min",
+  "start_date": "2024-03-01",
+  "end_date": "2026-03-17",
+  "initial_capital": 100000.0,
+  "final_equity": 142081.17,
+  "total_return_pct": 42.08,
+  "annualized_return_pct": 12.58,
+  "sharpe_ratio": 1.546,
+  "max_drawdown_pct": -4.4,
+  "total_trades": 80,
+  "win_rate": 0.637,
+  "avg_win_pct": 10.27,
+  "avg_loss_pct": -7.63,
+  "profit_factor": 2.307,
+  "avg_trade_duration_days": 3.9,
+  "vol_tier": "high",
+  "exit_variant": "A",
+  "bt_group": "crypto"
+}

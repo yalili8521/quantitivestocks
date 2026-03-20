@@ -2,7 +2,9 @@
 Model monitoring: rolling IC, hit rate, realized vs predicted tracking,
 backtest-vs-live divergence, and auto-pause thresholds.
 
-Persists metrics to JSON files in outputs/monitoring/ for cross-session tracking.
+Health metrics persist under outputs/monitoring/. The paused-model registry is
+stored separately so paused state survives restarts and can be inspected or
+cleared independently.
 """
 from __future__ import annotations
 
@@ -11,7 +13,7 @@ import logging
 import os
 from collections import deque
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -45,6 +47,7 @@ class ModelHealth:
     n_predictions: int = 0
     n_trades: int = 0
     last_updated: str = ""
+    paused_at: str = ""
     status: str = "ok"                     # ok, warning, paused
     warning_reason: str = ""
 
@@ -55,19 +58,28 @@ class ModelHealth:
 
 IC_WARNING_THRESHOLD = 0.0       # IC below this → warning
 IC_PAUSE_THRESHOLD = -0.10       # IC below this → recommend pause
-HIT_RATE_WARNING = 0.45          # hit rate below this → warning
-HIT_RATE_PAUSE = 0.35            # hit rate below this → recommend pause
+HIT_RATE_WARNING = 0.50          # hit rate below this → warning
+HIT_RATE_PAUSE = 0.45            # hit rate below this → recommend pause
 CALIBRATION_WARNING = 2.0        # |pred/realized| ratio above this → warning
 MIN_SAMPLES_FOR_ALERT = 30       # need at least this many samples
+STALE_PAUSE_DAYS = 30
 
 
 class ModelMonitor:
     """Track and persist per-symbol model health metrics."""
 
     def __init__(self, output_dir: Optional[str] = None, window: int = 100):
+        from signals_engine import PROJECT_ROOT
+        default_output_dir = os.path.join(PROJECT_ROOT, "outputs", "monitoring")
+        legacy_output_dir = os.path.join(PROJECT_ROOT, "outputs", "monitor")
+        self._uses_default_output_dir = output_dir is None or (
+            output_dir is not None and os.path.abspath(output_dir) in {
+                os.path.abspath(default_output_dir),
+                os.path.abspath(legacy_output_dir),
+            }
+        )
         if output_dir is None:
-            from signals_engine import PROJECT_ROOT
-            output_dir = os.path.join(PROJECT_ROOT, "outputs", "monitoring")
+            output_dir = default_output_dir
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
         self.window = window
@@ -83,6 +95,15 @@ class ModelMonitor:
     def _predictions_path(self, symbol: str) -> str:
         return os.path.join(self.output_dir, f"predictions_{symbol}.jsonl")
 
+    def _paused_state_path(self) -> str:
+        if self._uses_default_output_dir:
+            from signals_engine import PROJECT_ROOT
+            return os.path.join(PROJECT_ROOT, "models", "paused_models.json")
+        return os.path.join(self.output_dir, "paused_models.json")
+
+    def _normalize_symbol(self, symbol: str) -> str:
+        return symbol.replace("/", "-")
+
     def _load_state(self) -> None:
         """Load persisted health metrics."""
         path = self._state_path()
@@ -94,6 +115,24 @@ class ModelMonitor:
                     self._health[sym] = ModelHealth(**h)
             except Exception as exc:
                 log.warning("Failed to load model health: %s", exc)
+        paused_path = self._paused_state_path()
+        if os.path.isfile(paused_path):
+            try:
+                with open(paused_path, encoding="utf-8") as f:
+                    data = json.load(f)
+                for sym, h in data.items():
+                    current = self._health.get(sym)
+                    paused = ModelHealth(**h)
+                    if current is None:
+                        self._health[sym] = paused
+                    else:
+                        current.status = "paused"
+                        current.warning_reason = paused.warning_reason
+                        current.paused_at = paused.paused_at or current.paused_at
+                        current.last_updated = paused.last_updated or current.last_updated
+                        current.model_type = paused.model_type or current.model_type
+            except Exception as exc:
+                log.warning("Failed to load paused model registry: %s", exc)
 
     def _save_state(self) -> None:
         """Persist health metrics."""
@@ -103,6 +142,18 @@ class ModelMonitor:
                 json.dump(data, f, indent=2)
         except Exception as exc:
             log.warning("Failed to save model health: %s", exc)
+        try:
+            paused = {
+                sym: asdict(h)
+                for sym, h in self._health.items()
+                if h.status == "paused"
+            }
+            paused_path = self._paused_state_path()
+            os.makedirs(os.path.dirname(paused_path), exist_ok=True)
+            with open(paused_path, "w", encoding="utf-8") as f:
+                json.dump(paused, f, indent=2)
+        except Exception as exc:
+            log.warning("Failed to save paused model registry: %s", exc)
 
     def record_prediction(
         self,
@@ -113,6 +164,7 @@ class ModelMonitor:
         spread_at_trade: Optional[float] = None,
     ) -> None:
         """Record a new prediction (realized return filled in later)."""
+        symbol = self._normalize_symbol(symbol)
         if symbol not in self._buffers:
             self._buffers[symbol] = deque(maxlen=self.window)
 
@@ -140,6 +192,7 @@ class ModelMonitor:
         slippage: Optional[float] = None,
     ) -> None:
         """Fill in the realized return for the most recent unfilled prediction."""
+        symbol = self._normalize_symbol(symbol)
         buf = self._buffers.get(symbol)
         if not buf:
             return
@@ -152,12 +205,14 @@ class ModelMonitor:
 
     def compute_health(self, symbol: str) -> ModelHealth:
         """Compute rolling health metrics for a symbol."""
+        symbol = self._normalize_symbol(symbol)
         buf = self._buffers.get(symbol, deque())
+        prior = self._health.get(symbol)
         # Only use records with realized returns
         filled = [r for r in buf if r.realized_return is not None]
         n = len(filled)
 
-        model_type = filled[-1].model_type if filled else "unknown"
+        model_type = filled[-1].model_type if filled else (prior.model_type if prior else "unknown")
         health = ModelHealth(
             symbol=symbol,
             model_type=model_type,
@@ -166,8 +221,14 @@ class ModelMonitor:
             last_updated=datetime.now(timezone.utc).isoformat(),
         )
 
+        if prior is not None and prior.status == "paused":
+            health.status = "paused"
+            health.warning_reason = prior.warning_reason
+            health.paused_at = prior.paused_at
+
         if n < 5:
             self._health[symbol] = health
+            self._save_state()
             return health
 
         preds = np.array([r.predicted_return for r in filled])
@@ -200,30 +261,34 @@ class ModelMonitor:
                 health.rolling_mean_pred / health.rolling_mean_realized
             )
 
-        # Status assessment
-        if n >= MIN_SAMPLES_FOR_ALERT:
+        # Status assessment. Once paused, stay paused until explicit clear-on-retrain.
+        if prior is None or prior.status != "paused":
             warnings = []
-            if health.rolling_ic < IC_PAUSE_THRESHOLD:
-                health.status = "paused"
-                warnings.append(f"IC={health.rolling_ic:.3f} < {IC_PAUSE_THRESHOLD}")
-            elif health.rolling_ic < IC_WARNING_THRESHOLD:
-                health.status = "warning"
-                warnings.append(f"IC={health.rolling_ic:.3f} < {IC_WARNING_THRESHOLD}")
-
-            if health.rolling_hit_rate < HIT_RATE_PAUSE:
-                health.status = "paused"
-                warnings.append(f"hit_rate={health.rolling_hit_rate:.1%} < {HIT_RATE_PAUSE:.0%}")
-            elif health.rolling_hit_rate < HIT_RATE_WARNING:
-                if health.status != "paused":
+            if n >= MIN_SAMPLES_FOR_ALERT:
+                if health.rolling_ic < IC_PAUSE_THRESHOLD:
+                    health.status = "paused"
+                    health.paused_at = health.last_updated
+                    warnings.append(f"IC={health.rolling_ic:.3f} < {IC_PAUSE_THRESHOLD}")
+                elif health.rolling_ic < IC_WARNING_THRESHOLD:
                     health.status = "warning"
-                warnings.append(f"hit_rate={health.rolling_hit_rate:.1%} < {HIT_RATE_WARNING:.0%}")
+                    warnings.append(f"IC={health.rolling_ic:.3f} < {IC_WARNING_THRESHOLD}")
 
-            if abs(health.pred_realized_ratio) > CALIBRATION_WARNING:
-                if health.status != "paused":
-                    health.status = "warning"
-                warnings.append(f"calibration_ratio={health.pred_realized_ratio:.2f}")
+                if health.rolling_hit_rate < HIT_RATE_PAUSE:
+                    health.status = "paused"
+                    if not health.paused_at:
+                        health.paused_at = health.last_updated
+                    warnings.append(f"hit_rate={health.rolling_hit_rate:.1%} < {HIT_RATE_PAUSE:.0%}")
+                elif health.rolling_hit_rate < HIT_RATE_WARNING:
+                    if health.status != "paused":
+                        health.status = "warning"
+                    warnings.append(f"hit_rate={health.rolling_hit_rate:.1%} < {HIT_RATE_WARNING:.0%}")
 
-            health.warning_reason = "; ".join(warnings)
+                if abs(health.pred_realized_ratio) > CALIBRATION_WARNING:
+                    if health.status != "paused":
+                        health.status = "warning"
+                    warnings.append(f"calibration_ratio={health.pred_realized_ratio:.2f}")
+
+                health.warning_reason = "; ".join(warnings)
 
         self._health[symbol] = health
         self._save_state()
@@ -234,6 +299,7 @@ class ModelMonitor:
 
         Returns (should_pause: bool, reason: str).
         """
+        symbol = self._normalize_symbol(symbol)
         health = self._health.get(symbol)
         if health is None:
             return False, "no health data"
@@ -246,12 +312,66 @@ class ModelMonitor:
 
         Returns (should_retrain: bool, reason: str).
         """
+        symbol = self._normalize_symbol(symbol)
         health = self._health.get(symbol)
         if health is None:
             return False, "no health data"
         if health.status in ("paused", "warning"):
             return True, health.warning_reason
         return False, "ok"
+
+    def clear_model_pause(self, symbol: str, reason: str = "cleared_after_retrain") -> None:
+        """Clear a persisted pause for a symbol after intentional retraining."""
+        symbol = self._normalize_symbol(symbol)
+        health = self._health.get(symbol)
+        if health is None:
+            health = ModelHealth(
+                symbol=symbol,
+                model_type="unknown",
+                last_updated=datetime.now(timezone.utc).isoformat(),
+            )
+        health.status = "ok"
+        health.warning_reason = ""
+        health.paused_at = ""
+        health.last_updated = datetime.now(timezone.utc).isoformat()
+        self._health[symbol] = health
+        log.info("Cleared paused state for %s (%s)", symbol, reason)
+        self._save_state()
+
+    def get_paused_models(self) -> Dict[str, ModelHealth]:
+        """Return paused models only."""
+        return {
+            sym: health for sym, health in self._health.items()
+            if health.status == "paused"
+        }
+
+    def log_pause_summary(self, stale_days: int = STALE_PAUSE_DAYS) -> None:
+        """Log the full paused-model state at startup and warn on stale pauses."""
+        paused = self.get_paused_models()
+        if not paused:
+            log.info("Paused models at startup: none")
+            return
+
+        log.info("Paused models at startup (%d):", len(paused))
+        now = datetime.now(timezone.utc)
+        for sym, health in sorted(paused.items()):
+            reason = health.warning_reason or "paused"
+            paused_at = health.paused_at or "unknown"
+            log.info("  %s | paused_at=%s | %s", sym, paused_at, reason)
+            try:
+                if health.paused_at:
+                    paused_dt = datetime.fromisoformat(health.paused_at)
+                    if paused_dt.tzinfo is None:
+                        paused_dt = paused_dt.replace(tzinfo=timezone.utc)
+                    if now - paused_dt >= timedelta(days=stale_days):
+                        log.warning(
+                            "Paused model %s has been paused for more than %d days (%s)",
+                            sym,
+                            stale_days,
+                            health.paused_at,
+                        )
+            except ValueError:
+                continue
 
     def get_all_health(self) -> Dict[str, ModelHealth]:
         """Get health metrics for all tracked symbols."""

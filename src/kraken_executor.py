@@ -109,6 +109,20 @@ class KrakenExecutor:
 
     def _load_state(self, initial_balance: float) -> None:
         """Load paper positions and balance from disk."""
+        # Trade log file: same dir, derived from state file name
+        base = os.path.splitext(os.path.basename(self._state_file))[0]
+        self._trade_log_file = os.path.join(
+            os.path.dirname(self._state_file),
+            base.replace("_paper_state", "_trade_log") + ".json",
+        )
+        self._trade_log: List[dict] = []
+        if os.path.exists(self._trade_log_file):
+            try:
+                with open(self._trade_log_file, "r") as f:
+                    self._trade_log = json.load(f)
+            except (json.JSONDecodeError, TypeError):
+                self._trade_log = []
+
         if os.path.exists(self._state_file):
             try:
                 with open(self._state_file, "r") as f:
@@ -148,21 +162,53 @@ class KrakenExecutor:
         # Sync to GitHub Gist so Vercel API can read it
         self._sync_to_gist(state)
 
+    def _log_trade(self, symbol: str, side: str, qty: float, price: float,
+                   intent: str = "") -> None:
+        """Append a trade to the local log and persist."""
+        entry = {
+            "symbol": symbol,
+            "side": side,
+            "qty": qty,
+            "price": price,
+            "time": datetime.now(timezone.utc).isoformat(),
+            "intent": intent,
+        }
+        self._trade_log.append(entry)
+        # Keep last 200 trades
+        if len(self._trade_log) > 200:
+            self._trade_log = self._trade_log[-200:]
+        try:
+            with open(self._trade_log_file, "w") as f:
+                json.dump(self._trade_log, f, indent=2)
+        except OSError:
+            pass
+
     def _sync_to_gist(self, state: dict) -> None:
-        """Upload paper state to a GitHub Gist for the Vercel dashboard."""
+        """Upload paper state + trade log to a GitHub Gist for the Vercel dashboard."""
         gist_id = os.environ.get("KRAKEN_STATE_GIST_ID", "")
         gh_token = os.environ.get("GITHUB_TOKEN", "")
         if not gist_id or not gh_token:
             return  # silently skip if not configured
         try:
             import requests
+            files = {
+                os.path.basename(self._state_file): {
+                    "content": json.dumps(state, indent=2),
+                },
+            }
+            # Also sync trade log
+            if hasattr(self, "_trade_log") and self._trade_log:
+                log_filename = os.path.basename(self._trade_log_file)
+                files[log_filename] = {
+                    "content": json.dumps(self._trade_log, indent=2),
+                }
             resp = requests.patch(
                 f"https://api.github.com/gists/{gist_id}",
                 headers={
                     "Authorization": f"token {gh_token}",
                     "Accept": "application/vnd.github.v3+json",
                 },
-                json={"files": {os.path.basename(self._state_file): {"content": json.dumps(state, indent=2)}}},
+                json={"files": files},
                 timeout=10,
             )
             if resp.ok:
@@ -331,6 +377,8 @@ class KrakenExecutor:
                 self._paper_cash += pnl  # margin is already in cash
             log.info("PAPER CLOSE %s %s x%.6f @ $%.2f — P&L: $%.2f — order %s",
                      pos.side, symbol, pos.qty, price, pnl, order_id)
+            close_side = "buy" if pos.side == "SHORT" else "sell"
+            self._log_trade(symbol, close_side, pos.qty, price, intent="close")
             del self._paper_positions[symbol]
 
         elif not is_close:
@@ -350,6 +398,7 @@ class KrakenExecutor:
                 )
                 log.info("PAPER BUY %s x%.6f @ $%.2f (notional $%.2f) — order %s",
                          symbol, qty, price, notional, order_id)
+                self._log_trade(symbol, "buy", qty, price, intent="open")
             else:
                 # Short: margin trade, reserve margin
                 margin_required = notional / self.leverage
@@ -365,6 +414,7 @@ class KrakenExecutor:
                 )
                 log.info("PAPER SHORT %s x%.6f @ $%.2f (margin $%.2f) — order %s",
                          symbol, qty, price, margin_required, order_id)
+                self._log_trade(symbol, "sell", qty, price, intent="open")
 
         self._save_state()
         return order_id

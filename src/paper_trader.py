@@ -67,6 +67,7 @@ from risk_config import (
     get_risk_config, check_position_allowed, check_theme_cap,
     validate_model_mode, get_symbol_cap, is_symbol_disabled,
     get_confidence_multiplier, DeRiskState, evaluate_derisk,
+    get_effective_min_hold,
 )
 from cost_model import validate_cost_threshold
 from model_monitor import ModelMonitor
@@ -368,6 +369,67 @@ def _time_until_next_session() -> str:
 
 
 # ===================================================================
+# Selector refresh gate — date-change, not wall-clock
+# ===================================================================
+# ETFs: daily bars settle at 16:00 ET; refresh after 06:30 ET next day
+#        (pre-market data available, yesterday's bar confirmed)
+# Crypto: 24/7 market; daily bars settle at 00:00 UTC; refresh after 00:30 UTC
+_SELECTOR_REFRESH_HOUR_ET = 6   # ETF: refresh allowed after 6 AM ET
+_SELECTOR_REFRESH_MIN_ET = 30
+_SELECTOR_REFRESH_HOUR_UTC = 0  # Crypto: refresh allowed after 00:00 UTC
+_SELECTOR_REFRESH_MIN_UTC = 30
+
+# Intraday groups re-rank more frequently (within the same day)
+# Swing groups only refresh once per day (no fast re-rank needed)
+_FAST_REFRESH_SECS: Dict[str, int] = {
+    "intraday": 3600,         # 1 hour — intraday opportunities rotate
+    "crypto_intraday": 1800,  # 30 min — crypto moves faster
+}
+
+
+def _should_refresh_selector(
+    group: str,
+    last_run_date: Optional["date"],  # noqa: F821
+) -> bool:
+    """Return True if the selector should refresh (new trading day, past settlement).
+
+    ETFs: refreshes once per trading day (Mon-Fri) after 06:30 ET.
+          Skips weekends — no new daily bar settles on Sat/Sun.
+    Crypto: refreshes once per calendar day after 00:30 UTC (24/7 market).
+    """
+    if last_run_date is None:
+        return True  # first run
+
+    if group in ("crypto", "crypto_intraday"):
+        now = datetime.now(timezone.utc)
+        today = now.date()
+        if today > last_run_date and (
+            now.hour > _SELECTOR_REFRESH_HOUR_UTC
+            or (now.hour == _SELECTOR_REFRESH_HOUR_UTC
+                and now.minute >= _SELECTOR_REFRESH_MIN_UTC)
+        ):
+            return True
+    else:
+        # ETF groups: use Eastern time, skip weekends
+        try:
+            from zoneinfo import ZoneInfo
+        except ImportError:
+            from backports.zoneinfo import ZoneInfo
+        now_et = datetime.now(ZoneInfo("America/New_York"))
+        today = now_et.date()
+        # weekday(): Mon=0 … Sun=6; skip Sat(5) and Sun(6)
+        if now_et.weekday() >= 5:
+            return False
+        if today > last_run_date and (
+            now_et.hour > _SELECTOR_REFRESH_HOUR_ET
+            or (now_et.hour == _SELECTOR_REFRESH_HOUR_ET
+                and now_et.minute >= _SELECTOR_REFRESH_MIN_ET)
+        ):
+            return True
+    return False
+
+
+# ===================================================================
 # Paper Trader
 # ===================================================================
 class AlpacaPaperTrader:
@@ -495,13 +557,38 @@ class AlpacaPaperTrader:
         self._selector_universe = dynamic_universe if dynamic_universe else list(CRYPTO_UNIVERSE)
         self._selector_active_symbols: List[str] = []    # dynamically selected coins
         self._selector_rank_scores: Dict[str, float] = {}  # symbol → rank score
-        self._selector_last_run: Optional[datetime] = None  # gate selector to once/day
+        self._selector_last_run_date: Optional["date"] = None  # date-change gate
+        self._selector_last_fast_refresh: Optional[datetime] = None  # intraday fast re-rank
+        self._btc_correlations: Dict[str, float] = {}  # cached BTC correlations for sizing
         if group in ("crypto", "crypto_intraday"):
             try:
                 self._coin_selector = CoinSelector(model_dir=CRYPTO_MODEL_DIR)
                 log.info("Coin selector loaded — dynamic symbol selection enabled")
             except FileNotFoundError:
                 log.info("No trained coin selector found — using static symbol list")
+
+        # Layer 1 ETF selector (swing + intraday groups)
+        self._etf_selector = None
+        self._etf_selector_last_run_date: Optional["date"] = None
+        self._etf_selector_last_fast_refresh: Optional[datetime] = None  # intraday fast re-rank
+        self._etf_active_symbols: List[str] = []
+        self._etf_universe: List[str] = []
+        self._etf_train_failures: Dict[str, datetime] = {}  # symbol → last failure time
+        self._etf_train_cooldown_hours = 24  # retry failed training after 24h
+        if group in ("swing", "intraday"):
+            try:
+                from etf_selector import ETFSelector
+                from etf_screener import load_etf_universe
+                top_k = 10 if group == "swing" else 8
+                self._etf_selector = ETFSelector(top_k=top_k, min_pool=0)
+                self._etf_universe = load_etf_universe(SWING_MODEL_DIR)
+                if not self._etf_universe:
+                    from etf_screener import ALL_SEED_SYMBOLS
+                    self._etf_universe = list(ALL_SEED_SYMBOLS)
+                log.info("ETF selector loaded for %s — %d universe symbols, top_k=%d",
+                         group, len(self._etf_universe), top_k)
+            except Exception as exc:
+                log.warning("ETF selector init failed: %s — using static symbol list", exc)
 
         # Kraken executor for crypto groups (supports long + short)
         # Paper mode doesn't need real API keys — uses public price API + local state
@@ -548,6 +635,7 @@ class AlpacaPaperTrader:
         # Model monitor: tracks predicted vs realized returns
         os.makedirs(MONITOR_DIR, exist_ok=True)
         self._monitor = ModelMonitor(output_dir=MONITOR_DIR, window=60)
+        self._monitor.log_pause_summary()
         self._entry_predictions: Dict[str, float] = {}  # symbol → predicted return at entry
         self._derisk_states: Dict[str, DeRiskState] = {}  # symbol → rolling perf tracker
 
@@ -576,7 +664,13 @@ class AlpacaPaperTrader:
 
         yf_symbols = []
         sym_map = {}  # yf_symbol → original symbol
-        for sym in self.symbols:
+        # Include both static symbols and dynamically selected symbols
+        all_syms = set(self.symbols)
+        if self._etf_active_symbols:
+            all_syms.update(self._etf_active_symbols)
+        if self._selector_active_symbols:
+            all_syms.update(self._selector_active_symbols)
+        for sym in all_syms:
             yf_sym = _crypto_to_yfinance(sym) if _is_crypto_symbol(sym) else sym
             yf_symbols.append(yf_sym)
             sym_map[yf_sym] = sym
@@ -620,6 +714,86 @@ class AlpacaPaperTrader:
             log.info("Daily vol tier recomputation triggered")
             self._classify_vol_tiers()
 
+    def _classify_vol_tiers_for(self, symbols: List[str]) -> None:
+        """Classify vol tiers for a specific set of new symbols (on-the-fly).
+
+        Symbols should be in the format used as dict keys (plain tickers for ETFs).
+        For crypto symbols, use _classify_vol_tiers_for_crypto instead.
+        """
+        from src.risk_config import (classify_vol_tier, compute_vol_metrics,
+                                     get_exit_params, VolTier)
+        import yfinance as yf
+
+        try:
+            data = yf.download(symbols, period="60d", progress=False, threads=True)
+            for sym in symbols:
+                try:
+                    if len(symbols) == 1:
+                        df = data
+                    else:
+                        df = data.xs(sym, axis=1, level=1) if hasattr(data.columns, 'levels') else data
+                    if len(df) < 15:
+                        raise ValueError(f"insufficient data ({len(df)} rows)")
+                    atr_ratio, vol20 = compute_vol_metrics(df)
+                    tier = classify_vol_tier(atr_ratio, vol20)
+                    self._vol_tiers[sym] = tier
+                    self._exit_params[sym] = get_exit_params(self.group or "swing", tier)
+                    log.info("Vol tier %s: %s (ATR/P=%.2f%%, Vol20=%.1f%%)",
+                             sym, tier.value, atr_ratio * 100, vol20 * 100)
+                except Exception as exc:
+                    log.warning("Vol tier failed for %s: %s — defaulting to HIGH", sym, exc)
+                    self._vol_tiers[sym] = VolTier.HIGH
+                    self._exit_params[sym] = get_exit_params(self.group or "swing", VolTier.HIGH)
+        except Exception as exc:
+            log.warning("Vol tier download failed for %s: %s — defaulting to HIGH",
+                        symbols, exc)
+            for sym in symbols:
+                self._vol_tiers[sym] = VolTier.HIGH
+                self._exit_params[sym] = get_exit_params(self.group or "swing", VolTier.HIGH)
+
+    def _classify_vol_tiers_for_crypto(self, symbols: List[str]) -> None:
+        """Classify vol tiers for crypto symbols (Alpaca format: BTC/USD).
+
+        Converts to yfinance format for download, stores results under
+        the original Alpaca-format key.
+        """
+        from src.risk_config import (classify_vol_tier, compute_vol_metrics,
+                                     get_exit_params, VolTier)
+        import yfinance as yf
+
+        yf_syms = []
+        sym_map = {}  # yf_sym → orig_sym
+        for sym in symbols:
+            yf_sym = _crypto_to_yfinance(sym) if _is_crypto_symbol(sym) else sym
+            yf_syms.append(yf_sym)
+            sym_map[yf_sym] = sym
+
+        try:
+            data = yf.download(yf_syms, period="60d", progress=False, threads=True)
+            for yf_sym, orig_sym in sym_map.items():
+                try:
+                    if len(yf_syms) == 1:
+                        df = data
+                    else:
+                        df = data.xs(yf_sym, axis=1, level=1) if hasattr(data.columns, 'levels') else data
+                    if len(df) < 15:
+                        raise ValueError(f"insufficient data ({len(df)} rows)")
+                    atr_ratio, vol20 = compute_vol_metrics(df)
+                    tier = classify_vol_tier(atr_ratio, vol20)
+                    self._vol_tiers[orig_sym] = tier
+                    self._exit_params[orig_sym] = get_exit_params(self.group or "crypto", tier)
+                    log.info("Vol tier %s: %s (ATR/P=%.2f%%, Vol20=%.1f%%)",
+                             orig_sym, tier.value, atr_ratio * 100, vol20 * 100)
+                except Exception as exc:
+                    log.warning("Vol tier failed for %s: %s — defaulting to HIGH", orig_sym, exc)
+                    self._vol_tiers[orig_sym] = VolTier.HIGH
+                    self._exit_params[orig_sym] = get_exit_params(self.group or "crypto", VolTier.HIGH)
+        except Exception as exc:
+            log.warning("Vol tier download failed for crypto: %s — defaulting to HIGH", exc)
+            for sym in symbols:
+                self._vol_tiers[sym] = VolTier.HIGH
+                self._exit_params[sym] = get_exit_params(self.group or "crypto", VolTier.HIGH)
+
     # -- Predictor factory (selects model type per group) ----------------
     @staticmethod
     def _create_predictor(symbol: str, group: Optional[str], model_dir: str,
@@ -633,18 +807,21 @@ class AlpacaPaperTrader:
         group_model_dir = get_model_dir(group) if group else model_dir
 
         if group == "intraday":
+            validate_model_mode("lgb_intraday", mode)
             try:
                 from intraday_model import IntradayPredictor
                 return IntradayPredictor(symbol, model_dir=group_model_dir)
             except (FileNotFoundError, ImportError) as exc:
                 log.info("No intraday LightGBM for %s, falling back to LSTM: %s", symbol, exc)
         elif group == "swing":
+            validate_model_mode("tft_swing", mode)
             try:
                 from swing_model import SwingPredictor
                 return SwingPredictor(symbol, model_dir=group_model_dir)
             except (FileNotFoundError, ImportError) as exc:
                 log.info("No swing model for %s, falling back to LSTM: %s", symbol, exc)
         elif group == "crypto":
+            validate_model_mode("xgb_swing", mode)
             # Crypto uses swing model with yfinance-mapped symbols (BTC/USD → BTC-USD)
             yf_sym = _crypto_to_yfinance(symbol)
             crypto_dir = group_model_dir
@@ -661,6 +838,7 @@ class AlpacaPaperTrader:
                             symbol, yf_sym, exc)
                 return None
         elif group == "crypto_intraday":
+            validate_model_mode("lgb_intraday_crypto", mode)
             # Crypto intraday uses LGB+GRU ensemble on 5-min bars
             yf_sym = _crypto_to_yfinance(symbol)
             try:
@@ -671,6 +849,7 @@ class AlpacaPaperTrader:
                             symbol, yf_sym, exc)
                 return None
         # Fallback: original LSTM predictor
+        validate_model_mode("lstm", mode)
         try:
             return Predictor(symbol, model_dir=model_dir,
                              mode=mode, intraday_interval=intraday_interval)
@@ -710,29 +889,89 @@ class AlpacaPaperTrader:
             log.warning("Failed to load OOS registries: %s", exc)
         return {}, {}
 
+    def _compute_btc_correlations(self, data: Dict[str, pd.DataFrame]) -> Dict[str, float]:
+        """Compute 30-day rolling correlation of each coin's returns with BTC.
+
+        Returns {symbol: correlation} where correlation is in [0, 1].
+        BTC-USD itself and ETH-USD (anchor coins) return 0.0 (no penalty).
+        """
+        btc_df = data.get("BTC-USD")
+        if btc_df is None or len(btc_df) < 35:
+            return {}
+
+        btc_ret = btc_df["close"].astype(float).pct_change().rename("btc")
+        correlations: Dict[str, float] = {}
+        for sym, df in data.items():
+            if sym in ("BTC-USD", "ETH-USD"):
+                correlations[sym] = 0.0  # anchor coins — no penalty
+                continue
+            try:
+                sym_ret = df["close"].astype(float).pct_change().rename("alt")
+                # Align on common dates
+                aligned = pd.concat([btc_ret, sym_ret], axis=1, join="inner")
+                if len(aligned) < 30:
+                    correlations[sym] = 0.5  # insufficient data → moderate default
+                    continue
+                corr = aligned.iloc[-30:]["btc"].corr(aligned.iloc[-30:]["alt"])
+                correlations[sym] = max(0.0, corr) if not np.isnan(corr) else 0.5
+            except Exception:
+                correlations[sym] = 0.5
+        return correlations
+
+    @staticmethod
+    def _compute_quick_scores(data: Dict[str, pd.DataFrame]) -> Dict[str, float]:
+        """Vol-adjusted momentum × liquidity score for pre-screening / training priority.
+
+        quick_score = (ret_5 / realized_vol_5d) × log(1 + avg_daily_volume_usd)
+
+        Higher = stronger signal quality on a liquid coin. Used for:
+        - On-the-fly training priority (cold-start: no model yet)
+        - Pre-screen ranking when composite score unavailable
+        """
+        scores: Dict[str, float] = {}
+        for sym, df in data.items():
+            try:
+                close = df["close"].astype(float)
+                volume = df["volume"].astype(float)
+                if len(close) < 10:
+                    continue
+                ret_5 = float(close.iloc[-1] / close.iloc[-6] - 1) if (len(close) >= 6 and close.iloc[-6] > 0) else 0.0
+                vol_5d = float(close.pct_change().iloc[-5:].std()) if len(close) >= 6 else 1.0
+                vol_5d = max(vol_5d, 0.001)  # floor to avoid div/0
+                avg_vol_usd = float((close * volume).iloc[-20:].mean()) if len(close) >= 20 else 1.0
+                scores[sym] = (ret_5 / vol_5d) * np.log1p(avg_vol_usd)
+            except Exception:
+                continue
+        return scores
+
     def _compute_composite_scores(
         self,
         rankings: list,
         oos_sharpe: dict,
         oos_perf: dict,
+        btc_correlations: Optional[Dict[str, float]] = None,
         w_selector: float = 0.3,
         w_sharpe: float = 0.4,
-        w_return: float = 0.3,
+        w_hitrate: float = 0.3,
     ) -> Dict[str, float]:
-        """Compute composite score = w1*selector + w2*sharpe + w3*return (all normalized).
+        """Composite score = w1*selector + w2*sharpe + w3*hit_rate (rank-normalized).
 
-        Only includes coins with OOS Sharpe > 0.
+        Uses hit rate (win_rate) instead of OOS return — hit rate is orthogonal
+        to Sharpe (measures consistency, not magnitude), while OOS return is
+        redundant with Sharpe (Sharpe = return / vol).
+
+        ALL ranked coins are included — scoring weight, not a gate.
+        BTC correlation penalty (crypto only): highly correlated alts get
+        reduced composite score.
+
         Returns {symbol: composite_score} sorted descending.
         """
-        # Collect raw values for coins with positive OOS Sharpe
         candidates = []
         for sym, sel_score in rankings:
-            sharpe = oos_sharpe.get(sym, -999)
-            if sharpe <= 0:
-                continue
+            sharpe = oos_sharpe.get(sym, 0)   # default 0 if no OOS data
             perf = oos_perf.get(sym, {})
-            ret = perf.get("return_pct", 0.0) if isinstance(perf, dict) else 0.0
-            candidates.append((sym, sel_score, sharpe, ret))
+            hitrate = perf.get("win_rate", 0.5) if isinstance(perf, dict) else 0.5
+            candidates.append((sym, sel_score, sharpe, hitrate))
 
         if not candidates:
             return {}
@@ -750,137 +989,469 @@ class AlpacaPaperTrader:
 
         sel_scores = [c[1] for c in candidates]
         sharpe_vals = [c[2] for c in candidates]
-        return_vals = [c[3] for c in candidates]
+        hitrate_vals = [c[3] for c in candidates]
 
         sel_norm = _rank_normalize(sel_scores)
         sharpe_norm = _rank_normalize(sharpe_vals)
-        return_norm = _rank_normalize(return_vals)
+        hitrate_norm = _rank_normalize(hitrate_vals)
 
         result = {}
-        for i, (sym, sel, sharpe, ret) in enumerate(candidates):
+        for i, (sym, sel, sharpe, hitrate) in enumerate(candidates):
             composite = (w_selector * sel_norm[i]
                          + w_sharpe * sharpe_norm[i]
-                         + w_return * return_norm[i])
+                         + w_hitrate * hitrate_norm[i])
+
+            # BTC correlation penalty: corr=0.9 → 55% score penalty
+            if btc_correlations and sym in btc_correlations:
+                btc_corr = btc_correlations[sym]
+                composite *= (1 - 0.5 * btc_corr)
+
             result[sym] = round(composite, 4)
 
         # Sort descending
         result = dict(sorted(result.items(), key=lambda x: -x[1]))
         return result
 
-    # -- Coin selector (Layer 1 → dynamic symbol selection) -------------
+    # -- Coin ranker (Layer 1 → rank ALL, Layer 2 → ML decides) -----------
     def _run_coin_selector(self) -> List[str]:
-        """Run Layer 1 cross-sectional selector to pick today's top-K crypto coins.
+        """Rank the full crypto universe and return ALL as candidates, ordered
+        by composite quality score (best first).
 
-        Only selects from model_universe (coins with trained models).
-        Returns Alpaca-format symbols (BTC/USD) for selected coins.
-        Falls back to static self.symbols if selector unavailable or fails.
+        Philosophy: no asset is filtered out. The ranking determines:
+          - Iteration order → highest rank gets first dibs on position slots
+          - Position sizing → top-ranked get full size, lower get smaller
+          - ML signal + risk limits are the actual entry/exit gates
+
+        Pipeline:
+          1. Get ALL coins with trained models
+          2. Rank via LambdaRank cross-sectional model
+          3. Composite score (rank × OOS Sharpe × OOS return) — no hard cutoffs
+          4. Return ALL ranked coins, ordered best-first
+          5. check_and_trade() + risk limits decide which actually open
+
+        Falls back to static self.symbols if ranker unavailable or fails.
         """
         if self._coin_selector is None:
             return list(self.symbols)
 
         try:
-            # Restrict selector input to coins that have trained models
+            # Data freshness check: BTC canary — crypto is 24/7 so bars should
+            # never be >1 day old. If they are, data provider is down.
+            try:
+                import yfinance as yf
+                _btc = yf.download("BTC-USD", period="5d", progress=False, auto_adjust=True)
+                if not _btc.empty:
+                    _latest = pd.Timestamp(_btc.index[-1]).date()
+                    _days_stale = (datetime.now(timezone.utc).date() - _latest).days
+                    if _days_stale > 1:
+                        log.warning(
+                            "Coin selector skipped — bars stale (latest BTC bar: %s, %dd old)",
+                            _latest, _days_stale,
+                        )
+                        if self._selector_active_symbols:
+                            return self._selector_active_symbols
+                        return list(self.symbols)
+            except Exception as exc:
+                log.warning("Crypto freshness check failed: %s — proceeding anyway", exc)
+
+            # ALL coins with trained models are candidates
             model_universe = self._get_model_universe()
             selector_input = [s for s in self._selector_universe if s in model_universe]
             if len(selector_input) < 3:
                 log.warning("Model universe too small (%d coins) — using static list",
                             len(selector_input))
-                self._composite_scores = {}  # clear stale scores
+                self._composite_scores = {}
                 return list(self.symbols)
 
-            log.info("Selector input: %d coins (model_universe) out of %d (screen_universe)",
+            log.info("Ranker input: %d coins with models out of %d universe",
                      len(selector_input), len(self._selector_universe))
 
-            # Fetch data for model_universe only
+            # Fetch data for ALL model_universe
             data = fetch_universe_data(selector_input, lookback_days=400)
             if len(data) < 3:
-                log.warning("Selector: only %d coins with data — falling back to static list", len(data))
+                log.warning("Ranker: only %d coins with data — falling back to static list", len(data))
                 self._composite_scores = {}
                 return list(self.symbols)
 
             result = self._coin_selector.rank(data)
-            if not result.selected:
-                log.warning("Selector returned empty selection — using static list")
+            if not result.rankings:
+                log.warning("Ranker returned empty rankings — using static list")
                 self._composite_scores = {}
                 return list(self.symbols)
 
-            # Layer 2: composite scoring (selector + OOS Sharpe + OOS return)
+            # BTC correlation penalty: penalize coins that duplicate BTC exposure
+            btc_correlations = self._compute_btc_correlations(data)
+            # Cache for runtime sizing penalty (when BTC position is open)
+            self._btc_correlations = {
+                s.replace("-", "/"): c for s, c in btc_correlations.items()
+            } if btc_correlations else {}
+            if btc_correlations:
+                top_corr = sorted(btc_correlations.items(), key=lambda x: -x[1])[:5]
+                log.info("BTC correlations (top-5): %s",
+                         ", ".join(f"{s}={c:.2f}" for s, c in top_corr))
+
+            # Composite scoring: ALL ranked coins, no hard cutoffs
             oos_sharpe, oos_perf = self._load_oos_registries()
             composite = self._compute_composite_scores(
                 result.rankings, oos_sharpe, oos_perf,
+                btc_correlations=btc_correlations,
             )
 
             if not composite:
-                log.warning("No coins passed composite scoring — using static list")
-                self._composite_scores = {}
-                return list(self.symbols)
+                # Fallback: use raw rankings when no OOS data exists
+                composite = {sym: score for sym, score in result.rankings}
 
-            # Select top-K by composite score
-            top_k = self._coin_selector.top_k
-            selected = list(composite.keys())[:top_k]
+            # TFT confidence boost: blend live model confidence into composite.
+            # If a TFT predictor is loaded and returns a prediction for the coin,
+            # boost the composite score by up to 10% based on |confidence|.
+            # This lets the ranking reflect current model conviction, not just
+            # cross-sectional features and historical OOS stats.
+            _TFT_CONF_WEIGHT = 0.10  # max boost from TFT confidence
+            _vix = self._vix_cache if self._vix_cache is not None else self._get_vix_df()
+            for sym in list(composite.keys()):
+                alpaca_sym = sym.replace("-", "/")
+                predictor = self.predictors.get(alpaca_sym)
+                if predictor is None:
+                    continue
+                try:
+                    if sym in data:
+                        pred = predictor.predict(data[sym], _vix)
+                        if pred and "confidence" in pred:
+                            conf = min(1.0, abs(float(pred["confidence"])))
+                            composite[sym] += _TFT_CONF_WEIGHT * conf
+                except Exception:
+                    pass  # don't let prediction failures break ranking
 
-            # Log composite breakdown
-            for sym in selected:
+            # ALL coins in composite — ordered best-first (re-sort after TFT boost)
+            composite = dict(sorted(composite.items(), key=lambda x: -x[1]))
+            all_ranked = list(composite.keys())
+
+            # Log ranking
+            for i, sym in enumerate(all_ranked, 1):
                 sel_score = dict(result.rankings).get(sym, 0)
                 sharpe = oos_sharpe.get(sym, 0)
-                ret = oos_perf.get(sym, {}).get("return_pct", 0) if isinstance(oos_perf.get(sym), dict) else 0
-                log.info("  Composite %s: %.3f (sel=%.2f, sharpe=%.2f, ret=%.1f%%)",
-                         sym, composite[sym], sel_score, sharpe, ret)
+                log.info("  Rank #%d %s: composite=%.3f (sel=%.2f, sharpe=%.2f)",
+                         i, sym, composite[sym], sel_score, sharpe)
 
             # Convert yfinance format (BTC-USD) to Alpaca format (BTC/USD)
-            selected_alpaca = [s.replace("-", "/") for s in selected]
+            all_alpaca = [s.replace("-", "/") for s in all_ranked]
 
             # Store composite scores for rank-weighted sizing
             self._composite_scores = composite
 
-            # Ensure predictors exist for newly selected coins
+            # Ensure predictors exist for all ranked coins
             _selector_model_dir = get_model_dir(self.group)
-            for sym in selected_alpaca:
-                if sym not in self.predictors:
+            ready = []
+            for sym in all_alpaca:
+                if sym not in self.predictors or self.predictors[sym] is None:
                     predictor = self._create_predictor(
                         sym, self.group, _selector_model_dir,
                         self.mode, self.intraday_interval,
                     )
                     self.predictors[sym] = predictor
                     if predictor is not None:
-                        log.info("Loaded predictor for newly selected %s", sym)
+                        log.info("Loaded predictor for %s", sym)
+                    else:
+                        log.warning("No predictor for %s — skipping", sym)
+                        continue
+                ready.append(sym)
 
-            log.info("Selector chose %d coins: %s",
-                     len(selected_alpaca), ", ".join(selected_alpaca))
-            self._selector_active_symbols = selected_alpaca
-            return selected_alpaca
+            # Classify vol tiers for any new symbols
+            new_crypto = [s for s in ready if s not in self._vol_tiers]
+            if new_crypto:
+                self._classify_vol_tiers_for_crypto(new_crypto)
+
+            log.info("Ranker: %d coins ready, ordered by composite score: %s",
+                     len(ready), ", ".join(ready))
+            self._selector_active_symbols = ready
+            return ready
 
         except Exception as exc:
-            log.error("Coin selector failed: %s — using static list", exc)
-            self._composite_scores = {}  # clear stale scores
+            log.error("Coin ranker failed: %s — using static list", exc)
+            self._composite_scores = {}
             return list(self.symbols)
+
+    # -- ETF selector (Layer 1 → dynamic symbol selection for swing/intraday) --
+
+    def _get_etf_model_universe(self, group: str) -> Set[str]:
+        """Return symbols that have a trained model on disk for the given group."""
+        import glob as _glob
+        if group == "swing":
+            pattern = os.path.join(SWING_MODEL_DIR, "*_xgb_swing_config.json")
+            suffix = "_xgb_swing_config.json"
+        elif group == "intraday":
+            pattern = os.path.join(INTRADAY_MODEL_DIR, "*_lgb_intraday_config.json")
+            suffix = "_lgb_intraday_config.json"
+        else:
+            return set()
+        model_syms: Set[str] = set()
+        for path in _glob.glob(pattern):
+            fname = os.path.basename(path)
+            sym = fname.replace(suffix, "")
+            model_syms.add(sym)
+        return model_syms
+
+    def _train_on_the_fly(self, symbol: str) -> bool:
+        """Train a model on-the-fly for a newly selected ETF.
+
+        Returns True if training succeeded and predictor is ready.
+        Rate-limited: skips symbols that failed training in last 24h.
+        """
+        # Check cooldown for failed training attempts
+        last_fail = self._etf_train_failures.get(symbol)
+        if last_fail:
+            elapsed_h = (datetime.now(timezone.utc) - last_fail).total_seconds() / 3600
+            if elapsed_h < self._etf_train_cooldown_hours:
+                log.info("Skipping on-the-fly training for %s (failed %.1fh ago, cooldown %dh)",
+                         symbol, elapsed_h, self._etf_train_cooldown_hours)
+                return False
+
+        group = self.group
+        log.info("=== On-the-fly training: %s for %s group ===", symbol, group)
+
+        try:
+            adapter = build_adapter("yahoo")
+            fred_key = os.environ.get("FRED_API_KEY")
+
+            if group == "swing":
+                from swing_model import train_swing_model
+                model = train_swing_model(
+                    symbol=symbol,
+                    adapter=adapter,
+                    fred_key=fred_key,
+                    lookback=1000,
+                    save_dir=SWING_MODEL_DIR,
+                    train_recent=True,  # walk-forward: 75% train, 25% OOS
+                )
+                if model is None:
+                    raise RuntimeError(f"train_swing_model returned None for {symbol}")
+
+            elif group == "intraday":
+                from intraday_model import train_intraday_model
+                model = train_intraday_model(
+                    symbol=symbol,
+                    adapter=adapter,
+                    fred_key=fred_key,
+                    lookback=500,
+                    save_dir=INTRADAY_MODEL_DIR,
+                )
+                if model is None:
+                    raise RuntimeError(f"train_intraday_model returned None for {symbol}")
+            else:
+                return False
+
+            # Load the predictor for this newly trained model
+            group_model_dir = get_model_dir(group)
+            predictor = self._create_predictor(
+                symbol, group, group_model_dir, self.mode, self.intraday_interval,
+            )
+            if predictor is not None:
+                self.predictors[symbol] = predictor
+                log.info("On-the-fly training succeeded for %s — predictor loaded", symbol)
+                # Clear any previous failure
+                self._etf_train_failures.pop(symbol, None)
+                return True
+            else:
+                raise RuntimeError(f"Predictor creation failed after training {symbol}")
+
+        except Exception as exc:
+            log.error("On-the-fly training failed for %s: %s", symbol, exc)
+            self._etf_train_failures[symbol] = datetime.now(timezone.utc)
+            return False
+
+    def _run_etf_selector(self) -> List[str]:
+        """Return ALL ETFs with trained models, ordered by selector rank.
+
+        Philosophy: no asset is filtered out. The ranking determines:
+          - Iteration order → highest rank gets first dibs on position slots
+          - On-the-fly training expands coverage (top-ranked untrained first)
+          - ML signal + risk limits are the actual entry/exit gates
+
+        Pipeline:
+          1. Get ALL ETFs with trained models → they are immediately candidates
+          2. Run ETFSelector to rank the full universe → determines priority order
+          3. On-the-fly train top-ranked symbols that lack models (expand coverage)
+          4. Return ALL with models, ordered by selector rank
+          5. check_and_trade() + risk limits decide which actually open
+
+        Falls back to static SYMBOL_GROUPS if selector unavailable or fails.
+        """
+        if self._etf_selector is None:
+            return list(self.symbols)
+
+        group = self.group or "swing"
+
+        try:
+            # Data freshness check: verify daily bars are current before ranking.
+            # If SPY's latest bar is >1 trading day old, the ranking would use
+            # stale momentum/vol features. Keep previous rankings and log staleness.
+            try:
+                import yfinance as yf
+                _spy = yf.download("SPY", period="5d", progress=False, auto_adjust=True)
+                if not _spy.empty:
+                    _latest_bar = pd.Timestamp(_spy.index[-1]).date()
+                    _today = datetime.now(timezone.utc).date()
+                    _days_stale = (_today - _latest_bar).days
+                    # Allow 1 day gap (weekend/holiday), but >2 means stale
+                    if _days_stale > 2:
+                        log.warning(
+                            "ETF selector skipped — bars stale (latest SPY bar: %s, %dd old)",
+                            _latest_bar, _days_stale,
+                        )
+                        if self._etf_active_symbols:
+                            return self._etf_active_symbols
+                        # No previous rankings → fall through to static
+                        return list(self.symbols)
+            except Exception as exc:
+                log.warning("ETF freshness check failed: %s — proceeding anyway", exc)
+
+            universe = self._etf_universe
+            if not universe:
+                log.warning("ETF universe empty — using static list")
+                return list(self.symbols)
+
+            # Step 1: ALL existing trained models are candidates immediately
+            model_universe = self._get_etf_model_universe(group)
+            log.info("ETF ranker: %d trained models, %d universe symbols for %s",
+                     len(model_universe), len(universe), group)
+
+            # Step 2: Rank the full universe for priority ordering
+            log.info("ETF ranker: scoring %d universe symbols...", len(universe))
+            ranking = self._etf_selector.rank(universe)
+            # ranking is a DataFrame with columns: symbol, score, rank, ...
+
+            if ranking.empty:
+                # No ranking data — return all trained models unordered
+                log.warning("ETF ranker: no ranking data — returning all trained models")
+                ready = list(model_universe)
+                self._composite_scores = {}
+            else:
+                ranked_symbols = ranking["symbol"].tolist()
+                # Store ranking scores for rank-weighted sizing via _get_rank_scalar()
+                self._composite_scores = dict(
+                    zip(ranking["symbol"], ranking["score"])
+                )
+
+                # Step 3: On-the-fly training for untrained symbols
+                # Use quick_score (vol-adjusted momentum × liquidity) to prioritize,
+                # NOT selector rank — untrained symbols have no model, so their
+                # rank is unreliable. This fixes the cold-start deadlock.
+                untrained = [s for s in ranked_symbols if s not in model_universe]
+                if untrained:
+                    import yfinance as yf
+                    try:
+                        _dl_syms = untrained[:10]
+                        _etf_data = yf.download(_dl_syms, period="30d",
+                                                progress=False, threads=True)
+                        _etf_frames: Dict[str, pd.DataFrame] = {}
+                        for _s in _dl_syms:
+                            try:
+                                if len(_dl_syms) == 1:
+                                    _df = _etf_data
+                                else:
+                                    _df = _etf_data.xs(_s, axis=1, level=1)
+                                _etf_frames[_s] = _df.rename(columns=str.lower)
+                            except Exception:
+                                continue
+                        _qs = self._compute_quick_scores(_etf_frames)
+                        untrained.sort(key=lambda s: _qs.get(s, 0), reverse=True)
+                        log.info("Training priority (quick_score): %s",
+                                 ", ".join(f"{s}={_qs.get(s, 0):.1f}" for s in untrained[:5]))
+                    except Exception as exc:
+                        log.warning("Quick score fetch failed for ETFs: %s — using rank order", exc)
+
+                train_count = 0
+                max_train_per_cycle = 3
+                for sym in untrained:
+                    if train_count >= max_train_per_cycle:
+                        break
+                    if self._train_on_the_fly(sym):
+                        model_universe.add(sym)
+                        train_count += 1
+
+                # Step 4: Build final list — ALL trained models, ordered by rank
+                # Ranked trained models come first (in rank order)
+                ready = [s for s in ranked_symbols if s in model_universe]
+                # Append any trained models not in the ranking (edge case)
+                for s in model_universe:
+                    if s not in ready:
+                        ready.append(s)
+
+            if not ready:
+                log.warning("No ready symbols — using static list")
+                return list(self.symbols)
+
+            # Ensure predictors are loaded
+            group_model_dir = get_model_dir(group)
+            final = []
+            for sym in ready:
+                if sym not in self.predictors or self.predictors[sym] is None:
+                    predictor = self._create_predictor(
+                        sym, group, group_model_dir, self.mode, self.intraday_interval,
+                    )
+                    self.predictors[sym] = predictor
+                    if predictor:
+                        log.info("Loaded predictor for %s", sym)
+                    else:
+                        log.warning("Predictor failed for %s — skipping", sym)
+                        continue
+                final.append(sym)
+
+            # Classify vol tiers for any new symbols
+            new_syms = [s for s in final if s not in self._vol_tiers]
+            if new_syms:
+                self._classify_vol_tiers_for(new_syms)
+
+            log.info("ETF ranker: %d symbols ready for %s (ordered by rank): %s",
+                     len(final), group, ", ".join(final))
+            self._etf_active_symbols = final
+            return final
+
+        except Exception as exc:
+            log.error("ETF ranker failed: %s — using static list", exc)
+            return list(self.symbols)
+
+    # Rank scalar ranges by universe type:
+    # Crypto: steeper gradient — correlated assets, concentrate on top signals
+    # ETF: shallower gradient — independently diversified, more even sizing
+    _RANK_SCALAR_RANGE = {
+        "crypto":          (0.25, 1.0),
+        "crypto_intraday": (0.25, 1.0),
+        "swing":           (0.50, 1.0),
+        "intraday":        (0.50, 1.0),
+    }
 
     def _get_rank_scalar(self, symbol: str) -> float:
         """Get composite-score-based sizing scalar.
 
-        Maps composite score to position weight:
-        - Highest composite → 1.0 (full size)
-        - Lowest in selected set → 0.5 (half size)
-        - Not in set → 0.3 (minimum probe)
+        Maps composite score to position weight using the full ranked list.
+        Gradient is steeper for crypto (correlated assets → concentrate capital)
+        and shallower for ETFs (diversified → more even sizing).
+
+        Not in ranked set → floor × 0.8 (exit-only territory).
         """
         if not hasattr(self, "_composite_scores") or not self._composite_scores:
             return 1.0
         yf_sym = _crypto_to_yfinance(symbol)
         scores = self._composite_scores
-        if yf_sym not in scores:
-            return 0.3
 
-        # Normalize within selected set: top → 1.0, bottom → 0.5
+        floor, ceiling = self._RANK_SCALAR_RANGE.get(
+            self.group or "swing", (0.50, 1.0)
+        )
+
+        if yf_sym not in scores:
+            return floor * 0.8  # below minimum ranked → exit-only territory
+
         vals = list(scores.values())
         max_score = max(vals) if vals else 1.0
         min_score = min(vals) if vals else 0.0
         score_range = max_score - min_score
 
         if score_range < 1e-6:
-            return 0.75  # all equal
+            return (floor + ceiling) / 2  # all equal → midpoint
 
         normalized = (scores[yf_sym] - min_score) / score_range  # 0 to 1
-        return 0.5 + 0.5 * normalized  # 0.5 to 1.0
+        return floor + (ceiling - floor) * normalized
 
     # -- Account info --------------------------------------------------
     def get_account_summary(self) -> dict:
@@ -1157,8 +1728,8 @@ class AlpacaPaperTrader:
         Increments the bar counter for horizon-aware hold tracking.
         """
         # Increment bar counter on every call (1 call ≈ 1 five-min bar)
-        if symbol in self._ci_bars_held:
-            self._ci_bars_held[symbol] += 1
+        # Use setdefault so positions surviving a restart still get counted
+        self._ci_bars_held[symbol] = self._ci_bars_held.get(symbol, 0) + 1
 
         if self._crypto_intraday_data is None:
             from crypto_intraday_data import CryptoIntradayData
@@ -1336,6 +1907,24 @@ class AlpacaPaperTrader:
         if exit_only and not has_position:
             return "EXIT-ONLY  (no position — symbol not in this group)"
 
+        # Exit-only with no model signal → close immediately, no reason to hold
+        if exit_only and has_position:
+            pred = self._predict(symbol)
+            er = pred.get("expected_return", 0.0)
+            if er == 0.0 and pred.get("direction", "UNKNOWN") == "UNKNOWN":
+                pos_info = positions[symbol]
+                qty = pos_info["qty"]
+                side = pos_info["side"]
+                pnl_pct = pos_info["unrealized_pnl_pct"]
+                qty_display = f"{qty:.6f}" if is_crypto and isinstance(qty, float) else str(int(qty))
+                reason = "exit_only_no_model (no predictor loaded)"
+                if side == "LONG":
+                    self._sell(symbol, qty, reason)
+                else:
+                    self._cover(symbol, qty, reason)
+                return (f"EXIT  ({reason}, P&L={pnl_pct:+.2%}, "
+                        f"{qty_display} sh {side})")
+
         # --- Exit logic (tier-based) ---
         if has_position:
             qty = pos["qty"]
@@ -1478,15 +2067,26 @@ class AlpacaPaperTrader:
                 profit_lock_armed = self._profit_lock_active.get(symbol, False)
 
                 if profit_lock_armed:
-                    # 2a: Profit-lock armed + model flips + still profitable → exit
-                    # For crypto_intraday: only after min hold bars elapsed
-                    ci_min_hold_ok = True
+                    # 2a: Profit-lock armed + model flips + still profitable -> exit,
+                    # but signal-decay exits still respect the group's min hold.
+                    signal_min_hold_ok = True
                     if self.group == "crypto_intraday":
                         from src.risk_config import CRYPTO_INTRADAY_MIN_HOLD_BARS
-                        ci_min_hold_ok = self._ci_bars_held.get(symbol, 0) >= CRYPTO_INTRADAY_MIN_HOLD_BARS
+                        signal_min_hold_ok = (
+                            self._ci_bars_held.get(symbol, 0) >= CRYPTO_INTRADAY_MIN_HOLD_BARS
+                        )
+                    else:
+                        signal_min_hold_ok = (
+                            self._bars_held.get(symbol, 0) + 1 >=
+                            get_effective_min_hold(
+                                getattr(ep, "min_hold_bars", 0),
+                                self._entry_atrs.get(symbol, 0),
+                                bar_atr,
+                            )
+                        )
                     signal_flipped = ((side == "LONG" and expected_return <= 0)
                                       or (side == "SHORT" and expected_return >= 0))
-                    if signal_flipped and pnl_pct > 0 and ci_min_hold_ok:
+                    if signal_flipped and pnl_pct > 0 and signal_min_hold_ok:
                         reason = (f"profit_lock+signal_decay (armed, E[r]={expected_return:+.4f}, "
                                   f"PnL={pnl_pct:+.2%})")
                         result = _do_exit(reason, "profit_lock+signal")
@@ -1562,7 +2162,16 @@ class AlpacaPaperTrader:
 
                     flip_count = self._signal_flip_counts.get(symbol, 0)
                     required_flips = ep.signal_flip_consecutive
-                    min_hold = getattr(ep, "min_hold_bars", 0)
+                    base_min_hold = getattr(ep, "min_hold_bars", 0)
+                    # ATR-adaptive min hold: scale by vol ratio.
+                    # High vol → hold longer (signal needs more time to play out).
+                    # Low vol → exit sooner (opportunity cost).
+                    # Clamped to [base/2, base*2] to prevent extremes.
+                    min_hold = get_effective_min_hold(
+                        base_min_hold,
+                        self._entry_atrs.get(symbol, 0),
+                        bar_atr,
+                    )
 
                     if bars_held >= min_hold and flip_count >= required_flips:
                         reason = (f"signal_decay (E[r]={expected_return:+.4f}, "
@@ -1621,15 +2230,15 @@ class AlpacaPaperTrader:
             self._alert_engine.notify_model_paused(symbol, pause_reason, group=self.group or "")
             return f"MODEL-PAUSED  ({pause_reason})  ML: {direction} E[r]={expected_return:+.4f}"
 
-        # Determine entry direction
-        # Respect model's own quality gate (e.g. LightGBM calibrated threshold)
+        # Determine entry direction.
+        # Respect the model's own quality gate; cost threshold is the entry gate.
         enter_dir = None
         if not pred.get("tradeable", True):
             return (f"SKIP  (model gate: not tradeable)  ML: {direction} "
                     f"E[r]={expected_return:+.4f}")
-        if expected_return > self.cost_threshold and bar_trend > 0:
+        if expected_return > self.cost_threshold:
             enter_dir = "LONG"
-        elif expected_return < -self.cost_threshold and bar_trend < 0:
+        elif expected_return < -self.cost_threshold:
             enter_dir = "SHORT"
 
         if enter_dir is not None:
@@ -1704,8 +2313,10 @@ class AlpacaPaperTrader:
                     window=risk.kelly_window, min_trades=risk.kelly_min_trades
                 )
             if kelly_f is not None:
-                base_frac = min(kelly_f, risk.kelly_cap)
-                size_source = f"kelly={kelly_f:.3f}"
+                # Cross-group discount: scale Kelly for multi-strategy portfolio
+                effective_cap = risk.kelly_cap * risk.cross_group_kelly_discount
+                base_frac = min(kelly_f * risk.cross_group_kelly_discount, effective_cap)
+                size_source = f"kelly={kelly_f:.3f}×{risk.cross_group_kelly_discount:.2f}"
             else:
                 base_frac = risk.position_pct
                 size_source = "fixed"
@@ -1734,10 +2345,27 @@ class AlpacaPaperTrader:
                         f"ML: {direction} E[r]={expected_return:+.4f}")
             sizing_pct *= conf_mult
 
-            # --- Rank-based sizing (Layer 1 selector, crypto only) ---
-            if self.group == "crypto" and self._coin_selector is not None:
+            # --- Rank-based sizing (Layer 1 ranker, all dynamic groups) ---
+            if self.group in ("crypto", "crypto_intraday") and self._coin_selector is not None:
                 rank_scalar = self._get_rank_scalar(symbol)
                 sizing_pct *= rank_scalar
+            elif self.group in ("swing", "intraday") and self._etf_selector is not None:
+                rank_scalar = self._get_rank_scalar(symbol)
+                sizing_pct *= rank_scalar
+
+            # --- BTC correlation penalty (crypto only) ---
+            # When BTC position is already open, reduce sizing for highly correlated alts.
+            # corr=0.9 → 55% size reduction. Anchor coins (BTC, ETH) are exempt (corr=0).
+            _BTC_KEYS = ("BTC/USD", "BTCUSD")
+            if is_crypto and self._btc_correlations and symbol not in _BTC_KEYS:
+                btc_pos = positions.get("BTC/USD") or positions.get("BTCUSD")
+                if btc_pos and btc_pos.get("qty", 0) > 0:
+                    btc_corr = self._btc_correlations.get(symbol, 0.5)
+                    corr_penalty = 1 - 0.5 * btc_corr
+                    sizing_pct *= corr_penalty
+                    if btc_corr > 0.7:
+                        log.info("BTC corr penalty for %s: corr=%.2f → size ×%.2f",
+                                 symbol, btc_corr, corr_penalty)
 
             # --- Auto de-risking check ---
             size_note = f" [{size_source}]"
@@ -1990,6 +2618,35 @@ class AlpacaPaperTrader:
         # Reconcile stale positions before entering the main loop
         self._reconcile_positions()
 
+        # Initialize bar counters for existing positions (survive restarts)
+        try:
+            existing = self.get_positions()
+            for sym, pos in existing.items():
+                if pos.get("qty", 0) <= 0:
+                    continue
+                entry_str = pos.get("entry_time", "")
+                if entry_str:
+                    try:
+                        entry_dt = datetime.fromisoformat(entry_str)
+                        elapsed = (datetime.now(timezone.utc) - entry_dt).total_seconds()
+                        bars = max(0, int(elapsed / 300))  # 5-min check intervals
+                    except (ValueError, TypeError):
+                        bars = 36  # safe default: past min hold
+                else:
+                    bars = 36
+                # Restore both counters so signal decay and crypto intraday
+                # horizon logic work correctly after restarts
+                if sym not in self._bars_held:
+                    self._bars_held[sym] = bars
+                    log.info("Restored bars_held for %s: %d bars (%.1fh)",
+                             sym, bars, elapsed / 3600 if entry_str else 0)
+                if self.group == "crypto_intraday" and sym not in self._ci_bars_held:
+                    self._ci_bars_held[sym] = bars
+                    log.info("Restored ci_bars_held for %s: %d bars (%.1fh)",
+                             sym, bars, elapsed / 3600 if entry_str else 0)
+        except Exception as exc:
+            log.warning("Could not restore bar counters: %s", exc)
+
         # Graceful shutdown
         def handle_signal(sig, frame):
             print("\n\n  Shutting down paper trader...\n")
@@ -2032,22 +2689,60 @@ class AlpacaPaperTrader:
                 account = self.get_account_summary()
                 positions = self.get_positions()
 
-                # Layer 1: dynamic coin selection (crypto groups, once per cycle)
-                # Runs the cross-sectional selector to pick top-K coins.
-                # For non-crypto groups, cycle_symbols == self.symbols (static).
+                # Layer 1: dynamic symbol selection (date-change gate)
+                # Full refresh once per trading day AFTER bar settlement:
+                #   ETF: after 06:30 ET (previous day's daily bar confirmed)
+                #   Crypto: after 00:30 UTC (daily bar settled at midnight UTC)
+                # Intraday fast re-rank: re-score every 1h (ETF) / 30min (crypto)
+                #   using the same ranker with fresh short-term data. This catches
+                #   intraday opportunity rotation without retraining any ML model.
+                # Fallback: static self.symbols
+                now_utc = datetime.now(timezone.utc)
+
                 if self.group in ("crypto", "crypto_intraday") and self._coin_selector is not None:
-                    now_utc = datetime.now(timezone.utc)
-                    elapsed = ((now_utc - self._selector_last_run).total_seconds()
-                               if self._selector_last_run else float("inf"))
-                    if elapsed >= 86400 or not self._selector_active_symbols:
+                    _fast_interval = _FAST_REFRESH_SECS.get(self.group)
+                    _do_full = (_should_refresh_selector(self.group, self._selector_last_run_date)
+                                or not self._selector_active_symbols)
+                    _do_fast = (
+                        not _do_full
+                        and _fast_interval is not None
+                        and (self._selector_last_fast_refresh is None
+                             or (now_utc - self._selector_last_fast_refresh).total_seconds()
+                             >= _fast_interval)
+                    )
+                    if _do_full or _do_fast:
                         cycle_symbols = self._run_coin_selector()
-                        self._selector_last_run = now_utc
+                        if _do_full:
+                            self._selector_last_run_date = now_utc.date()
+                        self._selector_last_fast_refresh = now_utc
                     else:
                         cycle_symbols = self._selector_active_symbols
+
+                elif self.group in ("swing", "intraday") and self._etf_selector is not None:
+                    _fast_interval = _FAST_REFRESH_SECS.get(self.group)
+                    _do_full = (_should_refresh_selector(self.group, self._etf_selector_last_run_date)
+                                or not self._etf_active_symbols)
+                    _do_fast = (
+                        not _do_full
+                        and _fast_interval is not None
+                        and (self._etf_selector_last_fast_refresh is None
+                             or (now_utc - self._etf_selector_last_fast_refresh).total_seconds()
+                             >= _fast_interval)
+                    )
+                    if _do_full or _do_fast:
+                        cycle_symbols = self._run_etf_selector()
+                        if _do_full:
+                            self._etf_selector_last_run_date = now_utc.date()
+                        self._etf_selector_last_fast_refresh = now_utc
+                    else:
+                        cycle_symbols = self._etf_active_symbols
                 else:
                     cycle_symbols = list(self.symbols)
 
-                allocation_per_sym = account["equity"] / max(len(cycle_symbols), 1)
+                # For crypto ranker: max_positions drives actual sizing, not candidate count.
+                # allocation_per_sym is only used for crypto liquidity cap.
+                n_sizing = min(len(cycle_symbols), self._risk_config.max_positions)
+                allocation_per_sym = account["equity"] / max(n_sizing, 1)
 
                 # Print header
                 print(f"\n  [{datetime.now().strftime('%H:%M:%S')}] "
@@ -2055,7 +2750,7 @@ class AlpacaPaperTrader:
                 print(f"  Account: ${account['equity']:,.2f} equity | "
                       f"${account['cash']:,.2f} cash | "
                       f"${account['equity'] - account['cash']:,.2f} in positions")
-                print(f"  Allocation per symbol: ${allocation_per_sym:,.2f}")
+                print(f"  Candidates: {len(cycle_symbols)} | Max positions: {self._risk_config.max_positions}")
                 print()
 
                 # Refresh VIX cache once per cycle so all symbols share the same fetch.

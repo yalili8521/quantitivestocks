@@ -1,6 +1,35 @@
 {
-  "cash": 100000.0,
+  "cash": 100034.40118934962,
   "initial_balance": 100000.0,
-  "positions": {},
-  "last_updated": "2026-03-17T12:00:00.000000+00:00"
+  "positions": {
+    "EGLD/USD": {
+      "symbol": "EGLD/USD",
+      "qty": 191.164421,
+      "side": "SHORT",
+      "entry_price": 4.34,
+      "entry_time": "2026-03-17T07:46:04.002572+00:00"
+    },
+    "WLD/USD": {
+      "symbol": "WLD/USD",
+      "qty": 1390.769039,
+      "side": "SHORT",
+      "entry_price": 0.3944,
+      "entry_time": "2026-03-17T07:46:34.804974+00:00"
+    },
+    "ATOM/USD": {
+      "symbol": "ATOM/USD",
+      "qty": 368.069507,
+      "side": "SHORT",
+      "entry_price": 1.9449,
+      "entry_time": "2026-03-17T07:46:45.197569+00:00"
+    },
+    "OP/USD": {
+      "symbol": "OP/USD",
+      "qty": 1611.328128,
+      "side": "SHORT",
+      "entry_price": 0.1357,
+      "entry_time": "2026-03-18T00:29:39.375883+00:00"
+    }
+  },
+  "last_updated": "2026-03-20T01:36:52.932840+00:00"
 }

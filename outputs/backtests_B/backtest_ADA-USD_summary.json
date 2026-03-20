@@ -1,0 +1,22 @@
+{
+  "symbol": "ADA-USD",
+  "mode": "daily",
+  "intraday_interval": "5min",
+  "start_date": "2024-03-01",
+  "end_date": "2026-03-17",
+  "initial_capital": 100000.0,
+  "final_equity": 106477.59,
+  "total_return_pct": 6.48,
+  "annualized_return_pct": 2.14,
+  "sharpe_ratio": 0.419,
+  "max_drawdown_pct": -9.12,
+  "total_trades": 33,
+  "win_rate": 0.485,
+  "avg_win_pct": 13.19,
+  "avg_loss_pct": -9.03,
+  "profit_factor": 1.328,
+  "avg_trade_duration_days": 7.5,
+  "vol_tier": "high",
+  "exit_variant": "B",
+  "bt_group": "crypto"
+}

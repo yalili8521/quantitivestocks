@@ -315,8 +315,13 @@ def train_selector(
     train_df = panel[train_mask].copy()
     val_df = panel[val_mask].copy()
 
-    if len(train_df) < 100:
-        raise RuntimeError(f"Training set too small: {len(train_df)} rows (need ≥100)")
+    # Min sample gate: NDCG is unreliable on small samples. Need ≥150 rows
+    # and ≥30 unique dates (query groups) for stable ranking quality.
+    if len(train_df) < 150:
+        raise RuntimeError(f"Training set too small: {len(train_df)} rows (need ≥150)")
+    n_train_dates = train_df["date"].nunique()
+    if n_train_dates < 30:
+        raise RuntimeError(f"Training set has too few dates: {n_train_dates} (need ≥30)")
     if len(val_df) < 50:
         log.warning("Validation set small: %d rows", len(val_df))
 
@@ -391,14 +396,8 @@ def train_selector(
         callbacks=callbacks,
     )
 
-    # Save model
-    model_path = os.path.join(save_dir, SELECTOR_MODEL_FILE)
-    model.save_model(model_path)
-    log.info("Saved selector model to %s", model_path)
-
     # Evaluate: NDCG on validation set
     val_pred = model.predict(X_val)
-    # Compute NDCG manually for logging
     ndcg_scores = _compute_ndcg_by_group(val_pred, y_val, groups_val, k=top_k)
     mean_ndcg = float(np.mean(ndcg_scores)) if ndcg_scores else 0.0
 
@@ -408,6 +407,31 @@ def train_selector(
 
     # Compute top-K hit rate: how often are the actual best coins in the predicted top-K?
     hit_rate = _compute_topk_hit_rate(val_pred, y_val, groups_val, k=top_k)
+
+    # --- NDCG comparison gate: don't deploy a worse model ---
+    # Load old model's NDCG from existing config (if any)
+    config_path = os.path.join(save_dir, SELECTOR_CONFIG_FILE)
+    model_path = os.path.join(save_dir, SELECTOR_MODEL_FILE)
+    _ndcg_tolerance = 0.02  # allow 2% regression (different val split)
+    _deploy = True
+    try:
+        if os.path.exists(config_path):
+            with open(config_path, "r") as _f:
+                old_metrics = json.load(_f)
+            old_ndcg = old_metrics.get("mean_ndcg", 0.0)
+            if mean_ndcg < old_ndcg - _ndcg_tolerance:
+                log.warning(
+                    "Selector retrain REJECTED: NDCG %.4f < %.4f − %.2f (old kept)",
+                    mean_ndcg, old_ndcg, _ndcg_tolerance,
+                )
+                _deploy = False
+            else:
+                log.info(
+                    "Selector NDCG gate passed: %.4f → %.4f (old=%.4f, tol=%.2f)",
+                    old_ndcg, mean_ndcg, old_ndcg, _ndcg_tolerance,
+                )
+    except Exception as exc:
+        log.warning("Could not load old selector metrics for comparison: %s", exc)
 
     metrics = {
         "train_rows": len(train_df),
@@ -421,15 +445,21 @@ def train_selector(
         "topk_hit_rate": round(hit_rate, 4),
         "best_iteration": model.best_iteration,
         "feature_importance": dict(sorted_imp),
+        "deployed": _deploy,
     }
 
-    config_path = os.path.join(save_dir, SELECTOR_CONFIG_FILE)
-    with open(config_path, "w") as f:
-        json.dump(metrics, f, indent=2)
-    log.info("Saved selector config to %s", config_path)
+    if _deploy:
+        model.save_model(model_path)
+        log.info("Saved selector model to %s", model_path)
+        with open(config_path, "w") as f:
+            json.dump(metrics, f, indent=2)
+        log.info("Saved selector config to %s", config_path)
+    else:
+        log.info("Old selector model retained (new model NOT saved)")
 
     log.info("=== Selector Training Results ===")
-    log.info("  NDCG@%d (val): %.4f", top_k, mean_ndcg)
+    log.info("  NDCG@%d (val): %.4f%s", top_k, mean_ndcg,
+             "" if _deploy else " [REJECTED — old model kept]")
     log.info("  Top-%d hit rate: %.1f%%", top_k, hit_rate * 100)
     log.info("  Best iteration: %d", model.best_iteration)
     log.info("  Feature importance:")

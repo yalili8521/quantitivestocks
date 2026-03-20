@@ -1040,6 +1040,14 @@ def train_tft_swing_model(
         return None
 
     log.info("[TFT] %s: saved → %s  (dir_acc=%.3f)", symbol, tft_path, final_dir)
+    if final_dir >= 0.52:
+        try:
+            from model_monitor import ModelMonitor
+            ModelMonitor().clear_model_pause(symbol, reason="retrained_swing_model")
+        except Exception as exc:
+            log.debug("Model pause clear skipped for %s: %s", symbol, exc)
+    else:
+        log.info("Pause state retained for %s: TFT dir_acc=%.3f < 0.52", symbol, final_dir)
     return model
 
 
@@ -1300,6 +1308,14 @@ def train_swing_model(
         json.dump(config, f, indent=2)
 
     log.info("Saved swing XGBoost → %s (dir_acc=%.3f)", model_path, direction_acc)
+    if direction_acc >= 0.52:
+        try:
+            from model_monitor import ModelMonitor
+            ModelMonitor().clear_model_pause(symbol, reason="retrained_swing_model")
+        except Exception as exc:
+            log.debug("Model pause clear skipped for %s: %s", symbol, exc)
+    else:
+        log.info("Pause state retained for %s: XGBoost dir_acc=%.3f < 0.52", symbol, direction_acc)
 
     # Train TFT ensemble component (60% weight in final blend)
     try:
@@ -1525,7 +1541,15 @@ class SwingPredictor:
                                 w_tft = max(self._MIN_WEIGHT, min(self._MAX_WEIGHT, w_tft))
                                 self._tft_weight = w_tft
                             # else keep previous weight
-                        # else: not enough history, use default _TFT_WEIGHT
+                        else:
+                            # Pre-warmup: VIX-conditional default.
+                            # High vol → XGBoost more robust on tabular features.
+                            # Low vol → TFT temporal attention adds value.
+                            try:
+                                current_vix = float(vix_df["close"].iloc[-1])
+                                self._tft_weight = 0.25 if current_vix > 25 else 0.40
+                            except Exception:
+                                self._tft_weight = _TFT_WEIGHT  # fallback to hardcoded
 
                         expected_return = self._tft_weight * tft_ret + (1 - self._tft_weight) * xgb_ret
                         log.debug("[TFT] %s: xgb=%.4f tft=%.4f w_tft=%.2f blend=%.4f",

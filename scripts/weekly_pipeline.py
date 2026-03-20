@@ -202,6 +202,62 @@ def run_select_symbols() -> StepResult:
         return StepResult("select-symbols", False, time.time() - t0, error=str(exc))
 
 
+def run_train_new_etfs() -> StepResult:
+    """Step 5b: Train swing models for any newly promoted ETFs without models.
+
+    Checks promoted_symbols.json against existing model files. Only trains
+    symbols that were promoted but don't have a trained XGBoost model yet.
+    Skips entirely if there are no new symbols to train.
+    """
+    t0 = time.time()
+    try:
+        from utils import SWING_MODEL_DIR
+        from etf_screener import load_promoted_symbols
+
+        promoted = load_promoted_symbols(SWING_MODEL_DIR)
+        if not promoted:
+            return StepResult("train-new-etfs", True, time.time() - t0,
+                              details="No promoted_symbols.json — skipped")
+
+        # Check which promoted symbols lack a model
+        import re
+        _SYM_RE = re.compile(r"^[A-Z0-9\-/]{1,10}$")
+        untrained = []
+        for sym in promoted:
+            if not _SYM_RE.match(sym):
+                print(f"  [WARN] Invalid symbol skipped: {sym!r}")
+                continue
+            model_file = os.path.join(SWING_MODEL_DIR, f"{sym}_xgb_swing.joblib")
+            if not os.path.exists(model_file):
+                untrained.append(sym)
+
+        if not untrained:
+            return StepResult("train-new-etfs", True, time.time() - t0,
+                              details="All promoted ETFs have models — nothing to train")
+
+        # Train only the new ones
+        sym_list = ",".join(untrained)
+        result = _run_command(
+            [PYTHON, MAIN_PY, "train-swing",
+             "--symbols", sym_list,
+             "--provider", "yahoo"],
+            timeout=3600,
+        )
+        elapsed = time.time() - t0
+        if result.returncode != 0:
+            return StepResult("train-new-etfs", False, elapsed,
+                              error=result.stderr[-500:] if result.stderr else "non-zero exit")
+
+        lines = result.stdout.splitlines() + result.stderr.splitlines()
+        ok_count = sum(1 for l in lines if "Saved swing XGBoost" in l)
+        details = f"{len(untrained)} new symbols, {ok_count} models saved"
+        return StepResult("train-new-etfs", True, elapsed, details=details)
+    except subprocess.TimeoutExpired:
+        return StepResult("train-new-etfs", False, time.time() - t0, error="timeout (1h)")
+    except Exception as exc:
+        return StepResult("train-new-etfs", False, time.time() - t0, error=str(exc))
+
+
 def run_model_health() -> StepResult:
     """Step 5: Layer 4 — check model health, report degraded models."""
     t0 = time.time()
@@ -216,7 +272,7 @@ def run_model_health() -> StepResult:
         warnings = []
         health = monitor.get_all_health()
         for sym, info in health.items():
-            status = info.get("status", "ok")
+            status = getattr(info, "status", "ok")
             if status == "paused":
                 paused.append(sym)
             elif status == "warning":
@@ -313,6 +369,8 @@ DEPENDENCY_GATES: dict[str, list[tuple[str, str, str]]] = {
     "select-symbols": [
         ("train-crypto", "hard", "cannot backtest stale models"),
     ],
+    # train-new-etfs is independent — uses promoted_symbols.json (already exists)
+    "train-new-etfs": [],
     # model-health is independent — always runs
     "model-health": [],
 }
@@ -323,7 +381,7 @@ def main() -> None:
     parser.add_argument("--skip", nargs="*", default=[],
                         help="Steps to skip: screen-universe, train-selector, "
                              "train-crypto, train-crypto-intraday, "
-                             "select-symbols, model-health")
+                             "select-symbols, train-new-etfs, model-health")
     args = parser.parse_args()
 
     # Load env vars (CMC_API_KEY, ALERT_WEBHOOK_URL, etc.)
@@ -338,6 +396,7 @@ def main() -> None:
         ("train-crypto", run_train_crypto),
         ("train-crypto-intraday", run_train_crypto_intraday),
         ("select-symbols", run_select_symbols),
+        ("train-new-etfs", run_train_new_etfs),
         ("model-health", run_model_health),
     ]
 

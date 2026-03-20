@@ -1,0 +1,12 @@
+{
+  "symbol": "IEF",
+  "model_type": "tft_swing",
+  "n_features": 25,
+  "seq_len": 20,
+  "hidden": 32,
+  "n_heads": 4,
+  "val_mse": 8.576e-05,
+  "val_direction_accuracy": 0.7258,
+  "n_train": 494,
+  "n_val": 124
+}

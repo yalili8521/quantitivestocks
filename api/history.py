@@ -14,23 +14,33 @@ import requests as req
 
 ALPACA_BASE = "https://paper-api.alpaca.markets/v2"
 
+# Symbol filters: only show orders for symbols that belong to each group.
+# Prevents stale cross-group orders from polluting the view after account splits.
+_INTRADAY_SYMS = {"SMH", "IWM", "IGV", "QQQ", "SOXX", "EWT"}
+_SWING_SYMS = {
+    "GDX", "SLV", "IGV", "QQQ", "GLD", "SMH", "IBIT", "XLK", "HYG",
+    "EWJ", "TLT", "EEM", "SPY", "EWZ", "IWM", "XLE",
+}
+
 ACCOUNTS = [
     {
-        "name": "Intraday",
+        "name": "ETF 5m",
         "group": "intraday",
         "key_env": "ALPACA_INTRADAY_KEY",
         "secret_env": "ALPACA_INTRADAY_SECRET",
+        "symbols": _INTRADAY_SYMS,
     },
     {
-        "name": "Swing",
+        "name": "ETF Swing",
         "group": "swing",
         "key_env": "ALPACA_SWING_KEY",
         "secret_env": "ALPACA_SWING_SECRET",
+        "symbols": _SWING_SYMS,
     },
 ]
 
 
-def _fetch_alpaca(api_key: str, api_secret: str) -> dict:
+def _fetch_alpaca(api_key: str, api_secret: str, allowed_symbols: set | None = None) -> dict:
     if not api_key or not api_secret:
         return {"portfolio": {}, "orders": [], "traded_symbols": []}
 
@@ -62,15 +72,20 @@ def _fetch_alpaca(api_key: str, api_secret: str) -> dict:
         )
         if resp.ok:
             for o in resp.json():
-                if o.get("status") == "filled":
-                    orders.append({
-                        "symbol":    o.get("symbol", ""),
-                        "side":      o.get("side", ""),
-                        "qty":       o.get("filled_qty", "0"),
-                        "price":     o.get("filled_avg_price", "0"),
-                        "filled_at": o.get("filled_at", ""),
-                        "intent":    o.get("position_intent", ""),
-                    })
+                if o.get("status") != "filled":
+                    continue
+                sym = o.get("symbol", "")
+                # Filter out orders for symbols not in this group
+                if allowed_symbols and sym not in allowed_symbols:
+                    continue
+                orders.append({
+                    "symbol":    sym,
+                    "side":      o.get("side", ""),
+                    "qty":       o.get("filled_qty", "0"),
+                    "price":     o.get("filled_avg_price", "0"),
+                    "filled_at": o.get("filled_at", ""),
+                    "intent":    o.get("position_intent", ""),
+                })
     except Exception:
         pass
 
@@ -80,6 +95,8 @@ def _fetch_alpaca(api_key: str, api_secret: str) -> dict:
         if pos_resp.ok:
             for p in pos_resp.json():
                 sym = p.get("symbol", "")
+                if allowed_symbols and sym not in allowed_symbols:
+                    continue
                 if sym and sym not in traded_symbols:
                     traded_symbols.append(sym)
     except Exception:
@@ -97,7 +114,7 @@ def _fetch_alpaca(api_key: str, api_secret: str) -> dict:
     }
 
 
-def _fetch_kraken_history(state_filename: str = "kraken_paper_state.json") -> dict:
+def _fetch_kraken_history(trade_log_filename: str = "kraken_trade_log.json") -> dict:
     """Read Kraken paper trade log from GitHub Gist."""
     gist_id = os.environ.get("KRAKEN_STATE_GIST_ID", "")
     if not gist_id:
@@ -115,7 +132,7 @@ def _fetch_kraken_history(state_filename: str = "kraken_paper_state.json") -> di
         gist_data = resp.json()
 
         # Read trade log if it exists
-        trade_log_content = gist_data.get("files", {}).get("kraken_trade_log.json", {}).get("content", "[]")
+        trade_log_content = gist_data.get("files", {}).get(trade_log_filename, {}).get("content", "[]")
         trade_log = json.loads(trade_log_content) if trade_log_content else []
 
         orders = []
@@ -147,7 +164,7 @@ class handler(BaseHTTPRequestHandler):
         for cfg in ACCOUNTS:
             key    = os.environ.get(cfg["key_env"], "")
             secret = os.environ.get(cfg["secret_env"], "")
-            data   = _fetch_alpaca(key, secret)
+            data   = _fetch_alpaca(key, secret, cfg.get("symbols"))
             accounts.append({
                 "name":      cfg["name"],
                 "group":     cfg["group"],
@@ -159,7 +176,7 @@ class handler(BaseHTTPRequestHandler):
                     all_symbols.append(sym)
 
         # Crypto group — Kraken paper trade log from Gist
-        crypto_data = _fetch_kraken_history("kraken_paper_state.json")
+        crypto_data = _fetch_kraken_history("kraken_trade_log.json")
         accounts.append({
             "name":      "Crypto",
             "group":     "crypto",
@@ -168,9 +185,9 @@ class handler(BaseHTTPRequestHandler):
         })
 
         # Crypto Intraday group — separate Kraken paper state
-        crypto_intraday_data = _fetch_kraken_history("kraken_intraday_paper_state.json")
+        crypto_intraday_data = _fetch_kraken_history("kraken_intraday_trade_log.json")
         accounts.append({
-            "name":      "Crypto Intraday",
+            "name":      "Crypto 5m",
             "group":     "crypto_intraday",
             "portfolio": crypto_intraday_data["portfolio"],
             "orders":    crypto_intraday_data["orders"],

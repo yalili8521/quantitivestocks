@@ -1,0 +1,106 @@
+[
+  {
+    "symbol": "EGLD/USD",
+    "side": "sell",
+    "qty": 971.770321,
+    "price": 4.13,
+    "time": "2026-03-18T20:03:47.541105+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "FIL/USD",
+    "side": "sell",
+    "qty": 3283.790301,
+    "price": 0.915,
+    "time": "2026-03-18T20:09:29.427103+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "WLD/USD",
+    "side": "sell",
+    "qty": 8269.75203,
+    "price": 0.3634,
+    "time": "2026-03-18T20:09:40.250888+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "EGLD/USD",
+    "side": "buy",
+    "qty": 971.770321,
+    "price": 4.09,
+    "time": "2026-03-18T21:19:14.539870+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "FIL/USD",
+    "side": "buy",
+    "qty": 3283.790301,
+    "price": 0.929,
+    "time": "2026-03-18T21:42:06.773789+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "OP/USD",
+    "side": "sell",
+    "qty": 23618.703766,
+    "price": 0.1268,
+    "time": "2026-03-18T22:09:33.192836+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "WLD/USD",
+    "side": "buy",
+    "qty": 8269.75203,
+    "price": 0.3665,
+    "time": "2026-03-18T22:15:16.145266+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "FIL/USD",
+    "side": "buy",
+    "qty": 3245.531674,
+    "price": 0.924,
+    "time": "2026-03-18T22:26:09.423237+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "WLD/USD",
+    "side": "buy",
+    "qty": 8185.293654,
+    "price": 0.3665,
+    "time": "2026-03-18T22:31:50.723187+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "OP/USD",
+    "side": "buy",
+    "qty": 23618.703766,
+    "price": 0.1259,
+    "time": "2026-03-18T23:16:14.850673+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "EGLD/USD",
+    "side": "buy",
+    "qty": 966.856041,
+    "price": 4.14,
+    "time": "2026-03-18T23:21:45.033902+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "FIL/USD",
+    "side": "sell",
+    "qty": 3245.531674,
+    "price": 0.924,
+    "time": "2026-03-18T23:49:42.074756+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "WLD/USD",
+    "side": "sell",
+    "qty": 8185.293654,
+    "price": 0.3682,
+    "time": "2026-03-18T23:49:49.377672+00:00",
+    "intent": "close"
+  }
+]

@@ -1,0 +1,2 @@
+{"timestamp": "2026-03-19T00:12:28.821504+00:00", "symbol": "EGLD-USD", "predicted_return": 0.066372, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-19T00:12:41.202516+00:00", "symbol": "EGLD-USD", "predicted_return": 0.066372, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}

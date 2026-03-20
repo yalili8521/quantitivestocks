@@ -1,0 +1,22 @@
+{
+  "symbol": "BTC-USD",
+  "mode": "daily",
+  "intraday_interval": "5min",
+  "start_date": "2024-03-01",
+  "end_date": "2026-03-17",
+  "initial_capital": 100000.0,
+  "final_equity": 98821.14,
+  "total_return_pct": -1.18,
+  "annualized_return_pct": -0.4,
+  "sharpe_ratio": -0.098,
+  "max_drawdown_pct": -6.23,
+  "total_trades": 40,
+  "win_rate": 0.55,
+  "avg_win_pct": 4.72,
+  "avg_loss_pct": -6.24,
+  "profit_factor": 0.913,
+  "avg_trade_duration_days": 11.8,
+  "vol_tier": "high",
+  "exit_variant": "B",
+  "bt_group": "crypto"
+}

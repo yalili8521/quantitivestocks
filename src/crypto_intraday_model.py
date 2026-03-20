@@ -685,6 +685,14 @@ class CryptoIntradayTrainer:
         log.info("Top 5 features: %s",
                  ", ".join(f"{k}={v:.1f}" for k, v in sorted_imp[:5]))
 
+        if dir_acc >= 0.52:
+            try:
+                from model_monitor import ModelMonitor
+                ModelMonitor().clear_model_pause(symbol, reason="retrained_crypto_intraday_model")
+            except Exception as exc:
+                log.debug("Model pause clear skipped for %s: %s", symbol, exc)
+        else:
+            log.info("Pause state retained for %s: val_dir_acc=%.3f < 0.52", symbol, dir_acc)
         return config
 
 

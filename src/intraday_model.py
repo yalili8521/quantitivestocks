@@ -634,6 +634,14 @@ def train_intraday_model(
 
     log.info("Saved intraday model → %s", model_path)
     log.info("Saved config → %s", config_path)
+    if val_acc >= 0.52:
+        try:
+            from model_monitor import ModelMonitor
+            ModelMonitor().clear_model_pause(symbol, reason="retrained_intraday_model")
+        except Exception as exc:
+            log.debug("Model pause clear skipped for %s: %s", symbol, exc)
+    else:
+        log.info("Pause state retained for %s: val_acc=%.3f < 0.52", symbol, val_acc)
     return model
 
 

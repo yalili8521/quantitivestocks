@@ -1,0 +1,12 @@
+{
+  "symbol": "EWA",
+  "model_type": "tft_swing",
+  "n_features": 25,
+  "seq_len": 20,
+  "hidden": 32,
+  "n_heads": 4,
+  "val_mse": 0.00264955,
+  "val_direction_accuracy": 0.5806,
+  "n_train": 494,
+  "n_val": 124
+}

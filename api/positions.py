@@ -15,13 +15,13 @@ ALPACA_BASE = "https://paper-api.alpaca.markets/v2"
 
 ACCOUNTS = [
     {
-        "name": "Intraday",
+        "name": "ETF 5m",
         "group": "intraday",
         "key_env": "ALPACA_INTRADAY_KEY",
         "secret_env": "ALPACA_INTRADAY_SECRET",
     },
     {
-        "name": "Swing",
+        "name": "ETF Swing",
         "group": "swing",
         "key_env": "ALPACA_SWING_KEY",
         "secret_env": "ALPACA_SWING_SECRET",
@@ -220,7 +220,7 @@ class handler(BaseHTTPRequestHandler):
         # Crypto Intraday group — separate Kraken paper state
         crypto_intraday_data = _fetch_kraken_paper("kraken_intraday_paper_state.json")
         accounts.append({
-            "name":      "Crypto Intraday",
+            "name":      "Crypto 5m",
             "group":     "crypto_intraday",
             "account":   crypto_intraday_data["account"],
             "positions": crypto_intraday_data["positions"],

@@ -2,6 +2,7 @@
   "version": 2,
   "public": true,
   "builds": [
+    { "src": "api/models.py", "use": "@vercel/python" },
     { "src": "api/positions.py", "use": "@vercel/python" },
     { "src": "api/signals.py", "use": "@vercel/python" },
     { "src": "api/history.py", "use": "@vercel/python" },
@@ -10,6 +11,7 @@
     { "src": "web/models_info.json", "use": "@vercel/static" }
   ],
   "routes": [
+    { "src": "/api/models", "dest": "/api/models.py" },
     { "src": "/api/positions", "dest": "/api/positions.py" },
     { "src": "/api/signals", "dest": "/api/signals.py" },
     { "src": "/api/history", "dest": "/api/history.py" },
