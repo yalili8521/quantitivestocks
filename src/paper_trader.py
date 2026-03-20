@@ -1039,20 +1039,13 @@ class AlpacaPaperTrader:
 
     # -- Coin ranker (Layer 1 → rank ALL, Layer 2 → ML decides) -----------
     def _run_coin_selector(self) -> List[str]:
-        """Rank the full crypto universe and return ALL as candidates, ordered
-        by composite quality score (best first).
-
-        Philosophy: no asset is filtered out. The ranking determines:
-          - Iteration order → highest rank gets first dibs on position slots
-          - Position sizing → top-ranked get full size, lower get smaller
-          - ML signal + risk limits are the actual entry/exit gates
+        """Rank-first crypto selection: ranking decides who trades, not model existence.
 
         Pipeline:
-          1. Get ALL coins with trained models
-          2. Rank via LambdaRank cross-sectional model
-          3. Composite score (rank × OOS Sharpe × OOS return) — no hard cutoffs
-          4. Return ALL ranked coins, ordered best-first
-          5. check_and_trade() + risk limits decide which actually open
+          1. Rank the full universe via LambdaRank + composite scoring
+          2. Take top-N ranked coins (N = max_positions)
+          3. Only those top-N with trained models become active
+          4. check_and_trade() + risk limits decide which actually open
 
         Falls back to static self.symbols if ranker unavailable or fails.
         """
@@ -1060,9 +1053,7 @@ class AlpacaPaperTrader:
             return list(self.symbols)
 
         try:
-            # Data freshness check: BTC canary — crypto is 24/7 so bars should
-            # never be >1 day old. If they are, data provider is down.
-            # For intraday mode, skip yfinance check (we use Kraken 5-min bars).
+            # Data freshness check: BTC canary
             if self._selector_mode != "intraday":
                 try:
                     import yfinance as yf
@@ -1081,24 +1072,23 @@ class AlpacaPaperTrader:
                 except Exception as exc:
                     log.warning("Crypto freshness check failed: %s — proceeding anyway", exc)
 
-            # ALL coins with trained models are candidates
-            model_universe = self._get_model_universe()
-            selector_input = [s for s in self._selector_universe if s in model_universe]
-            if len(selector_input) < 3:
-                log.warning("Model universe too small (%d coins) — using static list",
-                            len(selector_input))
+            # Step 1: Rank the FULL universe — ranking is king
+            rank_input = list(self._selector_universe) if self._selector_universe else []
+            if len(rank_input) < 3:
+                log.warning("Selector universe too small (%d coins) — using static list",
+                            len(rank_input))
                 self._composite_scores = {}
                 return list(self.symbols)
 
-            log.info("Ranker input: %d coins with models out of %d universe (mode=%s)",
-                     len(selector_input), len(self._selector_universe), self._selector_mode)
+            log.info("Ranker: scoring %d universe coins (mode=%s)",
+                     len(rank_input), self._selector_mode)
 
-            # Fetch data: intraday uses 5-min bars, swing uses daily
+            # Fetch data for ranking
             if self._selector_mode == "intraday":
                 data = fetch_universe_intraday_data(
-                    selector_input, lookback_days=INTRADAY_LOOKBACK_DAYS)
+                    rank_input, lookback_days=INTRADAY_LOOKBACK_DAYS)
             else:
-                data = fetch_universe_data(selector_input, lookback_days=400)
+                data = fetch_universe_data(rank_input, lookback_days=400)
             if len(data) < 3:
                 log.warning("Ranker: only %d coins with data — falling back to static list", len(data))
                 self._composite_scores = {}
@@ -1110,9 +1100,8 @@ class AlpacaPaperTrader:
                 self._composite_scores = {}
                 return list(self.symbols)
 
-            # BTC correlation penalty: penalize coins that duplicate BTC exposure
+            # BTC correlation penalty
             btc_correlations = self._compute_btc_correlations(data)
-            # Cache for runtime sizing penalty (when BTC position is open)
             self._btc_correlations = {
                 s.replace("-", "/"): c for s, c in btc_correlations.items()
             } if btc_correlations else {}
@@ -1121,23 +1110,17 @@ class AlpacaPaperTrader:
                 log.info("BTC correlations (top-5): %s",
                          ", ".join(f"{s}={c:.2f}" for s, c in top_corr))
 
-            # Composite scoring: ALL ranked coins, no hard cutoffs
+            # Composite scoring
             oos_sharpe, oos_perf = self._load_oos_registries()
             composite = self._compute_composite_scores(
                 result.rankings, oos_sharpe, oos_perf,
                 btc_correlations=btc_correlations,
             )
-
             if not composite:
-                # Fallback: use raw rankings when no OOS data exists
                 composite = {sym: score for sym, score in result.rankings}
 
-            # TFT confidence boost: blend live model confidence into composite.
-            # If a TFT predictor is loaded and returns a prediction for the coin,
-            # boost the composite score by up to 10% based on |confidence|.
-            # This lets the ranking reflect current model conviction, not just
-            # cross-sectional features and historical OOS stats.
-            _TFT_CONF_WEIGHT = 0.10  # max boost from TFT confidence
+            # TFT confidence boost
+            _TFT_CONF_WEIGHT = 0.10
             _vix = self._vix_cache if self._vix_cache is not None else self._get_vix_df()
             for sym in list(composite.keys()):
                 alpaca_sym = sym.replace("-", "/")
@@ -1151,29 +1134,36 @@ class AlpacaPaperTrader:
                             conf = min(1.0, abs(float(pred["confidence"])))
                             composite[sym] += _TFT_CONF_WEIGHT * conf
                 except Exception:
-                    pass  # don't let prediction failures break ranking
+                    pass
 
-            # ALL coins in composite — ordered best-first (re-sort after TFT boost)
+            # Sort by composite score, best-first
             composite = dict(sorted(composite.items(), key=lambda x: -x[1]))
             all_ranked = list(composite.keys())
 
-            # Log ranking
+            # Log full ranking
             for i, sym in enumerate(all_ranked, 1):
                 sel_score = dict(result.rankings).get(sym, 0)
                 sharpe = oos_sharpe.get(sym, 0)
                 log.info("  Rank #%d %s: composite=%.3f (sel=%.2f, sharpe=%.2f)",
                          i, sym, composite[sym], sel_score, sharpe)
 
-            # Convert yfinance format (BTC-USD) to Alpaca format (BTC/USD)
-            all_alpaca = [s.replace("-", "/") for s in all_ranked]
+            # Step 2: Take top-N ranked — only these are candidates
+            top_k = self._risk_config.max_positions
+            top_n = all_ranked[:top_k]
+            log.info("Ranker: top-%d ranked: %s", top_k, ", ".join(top_n))
 
             # Store composite scores for rank-weighted sizing
             self._composite_scores = composite
 
-            # Ensure predictors exist for all ranked coins
+            # Step 3: Filter to top-N that have models + working predictors
+            model_universe = self._get_model_universe()
+            top_n_alpaca = [s.replace("-", "/") for s in top_n]
             _selector_model_dir = get_model_dir(self.group)
             ready = []
-            for sym in all_alpaca:
+            for sym_yf, sym in zip(top_n, top_n_alpaca):
+                if sym_yf not in model_universe and sym_yf.replace("/", "-") not in model_universe:
+                    log.info("Ranker: %s ranked top-%d but no model — skipped", sym, top_k)
+                    continue
                 if sym not in self.predictors or self.predictors[sym] is None:
                     predictor = self._create_predictor(
                         sym, self.group, _selector_model_dir,
@@ -1192,14 +1182,9 @@ class AlpacaPaperTrader:
             if new_crypto:
                 self._classify_vol_tiers_for_crypto(new_crypto)
 
-            log.info("Ranker: %d coins ready, ordered by composite score: %s",
-                     len(ready), ", ".join(ready))
-            # Active symbols = top-K only (determines entries + reconciliation).
-            # Positions from coins outside top-K are handled as exit_only_symbols
-            # in the main loop (signal-based exit, no new entries).
-            top_k = self._risk_config.max_positions
-            self._selector_active_symbols = ready[:top_k]
-            log.info("Active top-%d: %s", top_k, ", ".join(self._selector_active_symbols))
+            log.info("Ranker: %d coins active (top-%d with models): %s",
+                     len(ready), top_k, ", ".join(ready))
+            self._selector_active_symbols = ready
             return self._selector_active_symbols
 
         except Exception as exc:
@@ -1296,18 +1281,13 @@ class AlpacaPaperTrader:
             return False
 
     def _run_etf_selector(self) -> List[str]:
-        """Return ALL ETFs with trained models, ordered by selector rank.
-
-        Philosophy: no asset is filtered out. The ranking determines:
-          - Iteration order → highest rank gets first dibs on position slots
-          - On-the-fly training expands coverage (top-ranked untrained first)
-          - ML signal + risk limits are the actual entry/exit gates
+        """Rank-first ETF selection: ranking decides who trades, not model existence.
 
         Pipeline:
-          1. Get ALL ETFs with trained models → they are immediately candidates
-          2. Run ETFSelector to rank the full universe → determines priority order
-          3. On-the-fly train top-ranked symbols that lack models (expand coverage)
-          4. Return ALL with models, ordered by selector rank
+          1. Rank the full universe → determines priority
+          2. Take top-N ranked symbols (N = max_positions)
+          3. If top-N symbols lack trained models, train them on-the-fly
+          4. Return only top-N that have models (pre-trained or just-trained)
           5. check_and_trade() + risk limits decide which actually open
 
         Falls back to static SYMBOL_GROUPS if selector unavailable or fails.
@@ -1319,8 +1299,6 @@ class AlpacaPaperTrader:
 
         try:
             # Data freshness check: verify daily bars are current before ranking.
-            # If SPY's latest bar is >1 trading day old, the ranking would use
-            # stale momentum/vol features. Keep previous rankings and log staleness.
             try:
                 import yfinance as yf
                 _spy = yf.download("SPY", period="5d", progress=False, auto_adjust=True)
@@ -1328,7 +1306,6 @@ class AlpacaPaperTrader:
                     _latest_bar = pd.Timestamp(_spy.index[-1]).date()
                     _today = datetime.now(timezone.utc).date()
                     _days_stale = (_today - _latest_bar).days
-                    # Allow 1 day gap (weekend/holiday), but >2 means stale
                     if _days_stale > 2:
                         log.warning(
                             "ETF selector skipped — bars stale (latest SPY bar: %s, %dd old)",
@@ -1336,7 +1313,6 @@ class AlpacaPaperTrader:
                         )
                         if self._etf_active_symbols:
                             return self._etf_active_symbols
-                        # No previous rankings → fall through to static
                         return list(self.symbols)
             except Exception as exc:
                 log.warning("ETF freshness check failed: %s — proceeding anyway", exc)
@@ -1346,81 +1322,52 @@ class AlpacaPaperTrader:
                 log.warning("ETF universe empty — using static list")
                 return list(self.symbols)
 
-            # Step 1: ALL existing trained models are candidates immediately
-            model_universe = self._get_etf_model_universe(group)
-            log.info("ETF ranker: %d trained models, %d universe symbols for %s",
-                     len(model_universe), len(universe), group)
-
-            # Step 2: Rank the full universe for priority ordering
-            log.info("ETF ranker: scoring %d universe symbols...", len(universe))
+            # Step 1: Rank the full universe FIRST — ranking is king
+            log.info("ETF ranker: scoring %d universe symbols for %s...", len(universe), group)
             ranking = self._etf_selector.rank(universe)
-            # ranking is a DataFrame with columns: symbol, score, rank, ...
 
             if ranking.empty:
-                # No ranking data — return all trained models unordered
-                log.warning("ETF ranker: no ranking data — returning all trained models")
-                ready = list(model_universe)
+                log.warning("ETF ranker: no ranking data — using static list")
                 self._composite_scores = {}
-            else:
-                ranked_symbols = ranking["symbol"].tolist()
-                # Store ranking scores for rank-weighted sizing via _get_rank_scalar()
-                self._composite_scores = dict(
-                    zip(ranking["symbol"], ranking["score"])
-                )
+                return list(self.symbols)
 
-                # Step 3: On-the-fly training for untrained symbols
-                # Use quick_score (vol-adjusted momentum × liquidity) to prioritize,
-                # NOT selector rank — untrained symbols have no model, so their
-                # rank is unreliable. This fixes the cold-start deadlock.
-                untrained = [s for s in ranked_symbols if s not in model_universe]
-                if untrained:
-                    import yfinance as yf
-                    try:
-                        _dl_syms = untrained[:10]
-                        _etf_data = yf.download(_dl_syms, period="30d",
-                                                progress=False, threads=True)
-                        _etf_frames: Dict[str, pd.DataFrame] = {}
-                        for _s in _dl_syms:
-                            try:
-                                if len(_dl_syms) == 1:
-                                    _df = _etf_data
-                                else:
-                                    _df = _etf_data.xs(_s, axis=1, level=1)
-                                _etf_frames[_s] = _df.rename(columns=str.lower)
-                            except Exception:
-                                continue
-                        _qs = self._compute_quick_scores(_etf_frames)
-                        untrained.sort(key=lambda s: _qs.get(s, 0), reverse=True)
-                        log.info("Training priority (quick_score): %s",
-                                 ", ".join(f"{s}={_qs.get(s, 0):.1f}" for s in untrained[:5]))
-                    except Exception as exc:
-                        log.warning("Quick score fetch failed for ETFs: %s — using rank order", exc)
+            ranked_symbols = ranking["symbol"].tolist()
+            self._composite_scores = dict(
+                zip(ranking["symbol"], ranking["score"])
+            )
 
+            # Step 2: Take top-N ranked symbols — only these are candidates
+            max_active = self._risk_config.max_positions
+            top_n = ranked_symbols[:max_active]
+            log.info("ETF ranker: top-%d ranked: %s", max_active, ", ".join(top_n))
+
+            # Step 3: Check which top-N have models; train those that don't
+            model_universe = self._get_etf_model_universe(group)
+            log.info("ETF ranker: %d trained models on disk", len(model_universe))
+
+            untrained_top = [s for s in top_n if s not in model_universe]
+            if untrained_top:
+                log.info("ETF ranker: %d top-ranked symbols need training: %s",
+                         len(untrained_top), ", ".join(untrained_top))
                 train_count = 0
                 max_train_per_cycle = 3
-                for sym in untrained:
+                for sym in untrained_top:
                     if train_count >= max_train_per_cycle:
+                        log.info("ETF ranker: hit train cap (%d) — remaining untrained deferred",
+                                 max_train_per_cycle)
                         break
                     if self._train_on_the_fly(sym):
                         model_universe.add(sym)
                         train_count += 1
 
-                # Step 4: Build final list — ALL trained models, ordered by rank
-                # Ranked trained models come first (in rank order)
-                ready = [s for s in ranked_symbols if s in model_universe]
-                # Append any trained models not in the ranking (edge case)
-                for s in model_universe:
-                    if s not in ready:
-                        ready.append(s)
-
-            if not ready:
-                log.warning("No ready symbols — using static list")
-                return list(self.symbols)
-
-            # Ensure predictors are loaded
+            # Step 4: Build final list — only top-N that have models
             group_model_dir = get_model_dir(group)
             final = []
-            for sym in ready:
+            for sym in top_n:
+                if sym not in model_universe:
+                    log.info("ETF ranker: %s ranked #%d but no model — skipped",
+                             sym, top_n.index(sym) + 1)
+                    continue
                 if sym not in self.predictors or self.predictors[sym] is None:
                     predictor = self._create_predictor(
                         sym, group, group_model_dir, self.mode, self.intraday_interval,
@@ -1433,20 +1380,16 @@ class AlpacaPaperTrader:
                         continue
                 final.append(sym)
 
+            if not final:
+                log.warning("No ready symbols after ranking — using static list")
+                return list(self.symbols)
+
             # Classify vol tiers for any new symbols
             new_syms = [s for s in final if s not in self._vol_tiers]
             if new_syms:
                 self._classify_vol_tiers_for(new_syms)
 
-            # Cap active symbols to max_positions — top-ranked get entry priority,
-            # rest become exit-only (managed in the main loop via exit_only_symbols).
-            max_active = self._risk_config.max_positions
-            if len(final) > max_active:
-                log.info("ETF ranker: capping active %d -> %d (max_positions), "
-                         "rest are exit-only", len(final), max_active)
-                final = final[:max_active]
-
-            log.info("ETF ranker: %d symbols ready for %s (ordered by rank): %s",
+            log.info("ETF ranker: %d active symbols for %s: %s",
                      len(final), group, ", ".join(final))
             self._etf_active_symbols = final
             return final
