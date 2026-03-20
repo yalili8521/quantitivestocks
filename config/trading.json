@@ -671,7 +671,7 @@
         },
         "TIA-USD": {
             "sharpe": -1.02,
-            "return_pct": -20659847608.86,
+            "return_pct": -20.66,
             "trades": 9,
             "win_rate": 0.222
         },

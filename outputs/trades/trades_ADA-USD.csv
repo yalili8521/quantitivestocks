@@ -1,5 +1,0 @@
-direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,exit_reason
-LONG,2025-07-10,0.68,2025-07-23,0.81,35398.23,4835.4,20.15,profit_lock_trail
-LONG,2025-07-24,0.81,2025-08-19,0.84,31170.09,1125.24,4.47,profit_lock_trail
-LONG,2025-08-20,0.88,2025-10-10,0.63,28813.23,-7174.49,-28.21,disaster_stop
-LONG,2026-01-06,0.42,2026-01-20,0.35,56382.1,-3991.85,-16.84,disaster_stop

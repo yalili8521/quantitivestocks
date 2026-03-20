@@ -129,6 +129,26 @@ def run_train_selector() -> StepResult:
         return StepResult("train-selector", False, time.time() - t0, error=str(exc))
 
 
+def run_train_selector_intraday() -> StepResult:
+    """Step 2b: Layer 1b — retrain the intraday LambdaRank coin selector."""
+    t0 = time.time()
+    try:
+        result = _run_command([PYTHON, MAIN_PY, "train-selector-intraday"])
+        elapsed = time.time() - t0
+        if result.returncode != 0:
+            return StepResult("train-selector-intraday", False, elapsed,
+                              error=result.stderr[-500:] if result.stderr else "non-zero exit")
+        details = ""
+        for line in result.stdout.splitlines():
+            if "ndcg" in line.lower() or "hit_rate" in line.lower() or "saved" in line.lower():
+                details = line.strip()
+        return StepResult("train-selector-intraday", True, elapsed, details=details)
+    except subprocess.TimeoutExpired:
+        return StepResult("train-selector-intraday", False, time.time() - t0, error="timeout (1h)")
+    except Exception as exc:
+        return StepResult("train-selector-intraday", False, time.time() - t0, error=str(exc))
+
+
 def run_train_crypto() -> StepResult:
     """Step 3: Layer 2 — retrain TFT+XGBoost swing models for all crypto coins."""
     t0 = time.time()
@@ -393,6 +413,7 @@ def main() -> None:
     steps = [
         ("screen-universe", run_screen_universe),
         ("train-selector", run_train_selector),
+        ("train-selector-intraday", run_train_selector_intraday),
         ("train-crypto", run_train_crypto),
         ("train-crypto-intraday", run_train_crypto_intraday),
         ("select-symbols", run_select_symbols),

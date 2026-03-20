@@ -71,7 +71,8 @@ from risk_config import (
 )
 from cost_model import validate_cost_threshold
 from model_monitor import ModelMonitor
-from coin_selector import CoinSelector, CRYPTO_UNIVERSE, fetch_universe_data
+from coin_selector import (CoinSelector, CRYPTO_UNIVERSE, fetch_universe_data,
+                           fetch_universe_intraday_data, INTRADAY_LOOKBACK_DAYS)
 from universe_screener import load_universe, get_coin_cost_config
 from kraken_executor import KrakenExecutor
 
@@ -552,20 +553,37 @@ class AlpacaPaperTrader:
 
         # Layer 1 coin selector (crypto group only)
         self._coin_selector: Optional[CoinSelector] = None
-        # Prefer dynamic universe from Layer 0 screener; fall back to hardcoded
-        dynamic_universe = load_universe(CRYPTO_MODEL_DIR)
+        # Use group-specific model dir for universe + selector
+        self._crypto_model_dir = get_model_dir(group) if group in ("crypto", "crypto_intraday") else CRYPTO_MODEL_DIR
+        # Prefer dynamic universe from Layer 0 screener; fall back to shared crypto universe
+        dynamic_universe = load_universe(self._crypto_model_dir)
+        if not dynamic_universe and self._crypto_model_dir != CRYPTO_MODEL_DIR:
+            dynamic_universe = load_universe(CRYPTO_MODEL_DIR)
         self._selector_universe = dynamic_universe if dynamic_universe else list(CRYPTO_UNIVERSE)
+        self._universe_last_check: Optional[datetime] = None  # throttle reload checks
         self._selector_active_symbols: List[str] = []    # dynamically selected coins
         self._selector_rank_scores: Dict[str, float] = {}  # symbol → rank score
         self._selector_last_run_date: Optional["date"] = None  # date-change gate
         self._selector_last_fast_refresh: Optional[datetime] = None  # intraday fast re-rank
         self._btc_correlations: Dict[str, float] = {}  # cached BTC correlations for sizing
+        self._selector_mode = "intraday" if group == "crypto_intraday" else "swing"
         if group in ("crypto", "crypto_intraday"):
             try:
-                self._coin_selector = CoinSelector(model_dir=CRYPTO_MODEL_DIR)
-                log.info("Coin selector loaded — dynamic symbol selection enabled")
+                self._coin_selector = CoinSelector(
+                    model_dir=self._crypto_model_dir, mode=self._selector_mode)
+                log.info("Coin selector loaded (mode=%s) from %s",
+                         self._selector_mode, self._crypto_model_dir)
             except FileNotFoundError:
-                log.info("No trained coin selector found — using static symbol list")
+                if self._crypto_model_dir != CRYPTO_MODEL_DIR:
+                    try:
+                        self._coin_selector = CoinSelector(
+                            model_dir=CRYPTO_MODEL_DIR, mode=self._selector_mode)
+                        log.info("Coin selector loaded (mode=%s) from shared %s",
+                                 self._selector_mode, CRYPTO_MODEL_DIR)
+                    except FileNotFoundError:
+                        log.info("No trained coin selector — using static symbol list")
+                else:
+                    log.info("No trained coin selector — using static symbol list")
 
         # Layer 1 ETF selector (swing + intraday groups)
         self._etf_selector = None
@@ -638,6 +656,9 @@ class AlpacaPaperTrader:
         self._monitor.log_pause_summary()
         self._entry_predictions: Dict[str, float] = {}  # symbol → predicted return at entry
         self._derisk_states: Dict[str, DeRiskState] = {}  # symbol → rolling perf tracker
+        self._pending_reconcile: Dict[str, dict] = {}  # symbols that failed to close during reconciliation
+        self._crypto_reconciled: bool = False  # True after first post-selector reconciliation
+        self._etf_reconciled: bool = False     # True after first ETF selector reconciliation
 
         # Volatility-tier exit params (classified at startup, recomputed weekly)
         from src.risk_config import (VolTier, ExitParams, classify_vol_tier,
@@ -859,14 +880,18 @@ class AlpacaPaperTrader:
             return None
 
     def _get_model_universe(self) -> Set[str]:
-        """Return yfinance-format symbols that have a trained XGBoost model on disk."""
+        """Return yfinance-format symbols that have a trained model on disk."""
         import glob as _glob
-        pattern = os.path.join(CRYPTO_MODEL_DIR, "*_xgb_swing_config.json")
+        if self.group == "crypto_intraday":
+            pattern = os.path.join(self._crypto_model_dir, "*_lgb_intraday_crypto_config.json")
+            suffix = "_lgb_intraday_crypto_config.json"
+        else:
+            pattern = os.path.join(self._crypto_model_dir, "*_xgb_swing_config.json")
+            suffix = "_xgb_swing_config.json"
         model_syms: Set[str] = set()
         for path in _glob.glob(pattern):
             fname = os.path.basename(path)
-            # e.g. "BTC-USD_xgb_swing_config.json" → "BTC-USD"
-            sym = fname.replace("_xgb_swing_config.json", "")
+            sym = fname.replace(suffix, "")
             model_syms.add(sym)
         return model_syms
 
@@ -1037,22 +1062,24 @@ class AlpacaPaperTrader:
         try:
             # Data freshness check: BTC canary — crypto is 24/7 so bars should
             # never be >1 day old. If they are, data provider is down.
-            try:
-                import yfinance as yf
-                _btc = yf.download("BTC-USD", period="5d", progress=False, auto_adjust=True)
-                if not _btc.empty:
-                    _latest = pd.Timestamp(_btc.index[-1]).date()
-                    _days_stale = (datetime.now(timezone.utc).date() - _latest).days
-                    if _days_stale > 1:
-                        log.warning(
-                            "Coin selector skipped — bars stale (latest BTC bar: %s, %dd old)",
-                            _latest, _days_stale,
-                        )
-                        if self._selector_active_symbols:
-                            return self._selector_active_symbols
-                        return list(self.symbols)
-            except Exception as exc:
-                log.warning("Crypto freshness check failed: %s — proceeding anyway", exc)
+            # For intraday mode, skip yfinance check (we use Kraken 5-min bars).
+            if self._selector_mode != "intraday":
+                try:
+                    import yfinance as yf
+                    _btc = yf.download("BTC-USD", period="5d", progress=False, auto_adjust=True)
+                    if not _btc.empty:
+                        _latest = pd.Timestamp(_btc.index[-1]).date()
+                        _days_stale = (datetime.now(timezone.utc).date() - _latest).days
+                        if _days_stale > 1:
+                            log.warning(
+                                "Coin selector skipped — bars stale (latest BTC bar: %s, %dd old)",
+                                _latest, _days_stale,
+                            )
+                            if self._selector_active_symbols:
+                                return self._selector_active_symbols
+                            return list(self.symbols)
+                except Exception as exc:
+                    log.warning("Crypto freshness check failed: %s — proceeding anyway", exc)
 
             # ALL coins with trained models are candidates
             model_universe = self._get_model_universe()
@@ -1063,11 +1090,15 @@ class AlpacaPaperTrader:
                 self._composite_scores = {}
                 return list(self.symbols)
 
-            log.info("Ranker input: %d coins with models out of %d universe",
-                     len(selector_input), len(self._selector_universe))
+            log.info("Ranker input: %d coins with models out of %d universe (mode=%s)",
+                     len(selector_input), len(self._selector_universe), self._selector_mode)
 
-            # Fetch data for ALL model_universe
-            data = fetch_universe_data(selector_input, lookback_days=400)
+            # Fetch data: intraday uses 5-min bars, swing uses daily
+            if self._selector_mode == "intraday":
+                data = fetch_universe_intraday_data(
+                    selector_input, lookback_days=INTRADAY_LOOKBACK_DAYS)
+            else:
+                data = fetch_universe_data(selector_input, lookback_days=400)
             if len(data) < 3:
                 log.warning("Ranker: only %d coins with data — falling back to static list", len(data))
                 self._composite_scores = {}
@@ -1163,8 +1194,13 @@ class AlpacaPaperTrader:
 
             log.info("Ranker: %d coins ready, ordered by composite score: %s",
                      len(ready), ", ".join(ready))
-            self._selector_active_symbols = ready
-            return ready
+            # Active symbols = top-K only (determines entries + reconciliation).
+            # Positions from coins outside top-K are handled as exit_only_symbols
+            # in the main loop (signal-based exit, no new entries).
+            top_k = self._risk_config.max_positions
+            self._selector_active_symbols = ready[:top_k]
+            log.info("Active top-%d: %s", top_k, ", ".join(self._selector_active_symbols))
+            return self._selector_active_symbols
 
         except Exception as exc:
             log.error("Coin ranker failed: %s — using static list", exc)
@@ -1402,6 +1438,14 @@ class AlpacaPaperTrader:
             if new_syms:
                 self._classify_vol_tiers_for(new_syms)
 
+            # Cap active symbols to max_positions — top-ranked get entry priority,
+            # rest become exit-only (managed in the main loop via exit_only_symbols).
+            max_active = self._risk_config.max_positions
+            if len(final) > max_active:
+                log.info("ETF ranker: capping active %d -> %d (max_positions), "
+                         "rest are exit-only", len(final), max_active)
+                final = final[:max_active]
+
             log.info("ETF ranker: %d symbols ready for %s (ordered by rank): %s",
                      len(final), group, ", ".join(final))
             self._etf_active_symbols = final
@@ -1482,6 +1526,29 @@ class AlpacaPaperTrader:
                 "unrealized_pnl_pct": float(pos.unrealized_plpc),
             }
         return result
+
+    # -- Order helpers --------------------------------------------------
+    def _cancel_open_orders_for(self, symbol: str) -> int:
+        """Cancel all open orders for *symbol*. Returns count cancelled."""
+        if self._kraken is not None and _is_crypto_symbol(symbol):
+            return 0  # Kraken paper fills instantly, no pending orders
+        try:
+            from alpaca.trading.requests import GetOrdersRequest
+            from alpaca.trading.enums import QueryOrderStatus
+            open_orders = self.trading_client.get_orders(
+                GetOrdersRequest(status=QueryOrderStatus.OPEN, symbols=[symbol], limit=50)
+            )
+            for order in open_orders:
+                try:
+                    self.trading_client.cancel_order_by_id(str(order.id))
+                except Exception:
+                    pass
+            if open_orders:
+                log.info("Cancelled %d open order(s) for %s", len(open_orders), symbol)
+            return len(open_orders)
+        except Exception as exc:
+            log.debug("Failed to cancel orders for %s: %s", symbol, exc)
+            return 0
 
     # -- Order execution -----------------------------------------------
     def _submit_order_request(
@@ -2421,9 +2488,15 @@ class AlpacaPaperTrader:
                 return f"SKIP  (insufficient allocation)  ML: {direction} E[r]={expected_return:+.4f}"
 
             # Portfolio constraint check (equity already fetched above)
+            # Exclude pending-reconcile positions — they're queued for close
+            # and should not block new entries.
+            _constrained_positions = {
+                s: p for s, p in positions.items()
+                if s not in self._pending_reconcile
+            }
             try:
                 allowed, constraint_reason = check_position_allowed(
-                    symbol, invest, equity, positions, risk
+                    symbol, invest, equity, _constrained_positions, risk
                 )
                 if not allowed:
                     return (f"CONSTRAINT-BLOCK  ({constraint_reason})  "
@@ -2437,6 +2510,15 @@ class AlpacaPaperTrader:
                             f"ML: {direction} E[r]={expected_return:+.4f}")
             except Exception as exc:
                 log.debug("Portfolio constraint check failed: %s", exc)
+
+            # Hard safety cap: re-count positions as final guard.
+            # Even if check_position_allowed passed (stale dict), refuse entry
+            # if we're already at max_positions. Belt-and-suspenders.
+            _active_count = sum(1 for p in positions.values()
+                                if p.get("qty", 0) != 0)
+            if _active_count >= self._risk_config.max_positions:
+                return (f"HARD-CAP  ({_active_count} >= {self._risk_config.max_positions} positions)  "
+                        f"ML: {direction} E[r]={expected_return:+.4f}")
 
             if enter_dir == "LONG":
                 self.buy(symbol, qty, limit_price=current_price)
@@ -2553,15 +2635,33 @@ class AlpacaPaperTrader:
         if not positions:
             return
 
-        # Build the valid symbol set for this group
+        # Build the valid symbol set for this group.
+        # Includes both static group symbols AND dynamic selector picks
+        # (ETF selector for swing, coin selector for crypto).
         valid_symbols: set = set(self.symbols)
-        # For crypto groups with a selector, also include the full selector universe
-        # (positions might belong to coins not selected *this* cycle but still valid)
-        if self.group in ("crypto", "crypto_intraday") and self._selector_universe:
-            # Normalize: universe uses "BTC-USD", positions use "BTC/USD"
-            for s in self._selector_universe:
+        # Swing/equity: include ETF selector's active symbols.
+        # Defer reconciliation until after the first ETF selector run
+        # so we don't close positions the selector is about to pick.
+        if self._etf_selector is not None and not self._etf_active_symbols:
+            log.info("Swing reconciliation deferred — waiting for first ETF selector run")
+            return
+        if self._etf_active_symbols:
+            valid_symbols.update(self._etf_active_symbols)
+        if self.group in ("crypto", "crypto_intraday"):
+            # If selector hasn't run yet (startup), defer crypto reconciliation
+            # until after the first selector run establishes valid picks.
+            if self._coin_selector is not None and not self._selector_active_symbols:
+                log.info("Crypto reconciliation deferred — waiting for first selector run")
+                return
+            # Add currently selected coins (both dash and slash forms)
+            for s in (self._selector_active_symbols or []):
                 valid_symbols.add(s)
                 valid_symbols.add(s.replace("-", "/"))
+                valid_symbols.add(s.replace("/", "-"))
+            # Also keep symbols that are in self.symbols (static fallback list)
+            for s in self.symbols:
+                valid_symbols.add(s.replace("-", "/"))
+                valid_symbols.add(s.replace("/", "-"))
 
         stale: list = []
         for sym, pos in positions.items():
@@ -2587,14 +2687,114 @@ class AlpacaPaperTrader:
             print(f"    {sym:>10s}  {side:5s}  qty={qty}  "
                   f"entry=${entry:.4f}  pnl=${pnl:+.2f}")
             try:
+                # Cancel any existing open orders first — stale orders from
+                # previous processes hold the qty and block close attempts.
+                self._cancel_open_orders_for(sym)
+                # Pass current_price as limit so orders fill during extended hours
+                # (market orders with DAY TIF don't fill outside regular session).
+                lp = pos.get("current_price") or None
                 if side == "LONG":
-                    self.sell(sym, qty, reason="reconcile_stale")
+                    oid = self.sell(sym, qty, reason="reconcile_stale",
+                                   limit_price=lp)
                 else:
-                    self.buy_to_cover(sym, qty, reason="reconcile_stale")
-                log.info("Reconciled %s %s %.6f (stale position closed)", side, sym, qty)
+                    oid = self.buy_to_cover(sym, qty, reason="reconcile_stale",
+                                            limit_price=lp)
+                if oid:
+                    log.info("Reconciled %s %s %.6f (stale position closed)", side, sym, qty)
+                else:
+                    # Order was deferred (market closed) — queue for retry
+                    self._pending_reconcile[sym] = pos
+                    log.warning("Reconcile deferred for %s (market closed) — will retry each cycle", sym)
             except Exception as exc:
-                log.error("Failed to close stale position %s: %s", sym, exc)
+                self._pending_reconcile[sym] = pos
+                log.error("Failed to close stale position %s: %s — will retry", sym, exc)
         print()
+
+    def _maybe_reload_universe(self) -> None:
+        """Reload crypto universe from disk if Layer 0 updated it.
+
+        Checks every 30 minutes. If the universe changed (coins added/removed),
+        re-runs reconciliation to close positions from removed coins.
+        """
+        if self.group not in ("crypto", "crypto_intraday"):
+            return
+        now = datetime.now(timezone.utc)
+        if (self._universe_last_check is not None
+                and (now - self._universe_last_check).total_seconds() < 1800):
+            return
+        self._universe_last_check = now
+
+        fresh = load_universe(self._crypto_model_dir)
+        if not fresh and self._crypto_model_dir != CRYPTO_MODEL_DIR:
+            fresh = load_universe(CRYPTO_MODEL_DIR)
+        if not fresh:
+            return
+        old_set = set(self._selector_universe)
+        new_set = set(fresh)
+        if old_set == new_set:
+            return
+
+        removed = old_set - new_set
+        added = new_set - old_set
+        self._selector_universe = fresh
+        log.info("Universe reloaded: %d coins (+%d, -%d)",
+                 len(fresh), len(added), len(removed))
+        if removed:
+            log.info("Removed from universe: %s", ", ".join(sorted(removed)))
+            # Re-run reconciliation to close positions from removed coins
+            self._reconcile_positions()
+
+    def _retry_pending_reconcile(self) -> None:
+        """Retry closing positions that failed during startup reconciliation.
+
+        Called every cycle. Positions deferred because market was closed will
+        be retried until they succeed. This prevents stale positions from
+        permanently occupying max_positions slots.
+        """
+        if not self._pending_reconcile:
+            return
+
+        # Refresh actual positions to confirm they still exist
+        try:
+            current_positions = self.get_positions()
+        except Exception:
+            return
+
+        closed = []
+        for sym, saved_pos in list(self._pending_reconcile.items()):
+            pos = current_positions.get(sym)
+            if pos is None or pos.get("qty", 0) == 0:
+                # Already closed (manually or by another process)
+                closed.append(sym)
+                continue
+
+            qty = pos["qty"]
+            side = pos["side"]
+            lp = pos.get("current_price") or None
+            try:
+                self._cancel_open_orders_for(sym)
+                if side == "LONG":
+                    oid = self.sell(sym, qty, reason="reconcile_stale_retry",
+                                   limit_price=lp)
+                else:
+                    oid = self.buy_to_cover(sym, qty, reason="reconcile_stale_retry",
+                                            limit_price=lp)
+                if oid:
+                    closed.append(sym)
+                    pnl = pos.get("unrealized_pnl", 0)
+                    log.info("[RECONCILE-RETRY] Closed stale %s %s %.4f (P&L: $%.2f)",
+                             side, sym, qty, pnl)
+                    print(f"  [RECONCILE-RETRY] Closed stale {sym} {side} qty={qty} P&L=${pnl:+.2f}")
+                # else: still deferred, will retry next cycle
+            except Exception as exc:
+                log.debug("Reconcile retry failed for %s: %s", sym, exc)
+
+        for sym in closed:
+            self._pending_reconcile.pop(sym, None)
+
+        if self._pending_reconcile:
+            pending_list = ", ".join(self._pending_reconcile.keys())
+            log.debug("Pending reconciliation (will retry): %s", pending_list)
 
     def run_loop(self) -> None:
         """Main continuous trading loop."""
@@ -2685,6 +2885,11 @@ class AlpacaPaperTrader:
                 session_label = "REGULAR" if session == "regular" else "EXTENDED HOURS"
 
             try:
+                # Retry any stale positions that failed to close during startup reconciliation
+                self._retry_pending_reconcile()
+                # Check if Layer 0 updated the universe (every 30min)
+                self._maybe_reload_universe()
+
                 # Get account + positions
                 account = self.get_account_summary()
                 positions = self.get_positions()
@@ -2715,8 +2920,15 @@ class AlpacaPaperTrader:
                         if _do_full:
                             self._selector_last_run_date = now_utc.date()
                         self._selector_last_fast_refresh = now_utc
+                        # After first successful selector run, reconcile orphaned crypto positions
+                        if not self._crypto_reconciled and self._selector_active_symbols:
+                            self._crypto_reconciled = True
+                            self._reconcile_positions()
+                            # Re-fetch positions after reconciliation closed stale ones
+                            positions = self.get_positions()
                     else:
                         cycle_symbols = self._selector_active_symbols
+                    # exit_only_symbols (below) handles positions outside cycle_symbols
 
                 elif self.group in ("swing", "intraday") and self._etf_selector is not None:
                     _fast_interval = _FAST_REFRESH_SECS.get(self.group)
@@ -2734,6 +2946,11 @@ class AlpacaPaperTrader:
                         if _do_full:
                             self._etf_selector_last_run_date = now_utc.date()
                         self._etf_selector_last_fast_refresh = now_utc
+                        # After first successful ETF selector run, reconcile stale positions
+                        if not self._etf_reconciled and self._etf_active_symbols:
+                            self._etf_reconciled = True
+                            self._reconcile_positions()
+                            positions = self.get_positions()
                     else:
                         cycle_symbols = self._etf_active_symbols
                 else:
@@ -2789,6 +3006,7 @@ class AlpacaPaperTrader:
                     print(f"  [OPTIONS] {', '.join(option_positions)} -- legacy option positions, not managed by this process")
 
                 # Check each symbol in this group (cycle_symbols for crypto with selector)
+                _entries_this_cycle = 0
                 for sym in cycle_symbols:
                     sym_alloc = allocation_per_sym
                     # Cap allocation by per-coin max order size (liquidity-based)
@@ -2814,8 +3032,15 @@ class AlpacaPaperTrader:
                         if pos is None or pos["qty"] == 0:
                             print(f"  {sym:>5}:  SKIP  (extended hours -- low liquidity for this ETF)")
                             continue
+                    had_position = sym in positions and positions[sym].get("qty", 0) != 0
                     action = self.check_and_trade(sym, positions, sym_alloc)
                     print(f"  {sym:>5}:  {action}")
+                    # Track new entries so subsequent symbols see updated position count.
+                    # Insert a placeholder into positions dict so check_position_allowed
+                    # counts it towards max_positions for the rest of this cycle.
+                    if not had_position and (action.startswith("LONG") or action.startswith("SHORT")):
+                        _entries_this_cycle += 1
+                        positions[sym] = {"qty": 1, "current_price": 0, "side": action.split()[0]}
 
                 # Manage out wrongly placed positions (exit-only: stops and flips, no new entries)
                 for sym in exit_only_symbols:
@@ -3284,9 +3509,9 @@ def main() -> None:
 
     # Guard: intraday-only symbols must not be traded on non-intraday accounts
     INTRADAY_ONLY = set(SYMBOL_GROUPS.get("intraday", [])) - set(SYMBOL_GROUPS.get("swing", [])) - set(SYMBOL_GROUPS.get("crypto", []))
-    if group and group not in ("intraday", "all") and args.mode == "intraday":
-        print(f"\n  ERROR: --mode intraday requires --group intraday (got --group {group}).")
-        print("  Intraday mode must use the intraday account to avoid cross-account contamination.\n")
+    if group and group not in ("intraday", "crypto_intraday", "all") and args.mode == "intraday":
+        print(f"\n  ERROR: --mode intraday requires --group intraday or crypto_intraday (got --group {group}).")
+        print("  Intraday mode must use the correct account to avoid cross-account contamination.\n")
         sys.exit(1)
     if group and group not in ("intraday", "all") and args.symbols:
         bad = [s for s in args.symbols.split(",") if s.strip().upper() in INTRADAY_ONLY]

@@ -158,5 +158,645 @@
     "price": 0.2377,
     "time": "2026-03-20T01:33:31.045181+00:00",
     "intent": "open"
+  },
+  {
+    "symbol": "EGLD/USD",
+    "side": "buy",
+    "qty": 191.164421,
+    "price": 4.24,
+    "time": "2026-03-20T01:59:00.405039+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "FIL/USD",
+    "side": "buy",
+    "qty": 618.759991,
+    "price": 0.905,
+    "time": "2026-03-20T01:59:21.617891+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "FARTCOIN/USD",
+    "side": "sell",
+    "qty": 19551.50733,
+    "price": 0.1998,
+    "time": "2026-03-20T02:07:27.602223+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "XTZ/USD",
+    "side": "buy",
+    "qty": 19506.607531,
+    "price": 0.3978,
+    "time": "2026-03-20T02:07:35.805858+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "ETC/USD",
+    "side": "sell",
+    "qty": 677.962813,
+    "price": 8.418,
+    "time": "2026-03-20T02:07:44.451264+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "INJ/USD",
+    "side": "sell",
+    "qty": 1813.513763,
+    "price": 3.125,
+    "time": "2026-03-20T02:07:56.377445+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "ADA/USD",
+    "side": "buy",
+    "qty": 4146.477531,
+    "price": 0.269674,
+    "time": "2026-03-20T02:08:06.866512+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "LDO/USD",
+    "side": "buy",
+    "qty": 17915.79483,
+    "price": 0.301,
+    "time": "2026-03-20T02:08:18.416621+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "AR/USD",
+    "side": "sell",
+    "qty": 3118.127618,
+    "price": 1.718,
+    "time": "2026-03-20T02:08:31.179195+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "FET/USD",
+    "side": "buy",
+    "qty": 22825.047829,
+    "price": 0.2208,
+    "time": "2026-03-20T02:08:44.801296+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "QNT/USD",
+    "side": "sell",
+    "qty": 8.164824,
+    "price": 75.89,
+    "time": "2026-03-20T02:08:59.487111+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "CAKE/USD",
+    "side": "buy",
+    "qty": 4499.376802,
+    "price": 1.414,
+    "time": "2026-03-20T02:09:16.807321+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "HBAR/USD",
+    "side": "buy",
+    "qty": 19034.330455,
+    "price": 0.09324,
+    "time": "2026-03-20T02:09:34.356093+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "LPT/USD",
+    "side": "sell",
+    "qty": 648.303032,
+    "price": 2.238,
+    "time": "2026-03-20T02:09:52.512437+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "ONDO/USD",
+    "side": "buy",
+    "qty": 16086.472356,
+    "price": 0.25989,
+    "time": "2026-03-20T02:10:27.983333+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "LTC/USD",
+    "side": "buy",
+    "qty": 48.89862,
+    "price": 55.88,
+    "time": "2026-03-20T02:10:47.340510+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "ENS/USD",
+    "side": "buy",
+    "qty": 427.65004,
+    "price": 6.33,
+    "time": "2026-03-20T02:11:07.937314+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "AVAX/USD",
+    "side": "buy",
+    "qty": 120.708369,
+    "price": 9.55,
+    "time": "2026-03-20T02:12:08.823833+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "ENA/USD",
+    "side": "buy",
+    "qty": 10557.978723,
+    "price": 0.1042,
+    "time": "2026-03-20T02:12:52.449461+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "BNB/USD",
+    "side": "buy",
+    "qty": 1.590804,
+    "price": 641.74,
+    "time": "2026-03-20T02:13:16.316205+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "BCH/USD",
+    "side": "buy",
+    "qty": 2.740912,
+    "price": 461.04,
+    "time": "2026-03-20T02:13:40.897594+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "WIF/USD",
+    "side": "buy",
+    "qty": 6916.065263,
+    "price": 0.1759,
+    "time": "2026-03-20T02:14:29.962226+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "XRP/USD",
+    "side": "buy",
+    "qty": 827.814677,
+    "price": 1.45413,
+    "time": "2026-03-20T02:14:56.354042+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "ETHFI/USD",
+    "side": "buy",
+    "qty": 861.230293,
+    "price": 0.5297,
+    "time": "2026-03-20T02:15:49.663412+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "PENDLE/USD",
+    "side": "buy",
+    "qty": 897.170635,
+    "price": 1.265,
+    "time": "2026-03-20T02:16:18.383879+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "VIRTUAL/USD",
+    "side": "sell",
+    "qty": 1215.981126,
+    "price": 0.7142,
+    "time": "2026-03-20T02:16:49.098296+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "CVX/USD",
+    "side": "buy",
+    "qty": 566.171713,
+    "price": 1.787,
+    "time": "2026-03-20T02:17:20.226546+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "AXS/USD",
+    "side": "buy",
+    "qty": 793.2973,
+    "price": 1.258,
+    "time": "2026-03-20T02:17:53.126664+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "RUNE/USD",
+    "side": "buy",
+    "qty": 2231.090792,
+    "price": 0.425,
+    "time": "2026-03-20T02:18:26.968352+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "RAY/USD",
+    "side": "buy",
+    "qty": 1468.635632,
+    "price": 0.616,
+    "time": "2026-03-20T02:19:00.757714+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "XLM/USD",
+    "side": "buy",
+    "qty": 5355.770873,
+    "price": 0.166249,
+    "time": "2026-03-20T02:19:35.543723+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "TIA/USD",
+    "side": "buy",
+    "qty": 2298.140323,
+    "price": 0.3367,
+    "time": "2026-03-20T02:20:11.940828+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "WLD/USD",
+    "side": "buy",
+    "qty": 1390.769039,
+    "price": 0.3351,
+    "time": "2026-03-20T05:44:55.810900+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "ATOM/USD",
+    "side": "buy",
+    "qty": 368.069507,
+    "price": 1.8358,
+    "time": "2026-03-20T05:58:35.725677+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "OP/USD",
+    "side": "buy",
+    "qty": 1611.328128,
+    "price": 0.1243,
+    "time": "2026-03-20T05:58:44.380081+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "FARTCOIN/USD",
+    "side": "buy",
+    "qty": 19551.50733,
+    "price": 0.2019,
+    "time": "2026-03-20T06:08:18.024751+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "ETC/USD",
+    "side": "buy",
+    "qty": 677.962813,
+    "price": 8.453,
+    "time": "2026-03-20T06:08:19.264857+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "INJ/USD",
+    "side": "buy",
+    "qty": 1813.513763,
+    "price": 3.19,
+    "time": "2026-03-20T06:08:20.260279+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "LDO/USD",
+    "side": "sell",
+    "qty": 17915.79483,
+    "price": 0.301,
+    "time": "2026-03-20T06:08:21.394922+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "AR/USD",
+    "side": "buy",
+    "qty": 3118.127618,
+    "price": 1.732,
+    "time": "2026-03-20T06:08:22.401511+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "FET/USD",
+    "side": "sell",
+    "qty": 22825.047829,
+    "price": 0.2397,
+    "time": "2026-03-20T06:08:23.406820+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "QNT/USD",
+    "side": "buy",
+    "qty": 8.164824,
+    "price": 78.02,
+    "time": "2026-03-20T06:08:24.668506+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "CAKE/USD",
+    "side": "sell",
+    "qty": 4499.376802,
+    "price": 1.424,
+    "time": "2026-03-20T06:08:25.654167+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "HBAR/USD",
+    "side": "sell",
+    "qty": 19034.330455,
+    "price": 0.09414,
+    "time": "2026-03-20T06:08:26.998030+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "LPT/USD",
+    "side": "buy",
+    "qty": 648.303032,
+    "price": 2.245,
+    "time": "2026-03-20T06:08:28.139191+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "ONDO/USD",
+    "side": "sell",
+    "qty": 16086.472356,
+    "price": 0.262,
+    "time": "2026-03-20T06:08:29.296805+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "LTC/USD",
+    "side": "sell",
+    "qty": 48.89862,
+    "price": 55.92,
+    "time": "2026-03-20T06:08:30.304847+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "ENS/USD",
+    "side": "sell",
+    "qty": 427.65004,
+    "price": 6.36,
+    "time": "2026-03-20T06:08:31.479830+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "ENA/USD",
+    "side": "sell",
+    "qty": 10557.978723,
+    "price": 0.1056,
+    "time": "2026-03-20T06:08:32.723286+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "BNB/USD",
+    "side": "sell",
+    "qty": 1.590804,
+    "price": 642.61,
+    "time": "2026-03-20T06:08:33.903212+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "BCH/USD",
+    "side": "sell",
+    "qty": 2.740912,
+    "price": 461.83,
+    "time": "2026-03-20T06:08:35.825075+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "WIF/USD",
+    "side": "sell",
+    "qty": 6916.065263,
+    "price": 0.1776,
+    "time": "2026-03-20T06:08:37.068552+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "XRP/USD",
+    "side": "sell",
+    "qty": 827.814677,
+    "price": 1.45498,
+    "time": "2026-03-20T06:08:38.111991+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "ETHFI/USD",
+    "side": "sell",
+    "qty": 861.230293,
+    "price": 0.542,
+    "time": "2026-03-20T06:08:39.266456+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "PENDLE/USD",
+    "side": "sell",
+    "qty": 897.170635,
+    "price": 1.28,
+    "time": "2026-03-20T06:08:40.452039+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "VIRTUAL/USD",
+    "side": "buy",
+    "qty": 1215.981126,
+    "price": 0.7318,
+    "time": "2026-03-20T06:08:41.672156+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "CVX/USD",
+    "side": "sell",
+    "qty": 566.171713,
+    "price": 1.817,
+    "time": "2026-03-20T06:08:42.936912+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "AXS/USD",
+    "side": "sell",
+    "qty": 793.2973,
+    "price": 1.233,
+    "time": "2026-03-20T06:08:44.102074+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "RUNE/USD",
+    "side": "sell",
+    "qty": 2231.090792,
+    "price": 0.424,
+    "time": "2026-03-20T06:08:45.232644+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "RAY/USD",
+    "side": "sell",
+    "qty": 1468.635632,
+    "price": 0.617,
+    "time": "2026-03-20T06:08:46.403771+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "XLM/USD",
+    "side": "sell",
+    "qty": 5355.770873,
+    "price": 0.16786,
+    "time": "2026-03-20T06:08:47.552160+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "TIA/USD",
+    "side": "sell",
+    "qty": 2298.140323,
+    "price": 0.3403,
+    "time": "2026-03-20T06:08:48.687952+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "ATOM/USD",
+    "side": "buy",
+    "qty": 5498.064546,
+    "price": 1.8254,
+    "time": "2026-03-20T06:09:05.518835+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "OP/USD",
+    "side": "sell",
+    "qty": 58866.447654,
+    "price": 0.1243,
+    "time": "2026-03-20T06:09:17.606416+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "EGLD/USD",
+    "side": "buy",
+    "qty": 2123.915187,
+    "price": 4.18,
+    "time": "2026-03-20T06:09:42.367874+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "WLD/USD",
+    "side": "buy",
+    "qty": 1390.769039,
+    "price": 0.3287,
+    "time": "2026-03-20T09:01:30.988374+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "OP/USD",
+    "side": "sell",
+    "qty": 59939.573671,
+    "price": 0.1243,
+    "time": "2026-03-20T09:01:52.532365+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "FARTCOIN/USD",
+    "side": "sell",
+    "qty": 19129.214219,
+    "price": 0.2049,
+    "time": "2026-03-20T09:02:27.311189+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "EGLD/USD",
+    "side": "buy",
+    "qty": 191.164421,
+    "price": 4.19,
+    "time": "2026-03-20T09:13:09.367599+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "FIL/USD",
+    "side": "buy",
+    "qty": 608.689376,
+    "price": 0.897,
+    "time": "2026-03-20T09:13:10.670708+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "EGLD/USD",
+    "side": "buy",
+    "qty": 2107.281528,
+    "price": 4.19,
+    "time": "2026-03-20T09:23:47.002396+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "FIL/USD",
+    "side": "buy",
+    "qty": 4185.655436,
+    "price": 0.893,
+    "time": "2026-03-20T09:23:52.441375+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "ATOM/USD",
+    "side": "buy",
+    "qty": 368.069507,
+    "price": 1.8055,
+    "time": "2026-03-20T11:00:29.994111+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "ATOM/USD",
+    "side": "sell",
+    "qty": 5549.468788,
+    "price": 1.8085,
+    "time": "2026-03-20T11:11:12.954586+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "FARTCOIN/USD",
+    "side": "buy",
+    "qty": 19129.214219,
+    "price": 0.2004,
+    "time": "2026-03-20T14:35:07.295416+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "FARTCOIN/USD",
+    "side": "sell",
+    "qty": 19866.532952,
+    "price": 0.1981,
+    "time": "2026-03-20T14:40:29.501355+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "FIL/USD",
+    "side": "sell",
+    "qty": 4185.655436,
+    "price": 0.892,
+    "time": "2026-03-20T19:40:52.112949+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "FIL/USD",
+    "side": "buy",
+    "qty": 3393.344972,
+    "price": 0.898,
+    "time": "2026-03-20T19:46:14.577819+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "FARTCOIN/USD",
+    "side": "buy",
+    "qty": 19866.532952,
+    "price": 0.1957,
+    "time": "2026-03-20T21:23:01.681113+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "FARTCOIN/USD",
+    "side": "sell",
+    "qty": 20279.268851,
+    "price": 0.1966,
+    "time": "2026-03-20T21:28:30.129142+00:00",
+    "intent": "open"
   }
 ]

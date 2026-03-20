@@ -1,2 +1,0 @@
-{"timestamp": "2026-03-19T00:13:23.601847+00:00", "symbol": "INJ-USD", "predicted_return": -0.046189, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
-{"timestamp": "2026-03-19T00:13:38.532528+00:00", "symbol": "INJ-USD", "predicted_return": -0.046189, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}

@@ -426,8 +426,8 @@ def check_position_allowed(
     if new_exposure > risk.max_total_exposure:
         return False, (f"total exposure {new_exposure:.1%} > max {risk.max_total_exposure:.1%}")
 
-    # 3. Max positions
-    active_positions = sum(1 for p in positions.values() if p.get("qty", 0) > 0)
+    # 3. Max positions (count both long and short positions)
+    active_positions = sum(1 for p in positions.values() if p.get("qty", 0) != 0)
     if active_positions >= risk.max_positions:
         return False, f"max positions reached ({active_positions} >= {risk.max_positions})"
 

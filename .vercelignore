@@ -11,6 +11,8 @@ __pycache__/
 *.joblib
 .git
 .venv
+.pytest_tmp
+tmp*
 node_modules
 tests/
 scripts/

@@ -99,7 +99,7 @@ $Groups = @(
        ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true },
     @{ Name = 'crypto';    EnvPrefix = 'KRAKEN_';            Mode = 'daily';    Interval = '5min';
        ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true; SkipKeyCheck = $true },
-    @{ Name = 'crypto_intraday'; EnvPrefix = 'KRAKEN_';      Mode = 'daily';    Interval = '5min';
+    @{ Name = 'crypto_intraday'; EnvPrefix = 'KRAKEN_';      Mode = 'intraday'; Interval = '5min';
        ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true; SkipKeyCheck = $true }
 )
 

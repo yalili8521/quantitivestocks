@@ -1,2 +1,0 @@
-{"timestamp": "2026-03-19T00:13:05.838024+00:00", "symbol": "CRV-USD", "predicted_return": 0.074626, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
-{"timestamp": "2026-03-19T00:13:22.661210+00:00", "symbol": "CRV-USD", "predicted_return": 0.074626, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}

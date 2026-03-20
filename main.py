@@ -57,7 +57,9 @@ def _help_text() -> str:
     stop-paper-trader   Stop a running paper trader group
     select-symbols      Screen candidate symbols and update config
     train-selector      Train the cross-sectional coin selector
+    train-selector-intraday  Train the intraday coin selector
     rank-coins          Rank coins using the trained selector
+    rank-coins-intraday Rank coins using the intraday selector
     screen-universe     Discover tradeable coins from the full market
     screen-etf-universe Discover tradeable ETFs from the broad market
     select-features     IC-based feature selection pipeline
@@ -213,6 +215,18 @@ def main() -> None:
         from coin_selector import main as selector_main
         selector_main()
 
+    elif command == "train-selector-intraday":
+        # Train intraday cross-sectional coin selector
+        sys.argv = [sys.argv[0], "train-intraday"] + sys.argv[1:]
+        from coin_selector import main as selector_main
+        selector_main()
+
+    elif command == "rank-coins-intraday":
+        # Rank coins using intraday selector
+        sys.argv = [sys.argv[0], "rank-intraday"] + sys.argv[1:]
+        from coin_selector import main as selector_main
+        selector_main()
+
     elif command == "screen-universe":
         # Layer 0: discover tradeable coins from full market
         from universe_screener import main as screener_main
@@ -292,7 +306,8 @@ def main() -> None:
         print("  Available commands: signals, train, train-meta, train-intraday, train-swing, train-crypto,")
         print("                      predict, backtest, backtest-portfolio, trade, report, training-tables,")
         print("                      divergence-report, select-symbols, check-positions, stop-paper-trader,")
-        print("                      lock-status, model-health, validate-risk, train-selector, rank-coins,")
+        print("                      lock-status, model-health, validate-risk, train-selector, train-selector-intraday,")
+        print("                      rank-coins, rank-coins-intraday,")
         print("                      screen-universe, screen-etf-universe, select-features, batch-backtest, weekly-pipeline,")
         print("                      paused-models, unpause")
         print("  Run `python main.py --help` for usage.\n")

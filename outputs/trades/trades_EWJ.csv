@@ -1,2 +1,0 @@
-direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,exit_reason
-LONG,2024-01-02,59.4,2026-03-06,84.77,615.76,15620.95,42.71,end_of_backtest

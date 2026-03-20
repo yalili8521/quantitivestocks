@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -62,16 +62,22 @@ WEIGHTS = {
 # ---------------------------------------------------------------------------
 # Feature computation
 # ---------------------------------------------------------------------------
-def _compute_features(closes: Dict[str, pd.Series]) -> pd.DataFrame:
+def _compute_features(
+    closes: Dict[str, pd.Series],
+    volumes: Optional[Dict[str, pd.Series]] = None,
+) -> pd.DataFrame:
     """Compute cross-sectional features for all symbols.
 
     Args:
         closes: dict of symbol → pd.Series of daily close prices (DatetimeIndex)
+        volumes: dict of symbol → pd.Series of daily volume (optional)
 
     Returns:
         DataFrame with one row per symbol and feature columns.
     """
     spy_close = closes.get("SPY")
+    if volumes is None:
+        volumes = {}
 
     rows = []
     for sym, close in closes.items():
@@ -103,10 +109,13 @@ def _compute_features(closes: Dict[str, pd.Series]) -> pd.DataFrame:
         else:
             row["trend_strength"] = 0
 
-        # Volume surge: recent 5d avg vol vs 60d avg vol
-        if hasattr(close, "name") and close.name is not None:
-            # volume not available from close series alone — use 0 as default
-            row["volume_surge"] = 0
+        # Volume surge: dollar-volume 5d avg / 60d avg
+        vol = volumes.get(sym)
+        if vol is not None and len(vol) >= 60:
+            dollar_vol = vol * close.reindex(vol.index, method="ffill")
+            avg_5d = dollar_vol.iloc[-5:].mean()
+            avg_60d = dollar_vol.iloc[-60:].mean()
+            row["volume_surge"] = (avg_5d / avg_60d - 1) if avg_60d > 0 else 0
         else:
             row["volume_surge"] = 0
 
@@ -174,16 +183,17 @@ class ETFSelector:
                      len(symbols), self.min_pool)
             return symbols
 
-        # Fetch close prices if not provided
+        # Fetch close + volume if not provided
+        volumes: Optional[Dict[str, pd.Series]] = None
         if closes is None:
-            closes = self._fetch_closes(symbols)
+            closes, volumes = self._fetch_closes(symbols)
 
         if not closes:
             log.warning("ETFSelector: no data fetched — returning all symbols")
             return symbols
 
         # Compute features and score
-        features = _compute_features(closes)
+        features = _compute_features(closes, volumes)
         if features.empty:
             log.warning("ETFSelector: no features computed — returning all symbols")
             return symbols
@@ -209,10 +219,11 @@ class ETFSelector:
 
         Returns DataFrame with columns: symbol, score, rank, and all features.
         """
+        volumes: Optional[Dict[str, pd.Series]] = None
         if closes is None:
-            closes = self._fetch_closes(symbols)
+            closes, volumes = self._fetch_closes(symbols)
 
-        features = _compute_features(closes)
+        features = _compute_features(closes, volumes)
         if features.empty:
             return pd.DataFrame()
 
@@ -224,27 +235,37 @@ class ETFSelector:
         return features.reset_index()
 
     @staticmethod
-    def _fetch_closes(symbols: List[str]) -> Dict[str, pd.Series]:
-        """Fetch 1 year of daily close prices for all symbols via yfinance."""
+    def _fetch_closes(
+        symbols: List[str],
+    ) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
+        """Fetch 1 year of daily close prices + volume for all symbols via yfinance.
+
+        Returns:
+            (closes_dict, volumes_dict) — each maps symbol → pd.Series.
+        """
         import yfinance as yf
 
         # Always include SPY for relative strength computation
         fetch_symbols = list(set(symbols + ["SPY"]))
 
-        log.info("Fetching close prices for %d symbols...", len(fetch_symbols))
+        log.info("Fetching close+volume for %d symbols...", len(fetch_symbols))
         try:
             data = yf.download(fetch_symbols, period="1y", progress=False, auto_adjust=True)
             if data.empty:
-                return {}
+                return {}, {}
 
-            closes = {}
-            if "Close" in data.columns.get_level_values(0) if hasattr(data.columns, 'get_level_values') else "Close" in data.columns:
+            multi = hasattr(data.columns, "get_level_values")
+            closes: Dict[str, pd.Series] = {}
+            volumes: Dict[str, pd.Series] = {}
+
+            if multi:
                 close_df = data["Close"] if len(fetch_symbols) > 1 else data[["Close"]]
+                vol_df = data["Volume"] if len(fetch_symbols) > 1 else data[["Volume"]]
             else:
                 close_df = data
+                vol_df = None
 
             if isinstance(close_df, pd.Series):
-                # Single symbol
                 closes[fetch_symbols[0]] = close_df.dropna()
             else:
                 for sym in fetch_symbols:
@@ -253,12 +274,23 @@ class ETFSelector:
                         if len(series) >= 63:
                             closes[sym] = series
 
-            log.info("Fetched close data for %d/%d symbols", len(closes), len(fetch_symbols))
-            return closes
+            if vol_df is not None:
+                if isinstance(vol_df, pd.Series):
+                    volumes[fetch_symbols[0]] = vol_df.dropna()
+                else:
+                    for sym in fetch_symbols:
+                        if sym in vol_df.columns:
+                            series = vol_df[sym].dropna()
+                            if len(series) >= 60:
+                                volumes[sym] = series
+
+            log.info("Fetched close data for %d/%d symbols (%d with volume)",
+                     len(closes), len(fetch_symbols), len(volumes))
+            return closes, volumes
 
         except Exception as e:
             log.warning("Failed to fetch close prices: %s", e)
-            return {}
+            return {}, {}
 
 
 # ---------------------------------------------------------------------------
@@ -296,20 +328,21 @@ def main():
     print(f"  ETF Selector Rankings ({len(ranking)} symbols)")
     print(f"{'=' * 90}")
     print(f"  {'Rank':<6} {'Symbol':<10} {'Score':>8} {'Mom63d':>8} {'Mom21d':>8} "
-          f"{'RelStr':>8} {'VolReg':>8} {'Trend':>8}")
-    print(f"  {'-' * 82}")
+          f"{'RelStr':>8} {'VolReg':>8} {'Trend':>8} {'VolSrg':>8}")
+    print(f"  {'-' * 90}")
 
     for _, row in ranking.iterrows():
         selected_marker = " *" if row["rank"] <= args.top_k else ""
         print(f"  {int(row['rank']):<6} {row['symbol']:<10} {row['score']:>+7.3f} "
               f"{row.get('momentum_63d', 0):>+7.3f} {row.get('momentum_21d', 0):>+7.3f} "
               f"{row.get('rel_strength_spy', 0):>+7.3f} {row.get('vol_regime', 0):>+7.3f} "
-              f"{row.get('trend_strength', 0):>+7.3f}{selected_marker}")
+              f"{row.get('trend_strength', 0):>+7.3f} {row.get('volume_surge', 0):>+7.3f}"
+              f"{selected_marker}")
 
-    print(f"  {'-' * 82}")
+    print(f"  {'-' * 90}")
     top_k_symbols = ranking[ranking["rank"] <= args.top_k]["symbol"].tolist()
     print(f"  Selected (top-{args.top_k}): {', '.join(top_k_symbols)}")
-    print(f"{'=' * 90}\n")
+    print(f"{'=' * 98}\n")
 
 
 if __name__ == "__main__":

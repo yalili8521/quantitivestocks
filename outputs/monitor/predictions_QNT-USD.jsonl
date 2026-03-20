@@ -1,2 +1,0 @@
-{"timestamp": "2026-03-19T00:13:41.639929+00:00", "symbol": "QNT-USD", "predicted_return": -0.010263, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
-{"timestamp": "2026-03-19T00:13:54.897507+00:00", "symbol": "QNT-USD", "predicted_return": -0.010263, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}

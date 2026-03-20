@@ -1,2 +1,0 @@
-{"timestamp": "2026-03-19T00:12:40.271153+00:00", "symbol": "XTZ-USD", "predicted_return": 0.039242, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
-{"timestamp": "2026-03-19T00:12:52.404556+00:00", "symbol": "XTZ-USD", "predicted_return": 0.039242, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}

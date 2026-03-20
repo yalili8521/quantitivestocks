@@ -62,8 +62,6 @@ CRYPTO_UNIVERSE = [
 # Minimum 20-day median daily dollar volume to qualify
 MIN_DOLLAR_VOLUME = 5_000_000  # $5M
 
-# Default top-K selection count
-DEFAULT_TOP_K = 6
 
 # Forward label horizon
 LABEL_HORIZON = 5  # 5-day forward return for ranking label
@@ -85,6 +83,32 @@ XS_FEATURES = [
     "spread_proxy",
     "ret63",
     "adx",
+]
+
+# ---------------------------------------------------------------------------
+# Intraday selector constants
+# ---------------------------------------------------------------------------
+
+LABEL_HORIZON_INTRADAY = 12    # 12 bars × 5min = 1 hour
+SNAPSHOT_INTERVAL_BARS = 48    # snapshot every 4 hours for cross-sectional ranking
+INTRADAY_LOOKBACK_DAYS = 180
+
+SELECTOR_MODEL_FILE_INTRADAY = "coin_selector_lgb_intraday.txt"
+SELECTOR_CONFIG_FILE_INTRADAY = "coin_selector_intraday_config.json"
+
+XS_FEATURES_INTRADAY = [
+    "momentum_1h",             # pct_change(12 bars) — short-term relative momentum
+    "momentum_4h",             # pct_change(48 bars) — medium-term momentum
+    "reversal_30m",            # -pct_change(6 bars) — mean-reversion
+    "vol_ratio_short_long",    # std(12-bar) / std(48-bar) — vol regime shift
+    "dollar_vol_zscore",       # (current $vol - 48-bar mean) / std — liquidity surge
+    "close_position_xs",       # (close - low12) / (high12 - low12) — microstructure quality
+    "cumulative_delta_xs",     # rolling buy-sell imbalance — order flow
+    "btc_beta_resid_hourly",   # hourly beta residual vs BTC — idiosyncratic alpha
+    "spread_proxy_intraday",   # avg((high-low)/close) over 48 bars — liquidity cost
+    "rvol_xs",                 # volume / 48-bar MA volume — relative demand
+    "realized_vol_24bar",      # std(log returns) annualized — vol level
+    "momentum_acceleration",   # ret_6bar - ret_6bar.shift(6) — momentum derivative
 ]
 
 
@@ -131,6 +155,32 @@ def fetch_universe_data(
                      sym, len(df), df["date"].iloc[0].date(), df["date"].iloc[-1].date())
         except Exception as exc:
             log.warning("Failed to fetch %s: %s", sym, exc)
+    return data
+
+
+def fetch_universe_intraday_data(
+    universe: List[str],
+    lookback_days: int = INTRADAY_LOOKBACK_DAYS,
+) -> Dict[str, pd.DataFrame]:
+    """Fetch 5-min bars for the full universe via BinanceUS (for intraday selector).
+
+    Returns {symbol: DataFrame} with columns [ts, open, high, low, close, volume].
+    Minimum 5000 bars (~3.5 days) per coin to qualify.
+    """
+    from crypto_intraday_data import CryptoIntradayData
+    data_source = CryptoIntradayData()
+    data: Dict[str, pd.DataFrame] = {}
+    for sym in universe:
+        try:
+            df = data_source.fetch_training_bars(sym, days=lookback_days)
+            if len(df) < 5000:
+                log.warning("Skipping %s: only %d 5m bars (need ≥5000)", sym, len(df))
+                continue
+            data[sym] = df
+            log.info("Fetched %s: %d 5m bars (%s → %s)",
+                     sym, len(df), df["ts"].iloc[0], df["ts"].iloc[-1])
+        except Exception as exc:
+            log.warning("Failed to fetch %s intraday: %s", sym, exc)
     return data
 
 
@@ -184,6 +234,98 @@ def compute_coin_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # BTC beta residual (placeholder — computed cross-sectionally in build_xs_panel)
     feat["btc_beta_resid"] = 0.0
+
+    feat["close"] = close
+    return feat
+
+
+def compute_coin_features_intraday(
+    df: pd.DataFrame,
+    btc_df: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    """Compute per-coin intraday features from 5-min bars.
+
+    Args:
+        df: 5-min OHLCV with columns [ts, open, high, low, close, volume]
+        btc_df: optional BTC 5-min bars for cross-market features
+
+    Returns:
+        DataFrame with intraday XS features + ts + close columns.
+    """
+    close = df["close"].astype(float)
+    high = df["high"].astype(float)
+    low = df["low"].astype(float)
+    volume = df["volume"].astype(float)
+
+    feat = pd.DataFrame(index=df.index)
+    feat["ts"] = df["ts"]
+
+    # Momentum (bar counts: 6=30m, 12=1h, 48=4h)
+    feat["momentum_1h"] = close.pct_change(12)
+    feat["momentum_4h"] = close.pct_change(48)
+    feat["reversal_30m"] = -close.pct_change(6)
+
+    # Volatility
+    log_ret = np.log(close / close.shift(1))
+    std_12 = log_ret.rolling(12).std()
+    std_48 = log_ret.rolling(48).std()
+    feat["vol_ratio_short_long"] = std_12 / std_48.replace(0, np.nan)
+    feat["realized_vol_24bar"] = log_ret.rolling(24).std() * np.sqrt(288 * 365)
+
+    # Volume / liquidity
+    dollar_vol = close * volume
+    dv_mean_48 = dollar_vol.rolling(48).mean()
+    dv_std_48 = dollar_vol.rolling(48).std()
+    feat["dollar_vol_zscore"] = (dollar_vol - dv_mean_48) / dv_std_48.replace(0, np.nan)
+    vol_ma_48 = volume.rolling(48).mean()
+    feat["rvol_xs"] = volume / vol_ma_48.replace(0, np.nan)
+
+    # Microstructure: close position within 12-bar range
+    rolling_high_12 = high.rolling(12).max()
+    rolling_low_12 = low.rolling(12).min()
+    rng = (rolling_high_12 - rolling_low_12).replace(0, np.nan)
+    feat["close_position_xs"] = (close - rolling_low_12) / rng
+
+    # Cumulative delta (order flow proxy from OHLC)
+    # Approximation: if close > open → buying pressure, else selling
+    bar_delta = np.where(close >= df["open"].astype(float), volume, -volume)
+    feat["cumulative_delta_xs"] = pd.Series(bar_delta, index=df.index).rolling(12).sum()
+    # Normalize by total volume to make it cross-sectionally comparable
+    vol_sum_12 = volume.rolling(12).sum().replace(0, np.nan)
+    feat["cumulative_delta_xs"] = feat["cumulative_delta_xs"] / vol_sum_12
+
+    # Spread proxy: average (high-low)/close over 48 bars
+    bar_spread = (high - low) / close.replace(0, np.nan)
+    feat["spread_proxy_intraday"] = bar_spread.rolling(48).mean()
+
+    # Momentum acceleration
+    ret_6bar = close.pct_change(6)
+    feat["momentum_acceleration"] = ret_6bar - ret_6bar.shift(6)
+
+    # BTC beta residual (hourly scale, 12-bar rolling)
+    feat["btc_beta_resid_hourly"] = 0.0  # placeholder — computed in build_xs_panel_intraday
+    if btc_df is not None and len(btc_df) >= 60:
+        btc_close = btc_df["close"].astype(float)
+        btc_ret = btc_close.pct_change().values
+        sym_ret = close.pct_change().values
+        resid = np.full(len(sym_ret), np.nan)
+        window = 48  # 4-hour rolling window for beta estimation
+        for i in range(window, len(sym_ret)):
+            w_sym = sym_ret[i - window:i]
+            w_btc = btc_ret[i - window:i]
+            # Align lengths (btc_df may be shorter)
+            min_len = min(len(w_sym), len(w_btc))
+            if min_len < 12:
+                continue
+            w_sym = w_sym[:min_len]
+            w_btc = w_btc[:min_len]
+            btc_var = np.nanvar(w_btc)
+            if btc_var > 1e-15:
+                beta = np.nanmean((w_sym - np.nanmean(w_sym)) * (w_btc - np.nanmean(w_btc))) / btc_var
+                resid[i] = sym_ret[i] - beta * btc_ret[i] if i < len(btc_ret) else np.nan
+            else:
+                resid[i] = sym_ret[i]
+        feat["btc_beta_resid_hourly"] = resid
 
     feat["close"] = close
     return feat
@@ -272,6 +414,81 @@ def build_xs_panel(
     return panel
 
 
+def build_xs_panel_intraday(
+    universe_data: Dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """Build a cross-sectional panel from 5-min bars for intraday ranking.
+
+    Snapshots are taken every SNAPSHOT_INTERVAL_BARS (48 bars = 4 hours).
+    Features are z-scored cross-sectionally per snapshot.
+    Label: forward 12-bar (1 hour) risk-adjusted return.
+    """
+    # Find BTC data for cross-market features
+    btc_data = None
+    for sym in ("BTC-USD", "BTC/USD"):
+        if sym in universe_data:
+            btc_data = universe_data[sym]
+            break
+
+    # Compute per-coin features
+    coin_features: Dict[str, pd.DataFrame] = {}
+    for sym, df in universe_data.items():
+        btc_for_sym = btc_data if sym not in ("BTC-USD", "BTC/USD") else None
+        feat = compute_coin_features_intraday(df, btc_df=btc_for_sym)
+        feat["symbol"] = sym
+        coin_features[sym] = feat
+
+    if not coin_features:
+        return pd.DataFrame()
+
+    # Sample every SNAPSHOT_INTERVAL_BARS per coin; pre-compute labels from
+    # raw data using the known sampling indices (avoids tz-aware/naive mismatch).
+    sampled_parts = []
+    for sym, feat in coin_features.items():
+        indices = list(range(SNAPSHOT_INTERVAL_BARS, len(feat), SNAPSHOT_INTERVAL_BARS))
+        if not indices:
+            continue
+        sampled = feat.iloc[indices].copy()
+
+        # Compute forward label directly from raw close using sample indices
+        full_close = feat["close"].values
+        full_ret = np.diff(np.log(full_close), prepend=np.nan)
+        labels = np.full(len(indices), np.nan)
+        for j, raw_i in enumerate(indices):
+            if raw_i + LABEL_HORIZON_INTRADAY >= len(full_close):
+                continue
+            fwd_ret = full_close[raw_i + LABEL_HORIZON_INTRADAY] / full_close[raw_i] - 1
+            fwd_vol = np.std(full_ret[raw_i + 1:raw_i + 1 + LABEL_HORIZON_INTRADAY])
+            labels[j] = fwd_ret / max(fwd_vol, 0.0001)
+        sampled["label"] = labels
+        sampled_parts.append(sampled)
+
+    if not sampled_parts:
+        return pd.DataFrame()
+
+    panel = pd.concat(sampled_parts, ignore_index=True)
+
+    # Round timestamps to nearest 4h for cross-sectional alignment
+    panel["snapshot"] = panel["ts"].dt.floor("4h")
+
+    # Cross-sectional z-scoring per snapshot
+    for feat_col in XS_FEATURES_INTRADAY:
+        if feat_col not in panel.columns:
+            continue
+        grouped = panel.groupby("snapshot")[feat_col]
+        mean = grouped.transform("mean")
+        std = grouped.transform("std").replace(0, 1.0)
+        panel[feat_col] = (panel[feat_col] - mean) / std
+        # Clip at ±3σ to reduce outlier dominance
+        panel[feat_col] = panel[feat_col].clip(-3, 3)
+
+    # Drop NaN features or labels
+    feat_and_label = XS_FEATURES_INTRADAY + ["label"]
+    panel = panel.dropna(subset=feat_and_label).reset_index(drop=True)
+
+    return panel
+
+
 # ---------------------------------------------------------------------------
 # Training
 # ---------------------------------------------------------------------------
@@ -280,67 +497,88 @@ def train_selector(
     universe: Optional[List[str]] = None,
     train_end: str = "2025-01-01",
     save_dir: Optional[str] = None,
-    top_k: int = DEFAULT_TOP_K,
     lookback_days: int = 1500,
+    mode: str = "swing",
 ) -> dict:
     """Train the cross-sectional LightGBM LambdaRank selector.
+
+    Args:
+        mode: "swing" for daily 5-day label, "intraday" for 5-min 1-hour label.
 
     Returns dict with training metrics.
     """
     import lightgbm as lgb
 
+    is_intraday = (mode == "intraday")
+    xs_features = XS_FEATURES_INTRADAY if is_intraday else XS_FEATURES
+    model_file = SELECTOR_MODEL_FILE_INTRADAY if is_intraday else SELECTOR_MODEL_FILE
+    config_file = SELECTOR_CONFIG_FILE_INTRADAY if is_intraday else SELECTOR_CONFIG_FILE
+
     if universe is None:
-        # Prefer dynamic universe from Layer 0 screener; fall back to hardcoded
         dynamic = load_universe(save_dir or CRYPTO_MODEL_DIR)
         universe = dynamic if dynamic else list(CRYPTO_UNIVERSE)
     if save_dir is None:
-        save_dir = CRYPTO_MODEL_DIR
+        from utils import CRYPTO_INTRADAY_MODEL_DIR
+        save_dir = CRYPTO_INTRADAY_MODEL_DIR if is_intraday else CRYPTO_MODEL_DIR
     os.makedirs(save_dir, exist_ok=True)
 
-    log.info("Fetching universe data for %d coins...", len(universe))
-    data = fetch_universe_data(universe, lookback_days=lookback_days)
+    # Fetch data
+    if is_intraday:
+        log.info("Fetching intraday (5m) data for %d coins...", len(universe))
+        data = fetch_universe_intraday_data(universe, lookback_days=lookback_days)
+    else:
+        log.info("Fetching daily data for %d coins...", len(universe))
+        data = fetch_universe_data(universe, lookback_days=lookback_days)
     if len(data) < 3:
         raise RuntimeError(f"Only {len(data)} coins have data — need ≥3 for cross-sectional ranking")
 
-    log.info("Building cross-sectional panel...")
-    panel = build_xs_panel(data)
-    log.info("Panel: %d rows, %d unique dates, %d coins",
-             len(panel), panel["date"].nunique(), panel["symbol"].nunique())
+    # Build panel
+    log.info("Building %s cross-sectional panel...", mode)
+    if is_intraday:
+        panel = build_xs_panel_intraday(data)
+        time_col = "snapshot"
+    else:
+        panel = build_xs_panel(data)
+        time_col = "date"
+    log.info("Panel: %d rows, %d unique snapshots, %d coins",
+             len(panel), panel[time_col].nunique(), panel["symbol"].nunique())
 
-    # Train/val split by date
-    train_end_dt = pd.Timestamp(train_end)
-    train_mask = panel["date"] < train_end_dt
-    val_mask = panel["date"] >= train_end_dt
+    # Train/val split
+    if is_intraday:
+        # Time-based 75/25 split for intraday
+        unique_times = sorted(panel[time_col].unique())
+        split_idx = int(len(unique_times) * 0.75)
+        split_time = unique_times[split_idx]
+        train_mask = panel[time_col] < split_time
+        val_mask = panel[time_col] >= split_time
+    else:
+        train_end_dt = pd.Timestamp(train_end)
+        train_mask = panel[time_col] < train_end_dt
+        val_mask = panel[time_col] >= train_end_dt
 
     train_df = panel[train_mask].copy()
     val_df = panel[val_mask].copy()
 
-    # Min sample gate: NDCG is unreliable on small samples. Need ≥150 rows
-    # and ≥30 unique dates (query groups) for stable ranking quality.
+    # Min sample gate
     if len(train_df) < 150:
         raise RuntimeError(f"Training set too small: {len(train_df)} rows (need ≥150)")
-    n_train_dates = train_df["date"].nunique()
-    if n_train_dates < 30:
-        raise RuntimeError(f"Training set has too few dates: {n_train_dates} (need ≥30)")
+    n_train_snapshots = train_df[time_col].nunique()
+    if n_train_snapshots < 30:
+        raise RuntimeError(f"Training set has too few snapshots: {n_train_snapshots} (need ≥30)")
     if len(val_df) < 50:
         log.warning("Validation set small: %d rows", len(val_df))
 
     log.info("Train: %d rows (%s → %s), Val: %d rows (%s → %s)",
-             len(train_df), train_df["date"].min().date(), train_df["date"].max().date(),
-             len(val_df), val_df["date"].min().date(), val_df["date"].max().date())
+             len(train_df), train_df[time_col].min(), train_df[time_col].max(),
+             len(val_df), val_df[time_col].min(), val_df[time_col].max())
 
-    # Build LightGBM datasets with group (query) structure
-    # group = number of coins per date snapshot
-    # LambdaRank requires integer relevance labels — discretize continuous
-    # risk-adjusted returns into 5 grades (0=worst, 4=best) per date.
+    # Discretize continuous labels into integer grades 0-4 per snapshot
     def _discretize_labels(df: pd.DataFrame) -> pd.DataFrame:
-        """Convert continuous label to integer relevance grades 0-4 per date."""
         df = df.copy()
         df["label_int"] = 0
-        for date, grp in df.groupby("date"):
+        for _, grp in df.groupby(time_col):
             vals = grp["label"].values
             if len(vals) < 5:
-                # Too few coins to quintile — use rank directly
                 ranks = pd.Series(vals).rank(method="min").astype(int) - 1
                 ranks = (ranks * 4 / max(ranks.max(), 1)).astype(int).clip(0, 4)
                 df.loc[grp.index, "label_int"] = ranks.values
@@ -354,35 +592,33 @@ def train_selector(
     val_df = _discretize_labels(val_df)
 
     def build_lgb_data(df: pd.DataFrame):
-        X = df[XS_FEATURES].values
+        X = df[xs_features].values
         y = df["label_int"].values.astype(int)
-        groups = df.groupby("date").size().values
+        groups = df.groupby(time_col).size().values
         return X, y, groups
 
     X_train, y_train, groups_train = build_lgb_data(train_df)
     X_val, y_val, groups_val = build_lgb_data(val_df)
 
     train_set = lgb.Dataset(X_train, label=y_train, group=groups_train,
-                            feature_name=XS_FEATURES, free_raw_data=False)
+                            feature_name=xs_features, free_raw_data=False)
     val_set = lgb.Dataset(X_val, label=y_val, group=groups_val,
                           reference=train_set, free_raw_data=False)
 
-    # label_gain: relevance gain for each grade (0→0, 1→1, 2→3, 3→7, 4→15)
-    # exponential gains emphasize correctly ranking the top coins
     params = {
         "objective": "lambdarank",
         "metric": "ndcg",
-        "ndcg_eval_at": [3, top_k],
+        "ndcg_eval_at": [3, 6],
         "label_gain": [0, 1, 3, 7, 15],
         "num_leaves": 31,
         "learning_rate": 0.05,
         "feature_fraction": 0.7,
-        "min_data_in_leaf": 20,
+        "min_data_in_leaf": 50 if is_intraday else 20,
         "verbose": -1,
         "seed": 42,
     }
 
-    log.info("Training LambdaRank model (top_k=%d)...", top_k)
+    log.info("Training LambdaRank model...")
     callbacks = [
         lgb.early_stopping(stopping_rounds=30),
         lgb.log_evaluation(period=50),
@@ -398,21 +634,20 @@ def train_selector(
 
     # Evaluate: NDCG on validation set
     val_pred = model.predict(X_val)
-    ndcg_scores = _compute_ndcg_by_group(val_pred, y_val, groups_val, k=top_k)
+    ndcg_scores = _compute_ndcg_by_group(val_pred, y_val, groups_val, k=6)
     mean_ndcg = float(np.mean(ndcg_scores)) if ndcg_scores else 0.0
 
     # Feature importance
-    importance = dict(zip(XS_FEATURES, model.feature_importance(importance_type="gain").tolist()))
+    importance = dict(zip(xs_features, model.feature_importance(importance_type="gain").tolist()))
     sorted_imp = sorted(importance.items(), key=lambda x: -x[1])
 
-    # Compute top-K hit rate: how often are the actual best coins in the predicted top-K?
-    hit_rate = _compute_topk_hit_rate(val_pred, y_val, groups_val, k=top_k)
+    # Compute top-K hit rate
+    hit_rate = _compute_topk_hit_rate(val_pred, y_val, groups_val, k=6)
 
-    # --- NDCG comparison gate: don't deploy a worse model ---
-    # Load old model's NDCG from existing config (if any)
-    config_path = os.path.join(save_dir, SELECTOR_CONFIG_FILE)
-    model_path = os.path.join(save_dir, SELECTOR_MODEL_FILE)
-    _ndcg_tolerance = 0.02  # allow 2% regression (different val split)
+    # NDCG comparison gate: don't deploy a worse model
+    config_path = os.path.join(save_dir, config_file)
+    model_path = os.path.join(save_dir, model_file)
+    _ndcg_tolerance = 0.02
     _deploy = True
     try:
         if os.path.exists(config_path):
@@ -433,14 +668,19 @@ def train_selector(
     except Exception as exc:
         log.warning("Could not load old selector metrics for comparison: %s", exc)
 
+    t_min = train_df[time_col].min()
+    t_max = train_df[time_col].max()
+    v_min = val_df[time_col].min()
+    v_max = val_df[time_col].max()
     metrics = {
+        "mode": mode,
         "train_rows": len(train_df),
         "val_rows": len(val_df),
-        "train_dates": str(train_df["date"].min().date()) + " → " + str(train_df["date"].max().date()),
-        "val_dates": str(val_df["date"].min().date()) + " → " + str(val_df["date"].max().date()),
+        "train_range": f"{t_min} → {t_max}",
+        "val_range": f"{v_min} → {v_max}",
         "coins": sorted(panel["symbol"].unique().tolist()),
         "n_coins": int(panel["symbol"].nunique()),
-        "top_k": top_k,
+        "ndcg_k": 6,
         "mean_ndcg": round(mean_ndcg, 4),
         "topk_hit_rate": round(hit_rate, 4),
         "best_iteration": model.best_iteration,
@@ -458,9 +698,9 @@ def train_selector(
         log.info("Old selector model retained (new model NOT saved)")
 
     log.info("=== Selector Training Results ===")
-    log.info("  NDCG@%d (val): %.4f%s", top_k, mean_ndcg,
+    log.info("  NDCG@6 (val): %.4f%s", mean_ndcg,
              "" if _deploy else " [REJECTED — old model kept]")
-    log.info("  Top-%d hit rate: %.1f%%", top_k, hit_rate * 100)
+    log.info("  Top-6 hit rate: %.1f%%", hit_rate * 100)
     log.info("  Best iteration: %d", model.best_iteration)
     log.info("  Feature importance:")
     for feat, imp in sorted_imp[:5]:
@@ -535,103 +775,121 @@ class SelectorOutput:
 class CoinSelector:
     """Load and run the trained cross-sectional selector."""
 
-    def __init__(self, model_dir: Optional[str] = None, top_k: int = DEFAULT_TOP_K):
+    def __init__(
+        self,
+        model_dir: Optional[str] = None,
+        mode: str = "swing",
+    ):
         import lightgbm as lgb
+
+        self.mode = mode
+        is_intraday = (mode == "intraday")
+        self.xs_features = XS_FEATURES_INTRADAY if is_intraday else XS_FEATURES
 
         if model_dir is None:
             model_dir = CRYPTO_MODEL_DIR
-        model_path = os.path.join(model_dir, SELECTOR_MODEL_FILE)
-        config_path = os.path.join(model_dir, SELECTOR_CONFIG_FILE)
+        model_file = SELECTOR_MODEL_FILE_INTRADAY if is_intraday else SELECTOR_MODEL_FILE
+        config_file = SELECTOR_CONFIG_FILE_INTRADAY if is_intraday else SELECTOR_CONFIG_FILE
+        model_path = os.path.join(model_dir, model_file)
+        config_path = os.path.join(model_dir, config_file)
 
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Selector model not found: {model_path}")
 
         self.model = lgb.Booster(model_file=model_path)
-        self.top_k = top_k
 
-        # Load config for coin universe
         self.config = {}
         if os.path.exists(config_path):
             with open(config_path) as f:
                 self.config = json.load(f)
 
-        log.info("Loaded coin selector (top_k=%d) from %s", top_k, model_path)
+        log.info("Loaded coin selector (mode=%s) from %s", mode, model_path)
 
     def rank(
         self,
         universe_data: Dict[str, pd.DataFrame],
-        min_score: float = -999.0,
     ) -> SelectorOutput:
-        """Rank coins cross-sectionally and select top-K.
+        """Rank all coins cross-sectionally. Returns ALL coins ordered by score.
+
+        No hard cutoff — the paper trader applies its own position limits downstream.
 
         Args:
-            universe_data: {symbol: bars_df} with at least 60 bars each
-            min_score: minimum predicted score to be eligible
+            universe_data: {symbol: bars_df} — daily bars (swing) or 5-min bars (intraday)
 
         Returns:
-            SelectorOutput with rankings and selected coins
+            SelectorOutput with rankings (all coins) and selected (all coins).
         """
-        # Build features for the latest date
-        panel = build_xs_panel(universe_data)
+        if self.mode == "intraday":
+            panel = build_xs_panel_intraday(universe_data)
+            time_col = "snapshot"
+        else:
+            panel = build_xs_panel(universe_data)
+            time_col = "date"
+
         if panel.empty:
             log.warning("Empty panel — no coins to rank")
             return SelectorOutput(date="", rankings=[], selected=[])
 
-        # Use only the latest date
-        latest_date = panel["date"].max()
-        latest = panel[panel["date"] == latest_date].copy()
+        # Use only the latest snapshot
+        latest_date = panel[time_col].max()
+        latest = panel[panel[time_col] == latest_date].copy()
+
+        date_str = str(latest_date.date()) if hasattr(latest_date, "date") else str(latest_date)
 
         if len(latest) < 2:
             log.warning("Only %d coins on latest date — need ≥2", len(latest))
             return SelectorOutput(
-                date=str(latest_date.date()),
+                date=date_str,
                 rankings=[], selected=[],
             )
 
         # Predict scores
-        X = latest[XS_FEATURES].values
+        X = latest[self.xs_features].values
         scores = self.model.predict(X)
         latest = latest.copy()
         latest["score"] = scores
 
-        # Sort by score descending
+        # Sort by score descending — return ALL coins ranked
         latest = latest.sort_values("score", ascending=False)
         rankings = [(row["symbol"], float(row["score"]))
                     for _, row in latest.iterrows()]
+        all_symbols = [sym for sym, _ in rankings]
 
-        # Select top-K above minimum score
-        selected = [sym for sym, sc in rankings[:self.top_k] if sc > min_score]
-
-        today = str(latest_date.date())
+        today = date_str
         log.info("Selector rankings (%s): %s",
                  today,
                  ", ".join(f"{s} ({sc:.2f})" for s, sc in rankings[:8]))
-        log.info("Selected top-%d: %s", self.top_k, ", ".join(selected))
 
         return SelectorOutput(
             date=today,
             rankings=rankings,
-            selected=selected,
+            selected=all_symbols,
         )
 
 
 def rank_coins_today(
     universe: Optional[List[str]] = None,
     model_dir: Optional[str] = None,
-    top_k: int = DEFAULT_TOP_K,
+    mode: str = "swing",
 ) -> SelectorOutput:
-    """Convenience: fetch data and rank coins for today."""
+    """Convenience: fetch data and rank all coins for today.
+
+    Args:
+        mode: "swing" for daily bars, "intraday" for 5-min bars.
+    """
     if universe is None:
-        # Prefer dynamic universe from Layer 0 screener; fall back to hardcoded
         dynamic = load_universe(model_dir or CRYPTO_MODEL_DIR)
         universe = dynamic if dynamic else list(CRYPTO_UNIVERSE)
     if model_dir is None:
         model_dir = CRYPTO_MODEL_DIR
 
-    selector = CoinSelector(model_dir=model_dir, top_k=top_k)
+    selector = CoinSelector(model_dir=model_dir, mode=mode)
 
-    log.info("Fetching data for %d coins...", len(universe))
-    data = fetch_universe_data(universe, lookback_days=400)
+    log.info("Fetching data for %d coins (mode=%s)...", len(universe), mode)
+    if mode == "intraday":
+        data = fetch_universe_intraday_data(universe, lookback_days=INTRADAY_LOOKBACK_DAYS)
+    else:
+        data = fetch_universe_data(universe, lookback_days=400)
 
     return selector.rank(data)
 
@@ -651,39 +909,66 @@ def main():
     train_p = sub.add_parser("train", help="Train the selector model")
     train_p.add_argument("--train-end", default="2025-01-01",
                          help="OOS cutoff date (default: 2025-01-01)")
-    train_p.add_argument("--top-k", type=int, default=DEFAULT_TOP_K,
-                         help=f"Number of coins to select (default: {DEFAULT_TOP_K})")
     train_p.add_argument("--save-dir", default=None,
                          help="Directory to save model (default: models/crypto/)")
     train_p.add_argument("--lookback", type=int, default=1500,
                          help="Days of historical data to fetch (default: 1500)")
 
     # Rank
-    rank_p = sub.add_parser("rank", help="Rank coins for today")
-    rank_p.add_argument("--top-k", type=int, default=DEFAULT_TOP_K,
-                         help=f"Number of coins to select (default: {DEFAULT_TOP_K})")
+    rank_p = sub.add_parser("rank", help="Rank all coins for today")
     rank_p.add_argument("--model-dir", default=None,
                          help="Directory with trained model (default: models/crypto/)")
+
+    # Train-intraday
+    train_i = sub.add_parser("train-intraday", help="Train the intraday selector model")
+    train_i.add_argument("--train-end", default="2025-01-01",
+                         help="OOS cutoff date (default: 2025-01-01)")
+    train_i.add_argument("--save-dir", default=None,
+                         help="Directory to save model (default: models/crypto_intraday/)")
+    train_i.add_argument("--lookback", type=int, default=INTRADAY_LOOKBACK_DAYS,
+                         help=f"Days of historical data (default: {INTRADAY_LOOKBACK_DAYS})")
+
+    # Rank-intraday
+    rank_i = sub.add_parser("rank-intraday", help="Rank all coins with intraday features")
+    rank_i.add_argument("--model-dir", default=None,
+                         help="Directory with trained model (default: models/crypto_intraday/)")
 
     args = parser.parse_args()
 
     if args.action == "train":
         metrics = train_selector(
             train_end=args.train_end,
-            top_k=args.top_k,
             save_dir=args.save_dir,
             lookback_days=args.lookback,
         )
-        print(f"\n  Selector trained: NDCG@{args.top_k}={metrics['mean_ndcg']:.4f}, "
+        print(f"\n  Selector trained: NDCG@6={metrics['mean_ndcg']:.4f}, "
               f"hit_rate={metrics['topk_hit_rate']:.1%}")
 
     elif args.action == "rank":
-        result = rank_coins_today(top_k=args.top_k, model_dir=args.model_dir)
+        result = rank_coins_today(model_dir=args.model_dir)
         print(f"\n  === Coin Rankings ({result.date}) ===\n")
         for i, (sym, score) in enumerate(result.rankings, 1):
-            marker = " <--" if sym in result.selected else ""
-            print(f"  {i:2d}. {sym:<12s} score={score:+.3f}{marker}")
-        print(f"\n  Selected ({len(result.selected)}): {', '.join(result.selected)}")
+            print(f"  {i:2d}. {sym:<12s} score={score:+.3f}")
+
+    elif args.action == "train-intraday":
+        from utils import get_model_dir
+        save = args.save_dir or get_model_dir("crypto_intraday")
+        metrics = train_selector(
+            train_end=args.train_end,
+            save_dir=save,
+            lookback_days=args.lookback,
+            mode="intraday",
+        )
+        print(f"\n  Intraday selector trained: NDCG@6={metrics['mean_ndcg']:.4f}, "
+              f"hit_rate={metrics['topk_hit_rate']:.1%}")
+
+    elif args.action == "rank-intraday":
+        from utils import get_model_dir
+        model_dir = args.model_dir or get_model_dir("crypto_intraday")
+        result = rank_coins_today(model_dir=model_dir, mode="intraday")
+        print(f"\n  === Intraday Coin Rankings ({result.date}) ===\n")
+        for i, (sym, score) in enumerate(result.rankings, 1):
+            print(f"  {i:2d}. {sym:<12s} score={score:+.3f}")
 
     else:
         parser.print_help()
