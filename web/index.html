@@ -686,12 +686,12 @@ footer{border-top:1px solid var(--border);padding:40px 0}
 </section>
 
 <script>
-// Symbol definitions per group (top tradable from selector)
+// Symbol definitions per group (top tradable from rank-first selector)
 var _tvGroupSymbols = {
-  'etf_intraday': ['SMH','QQQ','IWM','SOXX','IGV','SPY','XLK','EWT','IBIT','GLD','SLV','GDX'],
-  'etf_swing':    ['GLD','IBIT','SLV','SMH','QQQ','GDX','IGV','IWM','EWT','XLK','SOXX','SPY'],
+  'etf_intraday': ['USO','PDBC','XLE','EWY','EWT','SMH','QQQ','IWM','SOXX','IGV','SPY','GLD'],
+  'etf_swing':    ['USO','PDBC','XLE','EWY','EWT','GLD','IBIT','SLV','SMH','QQQ','GDX','IGV'],
   'crypto':       ['BTC','ETH','SOL','ADA','AVAX','LINK','DOT','DOGE','AAVE','CRV','LTC','UNI'],
-  'crypto_intraday': ['SOL','ADA','AVAX','BTC','SUSHI','RENDER','LTC','LINK','DOGE','ETH','DOT','UNI']
+  'crypto_intraday': ['ADA','VET','CAKE','RENDER','LTC','SOL','AVAX','BTC','LINK','DOGE','ETH','DOT']
 };
 
 // TradingView symbol mapping
@@ -700,6 +700,8 @@ var _tvSymbolMap = {
   'SMH':'NASDAQ:SMH','SOXX':'NASDAQ:SOXX','IGV':'NASDAQ:IGV',
   'EWT':'AMEX:EWT','GLD':'AMEX:GLD','SLV':'AMEX:SLV',
   'GDX':'AMEX:GDX','IBIT':'NASDAQ:IBIT','XLK':'NASDAQ:XLK',
+  'USO':'AMEX:USO','PDBC':'AMEX:PDBC','XLE':'AMEX:XLE',
+  'EWY':'AMEX:EWY','VET':'BINANCE:VETUSD','CAKE':'BINANCE:CAKEUSD',
   'BTC':'COINBASE:BTCUSD','ETH':'COINBASE:ETHUSD','SOL':'COINBASE:SOLUSD',
   'ADA':'COINBASE:ADAUSD','AVAX':'COINBASE:AVAXUSD','LINK':'COINBASE:LINKUSD',
   'DOT':'COINBASE:DOTUSD','DOGE':'COINBASE:DOGEUSD','AAVE':'COINBASE:AAVEUSD',
@@ -1688,7 +1690,7 @@ function setTVGroup(group, btn) {
       <div class="glass" style="padding:28px">
         <div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:12px">Intraday ETF</div>
         <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:4px">LightGBM + GRU Momentum</div>
-        <div style="font-size:12px;color:var(--text-dim);margin-bottom:20px">5 core ETFs &bull; 5-min bars &bull; 1-day expected return</div>
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:20px">44 ETF universe &bull; 5-min bars &bull; Rank-first top-5 selection</div>
         <div class="lstm-diagram" style="margin:0 0 20px">
           <div class="lstm-layer input-layer"><span class="layer-label">Input</span><span class="layer-detail mono">13 features &times; 5-min</span></div>
           <div class="lstm-arrow"></div>
@@ -1705,14 +1707,14 @@ function setTVGroup(group, btn) {
           <span class="feat-tag">Mo Return</span><span class="feat-tag">Log $Vol</span><span class="feat-tag">Spread</span><span class="feat-tag">Trend Str</span><span class="feat-tag">Mom Quality</span>
         </div>
         <div style="font-size:11px;color:var(--text-muted);margin-top:16px;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Universe</div>
-        <div style="font-size:12px;color:var(--text-sec);margin-top:4px">SMH, IWM, IGV, QQQ, SOXX with daily ranking refresh and hourly re-rank</div>
+        <div style="font-size:12px;color:var(--text-sec);margin-top:4px">44 trained models; selector ranks universe, picks top-5 each cycle (rank-first)</div>
       </div>
 
       <!-- Swing -->
       <div class="glass" style="padding:28px">
         <div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:12px">Swing ETF</div>
         <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:4px">XGBoost + TFT Ensemble</div>
-        <div style="font-size:12px;color:var(--text-dim);margin-bottom:20px">42 ETF universe &bull; Daily bars &bull; 10-day expected return</div>
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:20px">44 ETF universe &bull; Daily bars &bull; Rank-first top-5 selection</div>
         <div class="lstm-diagram" style="margin:0 0 20px">
           <div class="lstm-layer input-layer"><span class="layer-label">Input</span><span class="layer-detail mono">25 daily macro + momentum features</span></div>
           <div class="lstm-arrow"></div>
@@ -1729,19 +1731,19 @@ function setTVGroup(group, btn) {
           <span class="feat-tag">DV Accel</span><span class="feat-tag">VWAP Ratio</span><span class="feat-tag">Frac Diff</span>
         </div>
         <div style="font-size:11px;color:var(--text-muted);margin-top:16px;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Universe</div>
-        <div style="font-size:12px;color:var(--text-sec);margin-top:4px">42 ranked ETFs; static fallback includes GDX, SLV, IGV, QQQ, GLD, SMH, IBIT</div>
+        <div style="font-size:12px;color:var(--text-sec);margin-top:4px">44 trained models; selector ranks universe, picks top-5 each cycle (rank-first)</div>
       </div>
 
       <!-- Options -->
       <div class="glass" style="padding:28px;grid-column:1/-1">
         <div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#a855f7;margin-bottom:12px">Crypto Systems</div>
         <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:4px">LambdaRank + XGBoost/TFT + LGB/GRU</div>
-        <div style="font-size:12px;color:var(--text-dim);margin-bottom:20px">79-coin universe &bull; Daily and 5-min groups &bull; BTC correlation-aware sizing</div>
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:20px">70 swing + 51 intraday models &bull; Rank-first top-K selection &bull; BTC correlation-aware</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px">
           <div>
             <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Crypto Swing</div>
             <div class="lstm-diagram" style="margin:0 0 16px">
-              <div class="lstm-layer input-layer"><span class="layer-label">Universe</span><span class="layer-detail mono">79 screened coins</span></div>
+              <div class="lstm-layer input-layer"><span class="layer-label">Universe</span><span class="layer-detail mono">70 trained models</span></div>
               <div class="lstm-arrow"></div>
               <div class="lstm-layer"><span class="layer-label">Ranker</span><span class="layer-detail mono">LambdaRank + live TFT boost</span></div>
               <div class="lstm-arrow"></div>
@@ -1778,7 +1780,7 @@ function setTVGroup(group, btn) {
           </div>
         </div>
         <div style="font-size:11px;color:var(--text-muted);margin-top:20px;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Universe</div>
-        <div style="font-size:12px;color:var(--text-sec);margin-top:4px">BTC, ETH, SOL, AVAX, LINK, ADA and selector-ranked alts</div>
+        <div style="font-size:12px;color:var(--text-sec);margin-top:4px">70 swing + 51 intraday models; rank-first selector picks top-6 swing, top-3 intraday each cycle</div>
       </div>
 
     </div>
