@@ -269,22 +269,22 @@ def compute_coin_features_intraday(
     log_ret = np.log(close / close.shift(1))
     std_12 = log_ret.rolling(12).std()
     std_48 = log_ret.rolling(48).std()
-    feat["vol_ratio_short_long"] = std_12 / std_48.replace(0, np.nan)
+    feat["vol_ratio_short_long"] = (std_12 / std_48.replace(0, np.nan)).fillna(1.0)
     feat["realized_vol_24bar"] = log_ret.rolling(24).std() * np.sqrt(288 * 365)
 
     # Volume / liquidity
     dollar_vol = close * volume
     dv_mean_48 = dollar_vol.rolling(48).mean()
     dv_std_48 = dollar_vol.rolling(48).std()
-    feat["dollar_vol_zscore"] = (dollar_vol - dv_mean_48) / dv_std_48.replace(0, np.nan)
+    feat["dollar_vol_zscore"] = ((dollar_vol - dv_mean_48) / dv_std_48.replace(0, np.nan)).fillna(0.0)
     vol_ma_48 = volume.rolling(48).mean()
-    feat["rvol_xs"] = volume / vol_ma_48.replace(0, np.nan)
+    feat["rvol_xs"] = (volume / vol_ma_48.replace(0, np.nan)).fillna(1.0)
 
     # Microstructure: close position within 12-bar range
     rolling_high_12 = high.rolling(12).max()
     rolling_low_12 = low.rolling(12).min()
     rng = (rolling_high_12 - rolling_low_12).replace(0, np.nan)
-    feat["close_position_xs"] = (close - rolling_low_12) / rng
+    feat["close_position_xs"] = ((close - rolling_low_12) / rng).fillna(0.5)
 
     # Cumulative delta (order flow proxy from OHLC)
     # Approximation: if close > open → buying pressure, else selling
@@ -292,7 +292,7 @@ def compute_coin_features_intraday(
     feat["cumulative_delta_xs"] = pd.Series(bar_delta, index=df.index).rolling(12).sum()
     # Normalize by total volume to make it cross-sectionally comparable
     vol_sum_12 = volume.rolling(12).sum().replace(0, np.nan)
-    feat["cumulative_delta_xs"] = feat["cumulative_delta_xs"] / vol_sum_12
+    feat["cumulative_delta_xs"] = (feat["cumulative_delta_xs"] / vol_sum_12).fillna(0.0)
 
     # Spread proxy: average (high-low)/close over 48 bars
     bar_spread = (high - low) / close.replace(0, np.nan)

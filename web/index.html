@@ -2648,7 +2648,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var updated = false;
         ['etf_intraday','etf_swing','crypto','crypto_intraday'].forEach(function(g) {
           if (rs[g] && rs[g].length > 0) {
-            _tvGroupSymbols[g] = rs[g];
+            _tvGroupSymbols[g] = rs[g].slice(0, 12);
             updated = true;
           }
         });
