@@ -84,6 +84,9 @@ FEATURE_NAMES = [
     # BTC cross-market (2, altcoins only — removed for BTC-USD)
     "btc_ret_12bar",         # BTC 1-hour return (leader signal)
     "btc_ret_12bar_lag1",    # BTC 1-hour return, lagged 1 bar (5-15min lead-lag)
+    # Funding rate (2) — Binance perp funding, forward-filled to 5-min bars
+    "funding_rate",          # current 8-hour funding rate (sentiment/crowding signal)
+    "funding_rate_ma",       # 3-period funding rate MA (persistent crowding trend)
     # Time regime (2)
     "hour_sin",              # sin(2pi * hour / 24) — session transitions (#4-5 importance)
     "hour_cos",              # cos(2pi * hour / 24)
@@ -109,6 +112,72 @@ def get_intraday_feature_cols(symbol: str | None = None) -> list:
     if symbol and symbol.upper().startswith("BTC"):
         return [f for f in FEATURE_NAMES if f not in _BTC_CROSS_FEATURES]
     return list(FEATURE_NAMES)
+
+
+# Funding rate features — dropped for symbols with no perp listing on Binance
+_FUNDING_FEATURES = {"funding_rate", "funding_rate_ma"}
+
+# Symbol mapping: Kraken/yfinance format → Binance Futures ticker
+_BINANCE_PERP_MAP = {
+    "BTC-USD": "BTCUSDT", "ETH-USD": "ETHUSDT", "SOL-USD": "SOLUSDT",
+    "ADA-USD": "ADAUSDT", "AVAX-USD": "AVAXUSDT", "LINK-USD": "LINKUSDT",
+    "DOT-USD": "DOTUSDT", "UNI-USD": "UNIUSDT", "LTC-USD": "LTCUSDT",
+    "DOGE-USD": "DOGEUSDT", "RENDER-USD": "RENDERUSDT", "AAVE-USD": "AAVEUSDT",
+    "CRV-USD": "CRVUSDT", "SUSHI-USD": "SUSHIUSDT", "ARB-USD": "ARBUSDT",
+    "FIL-USD": "FILUSDT", "ATOM-USD": "ATOMUSDT", "ALGO-USD": "ALGOUSDT",
+    "XRP-USD": "XRPUSDT", "MATIC-USD": "MATICUSDT", "NEAR-USD": "NEARUSDT",
+    "APT-USD": "APTUSDT", "OP-USD": "OPUSDT", "INJ-USD": "INJUSDT",
+    "FTM-USD": "FTMUSDT", "SAND-USD": "SANDUSDT", "MANA-USD": "MANAUSDT",
+    "AXS-USD": "AXSUSDT", "1INCH-USD": "1INCHUSDT", "COMP-USD": "COMPUSDT",
+    "SNX-USD": "SNXUSDT", "MKR-USD": "MKRUSDT", "YFI-USD": "YFIUSDT",
+    "GRT-USD": "GRTUSDT", "THETA-USD": "THETAUSDT", "EOS-USD": "EOSUSDT",
+    "XLM-USD": "XLMUSDT", "HBAR-USD": "HBARUSDT", "ICP-USD": "ICPUSDT",
+    "TRX-USD": "TRXUSDT", "XTZ-USD": "XTZUSDT", "FLOW-USD": "FLOWUSDT",
+}
+
+# In-memory cache: symbol → (timestamp, DataFrame)
+_funding_cache: Dict[str, tuple] = {}
+_FUNDING_CACHE_TTL = 300  # 5 minutes
+
+
+def _fetch_funding_rates(symbol: str, limit: int = 100) -> pd.DataFrame:
+    """Fetch recent funding rate history from Binance Futures (free, no auth).
+
+    Returns DataFrame with columns [ts, funding_rate] indexed every 8 hours,
+    or empty DataFrame if unavailable.
+    """
+    import time as _time
+
+    perp_ticker = _BINANCE_PERP_MAP.get(symbol)
+    if not perp_ticker:
+        return pd.DataFrame()
+
+    # Check cache
+    cached = _funding_cache.get(symbol)
+    if cached and (_time.time() - cached[0]) < _FUNDING_CACHE_TTL:
+        return cached[1]
+
+    try:
+        import requests
+        resp = requests.get(
+            "https://fapi.binance.com/fapi/v1/fundingRate",
+            params={"symbol": perp_ticker, "limit": str(limit)},
+            timeout=5,
+        )
+        if not resp.ok:
+            return pd.DataFrame()
+        data = resp.json()
+        if not data:
+            return pd.DataFrame()
+        df = pd.DataFrame(data)
+        df["ts"] = pd.to_datetime(df["fundingTime"], unit="ms", utc=True)
+        df["funding_rate"] = df["fundingRate"].astype(float)
+        df = df[["ts", "funding_rate"]].sort_values("ts").reset_index(drop=True)
+        _funding_cache[symbol] = (_time.time(), df)
+        return df
+    except Exception as exc:
+        log.debug("Funding rate fetch failed for %s: %s", symbol, exc)
+        return pd.DataFrame()
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +340,24 @@ class CryptoIntradayFeatureEngine:
 
         df["hour_sin"] = np.sin(2 * np.pi * hour / 24)
         df["hour_cos"] = np.cos(2 * np.pi * hour / 24)
+
+        # --- Funding rate (2) — Binance perp funding, forward-filled to 5-min bars ---
+        funding_df = _fetch_funding_rates(symbol or "")
+        if not funding_df.empty:
+            # Merge-asof: forward-fill 8-hour funding rates onto 5-min bars
+            df_ts = pd.to_datetime(df["ts"])
+            if df_ts.dt.tz is None:
+                df_ts = df_ts.dt.tz_localize("UTC")
+            funding_aligned = pd.merge_asof(
+                pd.DataFrame({"ts": df_ts}),
+                funding_df.rename(columns={"funding_rate": "_fr"}),
+                on="ts", direction="backward",
+            )
+            df["funding_rate"] = funding_aligned["_fr"].values
+            df["funding_rate_ma"] = df["funding_rate"].rolling(3, min_periods=1).mean()
+        else:
+            df["funding_rate"] = 0.0
+            df["funding_rate_ma"] = 0.0
 
         # Select feature columns (BTC-USD drops btc_ret features)
         use_cols = get_intraday_feature_cols(symbol)

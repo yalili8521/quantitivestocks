@@ -380,6 +380,21 @@ class KrakenExecutor:
         else:
             return self._live_order(ccxt_sym, qty, side, is_close)
 
+    # Kraken fee + slippage constants for realistic paper fills
+    _TAKER_FEE_PCT = 0.0026    # 0.26% Kraken taker fee
+    _SLIPPAGE_PCT = 0.0005     # 0.05% estimated slippage (market order on liquid pairs)
+
+    def _apply_fill_costs(self, price: float, side: str) -> float:
+        """Apply slippage to fill price (fee is deducted from cash separately).
+
+        Buys fill slightly higher, sells fill slightly lower — simulates
+        crossing the spread + market impact.
+        """
+        if side == "buy":
+            return price * (1 + self._SLIPPAGE_PCT)
+        else:
+            return price * (1 - self._SLIPPAGE_PCT)
+
     def _paper_fill(
         self,
         symbol: str,
@@ -388,7 +403,11 @@ class KrakenExecutor:
         side: str,
         is_close: bool,
     ) -> Optional[str]:
-        """Simulate a fill in paper mode."""
+        """Simulate a fill in paper mode with realistic fees and slippage.
+
+        Kraken taker fee: 0.26% per side.  Slippage: ~0.05% market impact.
+        Total round-trip cost: ~0.62% (matching real Kraken execution).
+        """
         price = self._get_price(symbol)
         if price is None:
             log.error("Cannot fill paper order — no price for %s", symbol)
@@ -396,56 +415,64 @@ class KrakenExecutor:
 
         order_id = self._next_order_id()
 
+        # Apply slippage to fill price
+        fill_price = self._apply_fill_costs(price, side)
+        # Fee is charged on notional
+        fee = fill_price * qty * self._TAKER_FEE_PCT
+
         if is_close and symbol in self._paper_positions:
-            # Closing: realize P&L
+            # Closing: realize P&L (using slipped fill price)
             pos = self._paper_positions[symbol]
-            pnl = pos.unrealized_pnl(price)
+            pnl = pos.unrealized_pnl(fill_price)
+            # Deduct fee from P&L
+            pnl -= fee
             # Return notional for long positions
             if pos.side == "LONG":
                 self._paper_cash += pos.entry_price * pos.qty + pnl
             else:
                 # Short: we received cash at entry, now buy back
                 self._paper_cash += pnl  # margin is already in cash
-            log.info("PAPER CLOSE %s %s x%.6f @ $%.2f — P&L: $%.2f — order %s",
-                     pos.side, symbol, pos.qty, price, pnl, order_id)
+            log.info("PAPER CLOSE %s %s x%.6f @ $%.2f (mid=$%.2f, fee=$%.2f) — P&L: $%.2f — order %s",
+                     pos.side, symbol, pos.qty, fill_price, price, fee, pnl, order_id)
             close_side = "buy" if pos.side == "SHORT" else "sell"
-            self._log_trade(symbol, close_side, pos.qty, price, intent="close")
+            self._log_trade(symbol, close_side, pos.qty, fill_price, intent="close")
             del self._paper_positions[symbol]
 
         elif not is_close:
             # Opening new position
-            notional = price * qty
+            notional = fill_price * qty
             if side == "buy":
-                # Long: deduct cash
-                if notional > self._paper_cash:
-                    log.error("Insufficient paper cash ($%.2f) for %s buy $%.2f",
-                              self._paper_cash, symbol, notional)
+                # Long: deduct cash + fee
+                total_cost = notional + fee
+                if total_cost > self._paper_cash:
+                    log.error("Insufficient paper cash ($%.2f) for %s buy $%.2f + fee $%.2f",
+                              self._paper_cash, symbol, notional, fee)
                     return None
-                self._paper_cash -= notional
+                self._paper_cash -= total_cost
                 self._paper_positions[symbol] = PaperPosition(
                     symbol=symbol, qty=qty, side="LONG",
-                    entry_price=price,
+                    entry_price=fill_price,
                     entry_time=datetime.now(timezone.utc).isoformat(),
                 )
-                log.info("PAPER BUY %s x%.6f @ $%.2f (notional $%.2f) — order %s",
-                         symbol, qty, price, notional, order_id)
-                self._log_trade(symbol, "buy", qty, price, intent="open")
+                log.info("PAPER BUY %s x%.6f @ $%.2f (mid=$%.2f, fee=$%.2f) — order %s",
+                         symbol, qty, fill_price, price, fee, order_id)
+                self._log_trade(symbol, "buy", qty, fill_price, intent="open")
             else:
-                # Short: margin trade, reserve margin
+                # Short: margin trade, reserve margin + fee
                 margin_required = notional / self.leverage
-                if margin_required > self._paper_cash:
-                    log.error("Insufficient paper margin ($%.2f) for %s short (need $%.2f)",
-                              self._paper_cash, symbol, margin_required)
+                if margin_required + fee > self._paper_cash:
+                    log.error("Insufficient paper margin ($%.2f) for %s short (need $%.2f + fee $%.2f)",
+                              self._paper_cash, symbol, margin_required, fee)
                     return None
-                # Don't deduct full notional — only margin
+                self._paper_cash -= fee  # fee charged upfront
                 self._paper_positions[symbol] = PaperPosition(
                     symbol=symbol, qty=qty, side="SHORT",
-                    entry_price=price,
+                    entry_price=fill_price,
                     entry_time=datetime.now(timezone.utc).isoformat(),
                 )
-                log.info("PAPER SHORT %s x%.6f @ $%.2f (margin $%.2f) — order %s",
-                         symbol, qty, price, margin_required, order_id)
-                self._log_trade(symbol, "sell", qty, price, intent="open")
+                log.info("PAPER SHORT %s x%.6f @ $%.2f (mid=$%.2f, fee=$%.2f, margin=$%.2f) — order %s",
+                         symbol, qty, fill_price, price, fee, margin_required, order_id)
+                self._log_trade(symbol, "sell", qty, fill_price, intent="open")
 
         self._save_state()
         return order_id

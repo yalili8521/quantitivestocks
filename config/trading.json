@@ -717,5 +717,11 @@
             "trades": 8,
             "win_rate": 0.125
         }
+    },
+    "oos_sharpe_registry_intraday": {
+        "_comment": "Crypto intraday OOS Sharpe ratios — 1-hour hold, 5-min bars. Populate via backtest --mode intraday."
+    },
+    "oos_performance_registry_intraday": {
+        "_comment": "Crypto intraday OOS performance — 1-hour hold, 5-min bars. Populate via backtest --mode intraday."
     }
 }

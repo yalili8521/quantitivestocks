@@ -676,6 +676,7 @@ class AlpacaPaperTrader:
         self._signal_flip_counts: Dict[str, int] = {}  # consecutive signal flips
         self._bars_held: Dict[str, int] = {}  # checks since entry (for min_hold_bars)
         self._ci_bars_held: Dict[str, int] = {}  # crypto_intraday: 5-min bars since entry
+        self._ci_last_bar_ts: Dict[str, datetime] = {}  # last bar timestamp per symbol (for dedup)
         self._classify_vol_tiers()
 
     # -- Volatility tier classification -----------------------------------
@@ -903,6 +904,10 @@ class AlpacaPaperTrader:
 
     def _load_oos_registries(self) -> tuple:
         """Load OOS Sharpe and performance registries from config/trading.json.
+
+        Crypto intraday uses separate registries (oos_sharpe_registry_intraday,
+        oos_performance_registry_intraday) since metrics come from 1-hour holds
+        on 5-min bars, not 5-day holds on daily bars.
         Returns (sharpe_dict, performance_dict).
         """
         try:
@@ -913,8 +918,17 @@ class AlpacaPaperTrader:
             if os.path.isfile(config_path):
                 with open(config_path, encoding="utf-8") as f:
                     cfg = json.load(f)
-                sharpe_reg = cfg.get("oos_sharpe_registry", {})
-                perf_reg = cfg.get("oos_performance_registry", {})
+                if self.group == "crypto_intraday":
+                    sharpe_reg = cfg.get("oos_sharpe_registry_intraday", {})
+                    perf_reg = cfg.get("oos_performance_registry_intraday", {})
+                    # Fall back to swing registries if intraday ones are empty
+                    if not sharpe_reg:
+                        sharpe_reg = cfg.get("oos_sharpe_registry", {})
+                    if not perf_reg:
+                        perf_reg = cfg.get("oos_performance_registry", {})
+                else:
+                    sharpe_reg = cfg.get("oos_sharpe_registry", {})
+                    perf_reg = cfg.get("oos_performance_registry", {})
                 return sharpe_reg, perf_reg
         except Exception as exc:
             log.warning("Failed to load OOS registries: %s", exc)
@@ -1822,12 +1836,16 @@ class AlpacaPaperTrader:
     def _get_crypto_intraday_prediction(self, symbol: str, predictor) -> dict:
         """Fetch 5-min bars from Kraken and run CryptoIntradayPredictor.
 
-        Each call = one new 5-min bar cycle (check_interval is already 5 min).
-        Increments the bar counter for horizon-aware hold tracking.
+        Increments the bar counter only when a genuinely new 5-min bar arrives
+        (timestamp-based dedup, not call-based — check_interval is 1 min).
         """
-        # Increment bar counter on every call (1 call ≈ 1 five-min bar)
-        # Use setdefault so positions surviving a restart still get counted
-        self._ci_bars_held[symbol] = self._ci_bars_held.get(symbol, 0) + 1
+        # Timestamp-based bar counting: only increment when a new 5-min bar settles
+        _now = datetime.now(timezone.utc)
+        _last = self._ci_last_bar_ts.get(symbol)
+        _bar_secs = 300  # 5-min bar
+        if _last is None or (_now - _last).total_seconds() >= _bar_secs:
+            self._ci_bars_held[symbol] = self._ci_bars_held.get(symbol, 0) + 1
+            self._ci_last_bar_ts[symbol] = _now
 
         if self._crypto_intraday_data is None:
             from crypto_intraday_data import CryptoIntradayData
@@ -2574,6 +2592,7 @@ class AlpacaPaperTrader:
             self._profit_lock_active[symbol] = False
             if self.group == "crypto_intraday":
                 self._ci_bars_held[symbol] = 0
+                self._ci_last_bar_ts[symbol] = datetime.now(timezone.utc)
 
             # Monitor: record prediction at entry
             model_type = getattr(self.predictors.get(symbol), 'model_type', 'lstm')
@@ -2633,6 +2652,7 @@ class AlpacaPaperTrader:
         self._signal_flip_counts.pop(symbol, None)
         self._bars_held.pop(symbol, None)
         self._ci_bars_held.pop(symbol, None)
+        self._ci_last_bar_ts.pop(symbol, None)
         # Note: _decay_cooldown_until is intentionally NOT cleared here —
         # signal-decay exits set it after calling this method.
 

@@ -109,6 +109,7 @@ XS_FEATURES_INTRADAY = [
     "rvol_xs",                 # volume / 48-bar MA volume — relative demand
     "realized_vol_24bar",      # std(log returns) annualized — vol level
     "momentum_acceleration",   # ret_6bar - ret_6bar.shift(6) — momentum derivative
+    "data_quality",            # fraction of valid (non-flat, non-zero-vol) bars in 48-bar window
 ]
 
 
@@ -165,16 +166,18 @@ def fetch_universe_intraday_data(
     """Fetch 5-min bars for the full universe via BinanceUS (for intraday selector).
 
     Returns {symbol: DataFrame} with columns [ts, open, high, low, close, volume].
-    Minimum 5000 bars (~3.5 days) per coin to qualify.
+    Minimum 2000 bars (~7 days) per coin to qualify for ranking.
+    Training requires more data; ranking can work with less.
     """
     from crypto_intraday_data import CryptoIntradayData
     data_source = CryptoIntradayData()
     data: Dict[str, pd.DataFrame] = {}
+    min_bars = 2000  # ~7 days of 5-min bars — enough for feature computation
     for sym in universe:
         try:
             df = data_source.fetch_training_bars(sym, days=lookback_days)
-            if len(df) < 5000:
-                log.warning("Skipping %s: only %d 5m bars (need ≥5000)", sym, len(df))
+            if len(df) < min_bars:
+                log.warning("Skipping %s: only %d 5m bars (need ≥%d)", sym, len(df), min_bars)
                 continue
             data[sym] = df
             log.info("Fetched %s: %d 5m bars (%s → %s)",
@@ -301,6 +304,13 @@ def compute_coin_features_intraday(
     # Momentum acceleration
     ret_6bar = close.pct_change(6)
     feat["momentum_acceleration"] = ret_6bar - ret_6bar.shift(6)
+
+    # Data quality: fraction of valid bars (non-flat price AND non-zero volume) in 48-bar window.
+    # Low values = illiquid/stale data → ranker should penalize instead of us masking with fillna.
+    is_flat = (high == low)  # flat price bar = no real trading activity
+    is_zero_vol = (volume == 0)
+    is_bad = (is_flat | is_zero_vol).astype(float)
+    feat["data_quality"] = 1.0 - is_bad.rolling(48, min_periods=1).mean()
 
     # BTC beta residual (hourly scale, 12-bar rolling)
     feat["btc_beta_resid_hourly"] = 0.0  # placeholder — computed in build_xs_panel_intraday
@@ -803,7 +813,18 @@ class CoinSelector:
             with open(config_path) as f:
                 self.config = json.load(f)
 
-        log.info("Loaded coin selector (mode=%s) from %s", mode, model_path)
+        # Use feature list from config if available (matches what model was trained on),
+        # otherwise fall back to the current constant. This ensures forward-compatibility
+        # when new features are added but the model hasn't been retrained yet.
+        if self.config.get("feature_importance"):
+            trained_features = list(self.config["feature_importance"].keys())
+            if set(trained_features) != set(self.xs_features):
+                log.info("Selector model uses %d features (code has %d) — using model's feature list",
+                         len(trained_features), len(self.xs_features))
+            self.xs_features = trained_features
+
+        log.info("Loaded coin selector (mode=%s, %d features) from %s",
+                 mode, len(self.xs_features), model_path)
 
     def rank(
         self,
