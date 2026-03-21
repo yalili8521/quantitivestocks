@@ -263,7 +263,7 @@ def _fetch_kraken_history(
 
     try:
         headers = {"Accept": "application/vnd.github.v3+json"}
-        gh_token = os.environ.get("GITHUB_TOKEN", "")
+        gh_token = os.environ.get("GITHUB_TOKEN", "").strip()
         if gh_token:
             headers["Authorization"] = f"token {gh_token}"
         resp = req.get(
@@ -300,8 +300,8 @@ def _fetch_kraken_history(
         # Synthesize equity curve from trade log
         portfolio = _build_equity_curve(trade_log, initial_balance)
 
-    except Exception:
-        return {"portfolio": {}, "orders": []}
+    except Exception as exc:
+        return {"portfolio": {}, "orders": [], "trades": []}
 
     return {
         "portfolio": portfolio,
