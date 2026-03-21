@@ -596,10 +596,15 @@ class AlpacaPaperTrader:
         self._etf_train_cooldown_hours = 24  # retry failed training after 24h
         if group in ("swing", "intraday"):
             try:
-                from etf_selector import ETFSelector
                 from etf_screener import load_etf_universe
                 top_k = 10 if group == "swing" else 8
-                self._etf_selector = ETFSelector(top_k=top_k, min_pool=0)
+                if group == "intraday":
+                    from etf_selector import ETFIntradaySelector
+                    self._etf_selector = ETFIntradaySelector(top_k=top_k, min_pool=0)
+                    log.info("Using intraday ETF selector (5-min features)")
+                else:
+                    from etf_selector import ETFSelector
+                    self._etf_selector = ETFSelector(top_k=top_k, min_pool=0)
                 self._etf_universe = load_etf_universe(SWING_MODEL_DIR)
                 if not self._etf_universe:
                     from etf_screener import ALL_SEED_SYMBOLS
