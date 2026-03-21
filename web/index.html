@@ -687,11 +687,12 @@ footer{border-top:1px solid var(--border);padding:40px 0}
 
 <script>
 // Symbol definitions per group (rank-first selector — dynamic, updated periodically)
+// Populated dynamically from /api/history ranked_symbols (selector rankings)
 var _tvGroupSymbols = {
-  'etf_intraday': ['USO','PDBC','XLE','EWY','EWT','SPY','SMH','QQQ','IWM','SOXX','IGV','GLD'],
-  'etf_swing':    ['USO','PDBC','XLE','EWY','EWT','EWJ','HYG','SPY','TLT','SMH','QQQ','GLD'],
-  'crypto':       ['OP','EGLD','ATOM','FIL','XTZ','BTC','ETH','SOL','ADA','AVAX','LINK','CRV'],
-  'crypto_intraday': ['ADA','CAKE','VET','RENDER','LTC','ALGO','XTZ','FET','SOL','BTC','ETH','DOT']
+  'etf_intraday': [],
+  'etf_swing':    [],
+  'crypto':       [],
+  'crypto_intraday': []
 };
 
 // TradingView symbol mapping
@@ -2641,6 +2642,21 @@ document.addEventListener('DOMContentLoaded', function() {
         var histData = await results[2].json();
         _histAccounts = histData.accounts || [];
         _bars = histData.bars || {};
+
+        // Update Market Overview symbols from selector rankings
+        var rs = histData.ranked_symbols || {};
+        var updated = false;
+        ['etf_intraday','etf_swing','crypto','crypto_intraday'].forEach(function(g) {
+          if (rs[g] && rs[g].length > 0) {
+            _tvGroupSymbols[g] = rs[g];
+            updated = true;
+          }
+        });
+        // Refresh the current TV group tabs if rankings arrived
+        if (updated) {
+          var activeBtn = document.querySelector('#tv-group-tabs .acct-tab.active');
+          setTVGroup(_currentTVGroup, activeBtn);
+        }
       }
 
       renderAccount(currentGroup);

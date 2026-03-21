@@ -1186,6 +1186,10 @@ class AlpacaPaperTrader:
             log.info("Ranker: %d coins active (top-%d with models): %s",
                      len(ready), top_k, ", ".join(ready))
             self._selector_active_symbols = ready
+
+            # Sync full ranked list (not just ready) to Gist for dashboard
+            self._sync_rankings_to_gist(all_ranked)
+
             return self._selector_active_symbols
 
         except Exception as exc:
@@ -1393,11 +1397,89 @@ class AlpacaPaperTrader:
             log.info("ETF ranker: %d active symbols for %s: %s",
                      len(final), group, ", ".join(final))
             self._etf_active_symbols = final
+
+            # Sync full ranked list (not just final) to Gist for dashboard
+            self._sync_rankings_to_gist(ranked_symbols)
+
             return final
 
         except Exception as exc:
             log.error("ETF ranker failed: %s — using static list", exc)
             return list(self.symbols)
+
+    # -- Sync selector rankings to Gist for dashboard consumption --
+
+    # Map paper_trader group names → dashboard group keys
+    _DASHBOARD_GROUP_MAP = {
+        "intraday": "etf_intraday",
+        "swing": "etf_swing",
+        "crypto": "crypto",
+        "crypto_intraday": "crypto_intraday",
+    }
+
+    def _sync_rankings_to_gist(self, ranked_symbols: List[str]) -> None:
+        """Write current group's ranked symbols to selector_rankings.json in the Gist.
+
+        Read-modify-write: reads the existing file from Gist, updates this
+        group's entry, and writes back.  All 4 groups share one JSON file.
+        """
+        gist_id = os.environ.get("KRAKEN_STATE_GIST_ID", "")
+        gh_token = os.environ.get("GITHUB_TOKEN", "")
+        if not gist_id or not gh_token:
+            gist_id, gh_token = KrakenExecutor._load_gist_env_fallback(gist_id, gh_token)
+        if not gist_id or not gh_token:
+            return
+
+        dashboard_key = self._DASHBOARD_GROUP_MAP.get(self.group, self.group)
+
+        # Normalize symbols for dashboard display (strip /USD, -USD suffixes)
+        display_symbols = []
+        for s in ranked_symbols:
+            clean = s.replace("/USD", "").replace("-USD", "").replace("/", "").replace("-", "")
+            display_symbols.append(clean)
+
+        try:
+            import requests
+            headers = {
+                "Authorization": f"token {gh_token}",
+                "Accept": "application/vnd.github.v3+json",
+            }
+
+            # Read existing rankings from Gist
+            existing = {}
+            resp = requests.get(
+                f"https://api.github.com/gists/{gist_id}",
+                headers=headers,
+                timeout=10,
+            )
+            if resp.ok:
+                content = resp.json().get("files", {}).get(
+                    "selector_rankings.json", {}
+                ).get("content", "{}")
+                existing = json.loads(content) if content else {}
+
+            # Update this group's entry
+            existing[dashboard_key] = display_symbols
+
+            # Write back
+            resp = requests.patch(
+                f"https://api.github.com/gists/{gist_id}",
+                headers=headers,
+                json={"files": {
+                    "selector_rankings.json": {
+                        "content": json.dumps(existing, indent=2),
+                    }
+                }},
+                timeout=10,
+            )
+            if resp.ok:
+                log.info("Synced %s rankings to Gist (%d symbols)",
+                         dashboard_key, len(display_symbols))
+            else:
+                log.warning("Rankings Gist sync failed (%d): %s",
+                            resp.status_code, resp.text[:200])
+        except Exception as exc:
+            log.warning("Rankings Gist sync error: %s", exc)
 
     # Rank scalar ranges by universe type:
     # Crypto: steeper gradient — correlated assets, concentrate on top signals

@@ -252,15 +252,11 @@ def _build_equity_curve(trade_log: list, initial_balance: float) -> dict:
     }
 
 
-def _fetch_kraken_history(
-    trade_log_filename: str = "kraken_trade_log.json",
-    state_filename: str = "kraken_paper_state.json",
-) -> dict:
-    """Read Kraken paper trade log + state from GitHub Gist."""
+def _fetch_gist_files() -> dict:
+    """Fetch all files from the Kraken state Gist (single API call)."""
     gist_id = os.environ.get("KRAKEN_STATE_GIST_ID", "")
     if not gist_id:
-        return {"portfolio": {}, "orders": []}
-
+        return {}
     try:
         headers = {"Accept": "application/vnd.github.v3+json"}
         gh_token = os.environ.get("GITHUB_TOKEN", "").strip()
@@ -271,18 +267,27 @@ def _fetch_kraken_history(
             headers=headers,
             timeout=10,
         )
-        if not resp.ok:
-            return {"portfolio": {}, "orders": []}
+        if resp.ok:
+            return resp.json().get("files", {})
+    except Exception:
+        pass
+    return {}
 
-        gist_data = resp.json()
-        files = gist_data.get("files", {})
 
-        # Read trade log
-        trade_log_content = files.get(trade_log_filename, {}).get("content", "[]")
+def _parse_kraken_history(
+    gist_files: dict,
+    trade_log_filename: str = "kraken_trade_log.json",
+    state_filename: str = "kraken_paper_state.json",
+) -> dict:
+    """Parse Kraken paper trade log + state from pre-fetched Gist files."""
+    if not gist_files:
+        return {"portfolio": {}, "orders": [], "trades": []}
+
+    try:
+        trade_log_content = gist_files.get(trade_log_filename, {}).get("content", "[]")
         trade_log = json.loads(trade_log_content) if trade_log_content else []
 
-        # Read paper state for initial_balance
-        state_content = files.get(state_filename, {}).get("content", "{}")
+        state_content = gist_files.get(state_filename, {}).get("content", "{}")
         state = json.loads(state_content) if state_content else {}
         initial_balance = float(state.get("initial_balance", 100000))
 
@@ -297,10 +302,9 @@ def _fetch_kraken_history(
                 "intent":    t.get("intent", ""),
             })
 
-        # Synthesize equity curve from trade log
         portfolio = _build_equity_curve(trade_log, initial_balance)
 
-    except Exception as exc:
+    except Exception:
         return {"portfolio": {}, "orders": [], "trades": []}
 
     return {
@@ -331,9 +335,12 @@ class handler(BaseHTTPRequestHandler):
                 if sym not in all_symbols:
                     all_symbols.append(sym)
 
+        # Single Gist fetch for all crypto data + selector rankings
+        gist_files = _fetch_gist_files()
+
         # Crypto group — Kraken paper trade log from Gist
-        crypto_data = _fetch_kraken_history(
-            "kraken_trade_log.json", "kraken_paper_state.json"
+        crypto_data = _parse_kraken_history(
+            gist_files, "kraken_trade_log.json", "kraken_paper_state.json"
         )
         accounts.append({
             "name":      "Crypto",
@@ -344,8 +351,8 @@ class handler(BaseHTTPRequestHandler):
         })
 
         # Crypto Intraday group — separate Kraken paper state
-        crypto_intraday_data = _fetch_kraken_history(
-            "kraken_intraday_trade_log.json", "kraken_intraday_paper_state.json"
+        crypto_intraday_data = _parse_kraken_history(
+            gist_files, "kraken_intraday_trade_log.json", "kraken_intraday_paper_state.json"
         )
         accounts.append({
             "name":      "Crypto 5m",
@@ -354,6 +361,14 @@ class handler(BaseHTTPRequestHandler):
             "orders":    crypto_intraday_data["orders"],
             "trades":    crypto_intraday_data.get("trades", []),
         })
+
+        # Selector rankings from same Gist
+        ranked_symbols: dict = {}
+        try:
+            content = gist_files.get("selector_rankings.json", {}).get("content", "{}")
+            ranked_symbols = json.loads(content) if content else {}
+        except Exception:
+            pass
 
         # Fetch price bars for traded symbols (use data API key)
         api_key    = os.environ.get("ALPACA_API_KEY", "")
@@ -391,7 +406,7 @@ class handler(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
-        body = json.dumps({"accounts": accounts, "bars": bars}).encode()
+        body = json.dumps({"accounts": accounts, "bars": bars, "ranked_symbols": ranked_symbols}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
