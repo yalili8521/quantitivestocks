@@ -1,28 +1,28 @@
 {
-  "cash": 100048.31842289888,
+  "cash": 94155.54210690793,
   "initial_balance": 100000.0,
   "positions": {
+    "VET/USD": {
+      "symbol": "VET/USD",
+      "qty": 414550.486601,
+      "side": "SHORT",
+      "entry_price": 0.007262,
+      "entry_time": "2026-03-21T02:28:24.974514+00:00"
+    },
     "FET/USD": {
       "symbol": "FET/USD",
-      "qty": 13507.615316,
-      "side": "SHORT",
-      "entry_price": 0.2225,
-      "entry_time": "2026-03-20T16:40:38.307223+00:00"
+      "qty": 13123.445037,
+      "side": "LONG",
+      "entry_price": 0.22601295,
+      "entry_time": "2026-03-21T09:30:57.192559+00:00"
     },
-    "WLD/USD": {
-      "symbol": "WLD/USD",
-      "qty": 8801.86776,
-      "side": "SHORT",
-      "entry_price": 0.3389,
-      "entry_time": "2026-03-20T17:57:20.777106+00:00"
-    },
-    "ONDO/USD": {
-      "symbol": "ONDO/USD",
-      "qty": 9076.132994,
-      "side": "SHORT",
-      "entry_price": 0.25989,
-      "entry_time": "2026-03-20T21:36:28.670899+00:00"
+    "OP/USD": {
+      "symbol": "OP/USD",
+      "qty": 24699.781168,
+      "side": "LONG",
+      "entry_price": 0.1216608,
+      "entry_time": "2026-03-21T12:00:03.634732+00:00"
     }
   },
-  "last_updated": "2026-03-20T21:36:28.672901+00:00"
+  "last_updated": "2026-03-21T12:00:03.640733+00:00"
 }

@@ -1,42 +1,35 @@
 {
-  "cash": 88481.83902376321,
+  "cash": 90510.20947499736,
   "initial_balance": 100000.0,
   "positions": {
-    "OP/USD": {
-      "symbol": "OP/USD",
-      "qty": 59939.573671,
-      "side": "SHORT",
-      "entry_price": 0.1243,
-      "entry_time": "2026-03-20T09:01:52.531408+00:00"
-    },
-    "EGLD/USD": {
-      "symbol": "EGLD/USD",
-      "qty": 2107.281528,
-      "side": "LONG",
-      "entry_price": 4.19,
-      "entry_time": "2026-03-20T09:23:47.002396+00:00"
-    },
     "ATOM/USD": {
       "symbol": "ATOM/USD",
-      "qty": 5549.468788,
+      "qty": 368.069507,
       "side": "SHORT",
-      "entry_price": 1.8085,
-      "entry_time": "2026-03-20T11:11:12.954586+00:00"
+      "entry_price": 1.9449,
+      "entry_time": "2026-03-17T07:46:45.197569+00:00"
     },
-    "FIL/USD": {
-      "symbol": "FIL/USD",
-      "qty": 3393.344972,
+    "OP/USD": {
+      "symbol": "OP/USD",
+      "qty": 1850.867345,
+      "side": "SHORT",
+      "entry_price": 0.123,
+      "entry_time": "2026-03-21T09:01:46.972008+00:00"
+    },
+    "XTZ/USD": {
+      "symbol": "XTZ/USD",
+      "qty": 24289.15793,
       "side": "LONG",
-      "entry_price": 0.898,
-      "entry_time": "2026-03-20T19:46:14.577819+00:00"
+      "entry_price": 0.39659819999999996,
+      "entry_time": "2026-03-21T15:54:27.418558+00:00"
     },
-    "FARTCOIN/USD": {
-      "symbol": "FARTCOIN/USD",
-      "qty": 20279.268851,
+    "QNT/USD": {
+      "symbol": "QNT/USD",
+      "qty": 11.584233,
       "side": "SHORT",
-      "entry_price": 0.1966,
-      "entry_time": "2026-03-20T21:28:30.128268+00:00"
+      "entry_price": 78.18089,
+      "entry_time": "2026-03-21T15:55:43.490060+00:00"
     }
   },
-  "last_updated": "2026-03-20T21:28:30.135312+00:00"
+  "last_updated": "2026-03-21T15:55:51.011963+00:00"
 }

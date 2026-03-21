@@ -390,5 +390,229 @@
     "price": 0.25989,
     "time": "2026-03-20T21:36:28.670899+00:00",
     "intent": "open"
+  },
+  {
+    "symbol": "FET/USD",
+    "side": "buy",
+    "qty": 13507.615316,
+    "price": 0.2312,
+    "time": "2026-03-20T22:02:43.147122+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "FET/USD",
+    "side": "sell",
+    "qty": 10893.853778,
+    "price": 0.2328,
+    "time": "2026-03-20T22:04:02.188875+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "FET/USD",
+    "side": "buy",
+    "qty": 10893.853778,
+    "price": 0.2314,
+    "time": "2026-03-20T22:09:22.530173+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "CAKE/USD",
+    "side": "buy",
+    "qty": 2846.350243,
+    "price": 1.406,
+    "time": "2026-03-20T22:10:34.482260+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "CAKE/USD",
+    "side": "sell",
+    "qty": 2846.350243,
+    "price": 1.406,
+    "time": "2026-03-20T22:37:02.164243+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "CAKE/USD",
+    "side": "sell",
+    "qty": 2851.786664,
+    "price": 1.406,
+    "time": "2026-03-20T23:03:50.103472+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "WLD/USD",
+    "side": "buy",
+    "qty": 8801.86776,
+    "price": 0.3213,
+    "time": "2026-03-20T23:42:27.613167+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "ONDO/USD",
+    "side": "buy",
+    "qty": 9076.132994,
+    "price": 0.26005,
+    "time": "2026-03-20T23:42:28.721911+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "ADA/USD",
+    "side": "sell",
+    "qty": 8470.085965,
+    "price": 0.266003,
+    "time": "2026-03-20T23:42:36.341141+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "VET/USD",
+    "side": "sell",
+    "qty": 405842.226966,
+    "price": 0.007224,
+    "time": "2026-03-20T23:55:33.770333+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "CAKE/USD",
+    "side": "buy",
+    "qty": 2851.786664,
+    "price": 1.399,
+    "time": "2026-03-20T23:56:56.878952+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "CAKE/USD",
+    "side": "sell",
+    "qty": 2581.099645,
+    "price": 1.399,
+    "time": "2026-03-20T23:58:16.020805+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "VET/USD",
+    "side": "buy",
+    "qty": 405842.226966,
+    "price": 0.007263,
+    "time": "2026-03-21T00:20:28.087512+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "ADA/USD",
+    "side": "buy",
+    "qty": 8470.085965,
+    "price": 0.265843,
+    "time": "2026-03-21T00:49:05.662472+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "ADA/USD",
+    "side": "sell",
+    "qty": 6322.057504,
+    "price": 0.267331,
+    "time": "2026-03-21T01:11:11.524241+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "ALGO/USD",
+    "side": "sell",
+    "qty": 31849.652353,
+    "price": 0.09029,
+    "time": "2026-03-21T01:16:19.312458+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "ADA/USD",
+    "side": "buy",
+    "qty": 6322.057504,
+    "price": 0.265913,
+    "time": "2026-03-21T01:45:11.886375+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "ALGO/USD",
+    "side": "buy",
+    "qty": 31849.652353,
+    "price": 0.08984,
+    "time": "2026-03-21T01:48:59.944610+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "ADA/USD",
+    "side": "sell",
+    "qty": 7543.107995,
+    "price": 0.266078,
+    "time": "2026-03-21T02:19:26.741403+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "VET/USD",
+    "side": "sell",
+    "qty": 414550.486601,
+    "price": 0.007262,
+    "time": "2026-03-21T02:28:24.975714+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "CAKE/USD",
+    "side": "buy",
+    "qty": 2581.099645,
+    "price": 1.3876935,
+    "time": "2026-03-21T04:11:03.619530+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "ADA/USD",
+    "side": "buy",
+    "qty": 7543.107995,
+    "price": 0.2662700685,
+    "time": "2026-03-21T04:11:04.701756+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "BCH/USD",
+    "side": "sell",
+    "qty": 2.09001,
+    "price": 471.32422,
+    "time": "2026-03-21T04:11:18.716283+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "LINK/USD",
+    "side": "buy",
+    "qty": 65.047578,
+    "price": 9.114224834999998,
+    "time": "2026-03-21T04:40:19.582692+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "LINK/USD",
+    "side": "sell",
+    "qty": 65.047578,
+    "price": 9.128943245,
+    "time": "2026-03-21T09:29:34.213686+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "FET/USD",
+    "side": "buy",
+    "qty": 13123.445037,
+    "price": 0.22601295,
+    "time": "2026-03-21T09:30:57.193560+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "BCH/USD",
+    "side": "buy",
+    "qty": 2.09001,
+    "price": 467.56366499999996,
+    "time": "2026-03-21T11:58:51.330200+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "OP/USD",
+    "side": "buy",
+    "qty": 24699.781168,
+    "price": 0.1216608,
+    "time": "2026-03-21T12:00:03.635732+00:00",
+    "intent": "open"
   }
 ]

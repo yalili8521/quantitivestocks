@@ -798,5 +798,93 @@
     "price": 0.1966,
     "time": "2026-03-20T21:28:30.129142+00:00",
     "intent": "open"
+  },
+  {
+    "symbol": "FARTCOIN/USD",
+    "side": "buy",
+    "qty": 20279.268851,
+    "price": 0.1976,
+    "time": "2026-03-20T23:33:54.655457+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "XTZ/USD",
+    "side": "buy",
+    "qty": 20183.568759,
+    "price": 0.4006,
+    "time": "2026-03-20T23:34:51.949700+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "EGLD/USD",
+    "side": "sell",
+    "qty": 2107.281528,
+    "price": 4.157920000000001,
+    "time": "2026-03-21T04:07:45.177354+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "FIL/USD",
+    "side": "sell",
+    "qty": 3393.344972,
+    "price": 0.9035480000000001,
+    "time": "2026-03-21T04:07:46.253622+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "FARTCOIN/USD",
+    "side": "sell",
+    "qty": 21944.00717,
+    "price": 0.19720135000000003,
+    "time": "2026-03-21T04:08:30.458638+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "ADA/USD",
+    "side": "buy",
+    "qty": 4817.793187,
+    "price": 0.2662740705,
+    "time": "2026-03-21T04:08:43.166501+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "WLD/USD",
+    "side": "buy",
+    "qty": 1390.769039,
+    "price": 0.3167583,
+    "time": "2026-03-21T15:53:51.775194+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "FIL/USD",
+    "side": "buy",
+    "qty": 608.689376,
+    "price": 0.9494744999999999,
+    "time": "2026-03-21T15:53:52.921553+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "XTZ/USD",
+    "side": "buy",
+    "qty": 24289.15793,
+    "price": 0.39659819999999996,
+    "time": "2026-03-21T15:54:27.419552+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "QNT/USD",
+    "side": "sell",
+    "qty": 11.584233,
+    "price": 78.18089,
+    "time": "2026-03-21T15:55:43.490060+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "EGLD/USD",
+    "side": "buy",
+    "qty": 191.164421,
+    "price": 4.12206,
+    "time": "2026-03-21T15:55:51.009966+00:00",
+    "intent": "close"
   }
 ]
