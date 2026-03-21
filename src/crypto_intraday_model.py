@@ -971,6 +971,8 @@ def main():
                         help="Model save directory")
     parser.add_argument("--walk-forward", action="store_true",
                         help="Walk-forward split: train on first 75%%, OOS on last 25%%")
+    parser.add_argument("--source", default="auto", choices=["auto", "binanceus", "mexc"],
+                        help="Data source: auto (BinanceUS then MEXC), binanceus, mexc")
     args = parser.parse_args()
 
     from crypto_intraday_data import CryptoIntradayData
@@ -986,16 +988,36 @@ def main():
     trainer = CryptoIntradayTrainer(model_dir)
     symbols = [s.strip() for s in args.symbols.split(",")]
 
+    # Pre-check BinanceUS availability to avoid rate-limit delays
+    _binanceus_pairs = set()
+    if args.source == "auto":
+        try:
+            bex = data_source._get_binanceus()
+            bex.load_markets()
+            _binanceus_pairs = set(bex.markets.keys())
+            log.info("BinanceUS has %d markets loaded", len(_binanceus_pairs))
+        except Exception as exc:
+            log.warning("Could not load BinanceUS markets: %s — using Kraken for all", exc)
+
     # Fetch BTC bars once (for cross-market features)
-    btc_bars = data_source.fetch_training_bars("BTC/USD", days=args.days)
+    btc_bars = data_source.fetch_training_bars("BTC/USD", days=args.days, source=args.source)
     log.info("BTC reference bars: %d", len(btc_bars))
 
     results = []
     for sym in symbols:
         log.info("=== Training crypto intraday for %s ===", sym)
         try:
+            # Route to the right data source
+            src = args.source
+            if src == "auto" and _binanceus_pairs:
+                from crypto_intraday_data import _normalize_symbol
+                bpair = _normalize_symbol(sym, "binanceus")
+                if bpair not in _binanceus_pairs:
+                    log.info("%s not on BinanceUS — using MEXC directly", sym)
+                    src = "mexc"
+
             # Fetch bars
-            bars = data_source.fetch_training_bars(sym, days=args.days)
+            bars = data_source.fetch_training_bars(sym, days=args.days, source=src)
             if len(bars) < 1000:
                 log.warning("%s: only %d bars, skipping", sym, len(bars))
                 continue

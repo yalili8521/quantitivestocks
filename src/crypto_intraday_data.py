@@ -3,15 +3,17 @@
 Crypto Intraday Data Adapter
 =============================
 Fetches 5-minute OHLCV bars from BinanceUS (training) and Kraken (live).
+Falls back to MEXC for training when a coin isn't listed on BinanceUS.
 
 BinanceUS: 4+ years of history, 1000 bars/request, no API key needed.
+MEXC: full historical 5-min data, 500 bars/request, no API key needed.
 Kraken: ~720 bars (~2.5 days), used for live prediction to match execution prices.
 
 Usage:
     from crypto_intraday_data import CryptoIntradayData
     cid = CryptoIntradayData()
 
-    # Training: fetch 6 months of 5min bars from BinanceUS
+    # Training: fetch 6 months of 5min bars (BinanceUS, MEXC fallback)
     df = cid.fetch_training_bars("BTC/USD", days=180)
 
     # Live: fetch latest bars from Kraken (for prediction)
@@ -30,27 +32,29 @@ import pandas as pd
 
 log = logging.getLogger("crypto_intraday_data")
 
-# BinanceUS uses /USDT pairs; Kraken uses /USD
+# Exchange-specific quote currencies
 _BINANCEUS_QUOTE = "USDT"
 _KRAKEN_QUOTE = "USD"
+_MEXC_QUOTE = "USDT"
 
 # Max bars per request
 _BINANCEUS_LIMIT = 1000
 _KRAKEN_LIMIT = 720
+_MEXC_LIMIT = 500
 
 
 def _normalize_symbol(symbol: str, exchange: str) -> str:
     """Convert generic symbol to exchange-specific format.
 
     Input: BTC/USD, BTC-USD, BTCUSD
-    Output: BTC/USDT (BinanceUS) or BTC/USD (Kraken)
+    Output: BTC/USDT (BinanceUS, MEXC) or BTC/USD (Kraken)
     """
     # Extract base
     base = symbol.upper().replace("-", "/").replace("USDT", "USD")
     if "/" in base:
         base = base.split("/")[0]
 
-    if exchange == "binanceus":
+    if exchange in ("binanceus", "mexc"):
         return f"{base}/{_BINANCEUS_QUOTE}"
     return f"{base}/{_KRAKEN_QUOTE}"
 
@@ -70,11 +74,12 @@ def _bars_to_df(bars: list, symbol: str) -> pd.DataFrame:
 
 
 class CryptoIntradayData:
-    """Fetch 5-minute crypto OHLCV bars from BinanceUS and Kraken."""
+    """Fetch 5-minute crypto OHLCV bars from BinanceUS, MEXC, and Kraken."""
 
     def __init__(self):
         self._binanceus: Optional[ccxt.Exchange] = None
         self._kraken: Optional[ccxt.Exchange] = None
+        self._mexc: Optional[ccxt.Exchange] = None
 
     def _get_binanceus(self) -> ccxt.Exchange:
         if self._binanceus is None:
@@ -86,37 +91,37 @@ class CryptoIntradayData:
             self._kraken = ccxt.kraken({"enableRateLimit": True})
         return self._kraken
 
-    def fetch_training_bars(
+    def _get_mexc(self) -> ccxt.Exchange:
+        if self._mexc is None:
+            self._mexc = ccxt.mexc({"enableRateLimit": True})
+        return self._mexc
+
+    def _fetch_paginated(
         self,
-        symbol: str,
-        days: int = 180,
-        interval: str = "5m",
-    ) -> pd.DataFrame:
-        """Fetch historical 5min bars from BinanceUS for training.
+        exchange: "ccxt.Exchange",
+        pair: str,
+        interval: str,
+        start_ts: int,
+        end_ts: int,
+        limit: int,
+        source_name: str,
+    ) -> list:
+        """Paginate through an exchange's OHLCV endpoint.
 
-        Paginates through BinanceUS API to get full history.
-        Returns DataFrame with columns: ts, open, high, low, close, volume, symbol
+        Returns list of raw ccxt bars [[ts_ms, o, h, l, c, v], ...].
         """
-        exchange = self._get_binanceus()
-        pair = _normalize_symbol(symbol, "binanceus")
-
-        # Calculate start timestamp
-        end_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
-        start_ts = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000)
-
         all_bars = []
         since = start_ts
         request_count = 0
 
-        log.info("Fetching %s 5min bars from BinanceUS (%d days)...", pair, days)
-
         while since < end_ts:
             try:
-                bars = exchange.fetch_ohlcv(pair, interval, since=since, limit=_BINANCEUS_LIMIT)
+                bars = exchange.fetch_ohlcv(pair, interval, since=since, limit=limit)
                 request_count += 1
             except Exception as exc:
-                log.error("BinanceUS fetch failed for %s at %s: %s",
-                          pair, datetime.fromtimestamp(since / 1000, tz=timezone.utc), exc)
+                log.error("%s fetch failed for %s at %s: %s",
+                          source_name, pair,
+                          datetime.fromtimestamp(since / 1000, tz=timezone.utc), exc)
                 break
 
             if not bars:
@@ -124,29 +129,79 @@ class CryptoIntradayData:
 
             all_bars.extend(bars)
 
-            # Move since to after last bar
             last_ts = bars[-1][0]
             if last_ts <= since:
                 break  # no progress
-            since = last_ts + 1  # next ms
+            since = last_ts + 1
 
-            # Rate limit respect
             if request_count % 50 == 0:
                 log.info("  %d requests, %d bars so far...", request_count, len(all_bars))
 
+        return all_bars
+
+    def fetch_training_bars(
+        self,
+        symbol: str,
+        days: int = 180,
+        interval: str = "5m",
+        source: str = "auto",
+    ) -> pd.DataFrame:
+        """Fetch historical 5min bars for training.
+
+        source: "auto" tries BinanceUS then MEXC fallback,
+                "mexc" uses MEXC directly (for coins not on BinanceUS),
+                "binanceus" skips fallback.
+
+        MEXC is used as fallback because it has 6800+ markets, supports full
+        historical 5-min pagination, and is accessible from the US without auth.
+        Kraken is NOT used for training — its OHLCV ignores the `since` param
+        and only returns the most recent ~720 bars.
+
+        Returns DataFrame with columns: ts, open, high, low, close, volume, symbol
+        """
+        end_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+        start_ts = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000)
+
+        all_bars = []
+        pair = ""
+
+        # Try BinanceUS first (unless source specifies otherwise)
+        if source in ("auto", "binanceus"):
+            exchange = self._get_binanceus()
+            pair = _normalize_symbol(symbol, "binanceus")
+            log.info("Fetching %s 5min bars from BinanceUS (%d days)...", pair, days)
+
+            all_bars = self._fetch_paginated(
+                exchange, pair, interval, start_ts, end_ts,
+                _BINANCEUS_LIMIT, "BinanceUS",
+            )
+
+        # Fallback to MEXC if BinanceUS returned nothing
+        if not all_bars and source in ("auto", "mexc"):
+            if source == "auto":
+                log.info("BinanceUS has no data for %s — falling back to MEXC...", symbol)
+            exchange = self._get_mexc()
+            pair = _normalize_symbol(symbol, "mexc")
+            log.info("Fetching %s 5min bars from MEXC (%d days)...", pair, days)
+            all_bars = self._fetch_paginated(
+                exchange, pair, interval, start_ts, end_ts,
+                _MEXC_LIMIT, "MEXC",
+            )
+
         if not all_bars:
-            log.warning("No bars fetched for %s from BinanceUS", pair)
+            log.warning("No bars fetched for %s", symbol)
             return pd.DataFrame()
 
         # Normalize symbol back to /USD format
         base = pair.split("/")[0]
         df = _bars_to_df(all_bars, f"{base}/USD")
 
-        log.info("Fetched %s: %d bars (%s -> %s) in %d requests",
+        src_name = "MEXC" if exchange is self._mexc else "BinanceUS"
+        log.info("Fetched %s: %d bars (%s -> %s) from %s",
                  symbol, len(df),
                  df["ts"].iloc[0].strftime("%Y-%m-%d %H:%M"),
                  df["ts"].iloc[-1].strftime("%Y-%m-%d %H:%M"),
-                 request_count)
+                 src_name)
 
         return df
 
@@ -196,7 +251,12 @@ class CryptoIntradayData:
     def check_symbol_available(self, symbol: str, exchange: str = "binanceus") -> bool:
         """Check if a symbol is available on the exchange."""
         try:
-            ex = self._get_binanceus() if exchange == "binanceus" else self._get_kraken()
+            if exchange == "binanceus":
+                ex = self._get_binanceus()
+            elif exchange == "mexc":
+                ex = self._get_mexc()
+            else:
+                ex = self._get_kraken()
             ex.load_markets()
             pair = _normalize_symbol(symbol, exchange)
             return pair in ex.markets

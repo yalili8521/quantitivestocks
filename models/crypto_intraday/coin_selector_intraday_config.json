@@ -1,0 +1,33 @@
+{
+  "mode": "intraday",
+  "train_rows": 2763,
+  "val_rows": 923,
+  "train_range": "2022-02-10 08:00:00+00:00 \u2192 2022-07-13 16:00:00+00:00",
+  "val_range": "2022-07-13 20:00:00+00:00 \u2192 2022-09-03 00:00:00+00:00",
+  "coins": [
+    "BTC-USD",
+    "EGLD-USD",
+    "LPT-USD"
+  ],
+  "n_coins": 3,
+  "ndcg_k": 6,
+  "mean_ndcg": 0.8137,
+  "topk_hit_rate": 1.0,
+  "best_iteration": 13,
+  "feature_importance": {
+    "close_position_xs": 572.3033835887909,
+    "dollar_vol_zscore": 563.4790334701538,
+    "momentum_4h": 511.9014141559601,
+    "vol_ratio_short_long": 451.04663705825806,
+    "btc_beta_resid_hourly": 395.5125596523285,
+    "cumulative_delta_xs": 355.9981322288513,
+    "data_quality": 281.8919794559479,
+    "spread_proxy_intraday": 245.3307285308838,
+    "momentum_1h": 242.6349196434021,
+    "realized_vol_24bar": 216.91611981391907,
+    "reversal_30m": 209.92133903503418,
+    "momentum_acceleration": 168.7276406288147,
+    "rvol_xs": 88.74953985214233
+  },
+  "deployed": true
+}
