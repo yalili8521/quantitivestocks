@@ -262,9 +262,13 @@ def _fetch_kraken_history(
         return {"portfolio": {}, "orders": []}
 
     try:
+        headers = {"Accept": "application/vnd.github.v3+json"}
+        gh_token = os.environ.get("GITHUB_TOKEN", "")
+        if gh_token:
+            headers["Authorization"] = f"token {gh_token}"
         resp = req.get(
             f"https://api.github.com/gists/{gist_id}",
-            headers={"Accept": "application/vnd.github.v3+json"},
+            headers=headers,
             timeout=10,
         )
         if not resp.ok:
