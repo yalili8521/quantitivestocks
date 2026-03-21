@@ -67,7 +67,7 @@ from risk_config import (
     get_risk_config, check_position_allowed, check_theme_cap,
     validate_model_mode, get_symbol_cap, is_symbol_disabled,
     get_confidence_multiplier, DeRiskState, evaluate_derisk,
-    get_effective_min_hold,
+    get_effective_min_hold, drawdown_size_mult,
 )
 from cost_model import validate_cost_threshold
 from model_monitor import ModelMonitor
@@ -540,6 +540,7 @@ class AlpacaPaperTrader:
         self._alert_engine = AlertEngine()
         self._consecutive_losses: int = 0
         self._warned_shared_crypto: bool = False  # one-time warn if intraday account has crypto positions
+        self._peak_equity: float = 0.0  # high-water mark for drawdown throttle
 
         # Load group-specific risk config for portfolio constraints
         self._risk_config = get_risk_config(group)
@@ -2308,6 +2309,8 @@ class AlpacaPaperTrader:
                 account = self.get_account_summary()
                 equity = account["equity"]
                 self._last_known_equity = equity  # cache for fallback
+                if equity > self._peak_equity:
+                    self._peak_equity = equity
             except Exception:
                 equity = getattr(self, '_last_known_equity', self.initial_capital)
 
@@ -2397,6 +2400,16 @@ class AlpacaPaperTrader:
                 if loss_age_h < self.post_loss_size_hours:
                     sizing_pct *= self.post_loss_size_mult
                     size_note += f" [post-loss {self.post_loss_size_mult:.0%}]"
+
+            # --- Drawdown throttle (equity-curve-based) ---
+            dd_mult = drawdown_size_mult(equity, self._peak_equity)
+            if dd_mult <= 0.0:
+                dd_pct = (self._peak_equity - equity) / self._peak_equity * 100
+                return (f"DRAWDOWN-HALT  (equity {equity:.0f} is {dd_pct:.1f}% below peak "
+                        f"{self._peak_equity:.0f})  ML: {direction} E[r]={expected_return:+.4f}")
+            if dd_mult < 1.0:
+                sizing_pct *= dd_mult
+                size_note += f" [dd-throttle {dd_mult:.0%}]"
 
             # --- Soft regime scaling (reduce size, never block) ---
             if risk.use_soft_regime_scaling and not is_crypto:

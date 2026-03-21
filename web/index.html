@@ -686,12 +686,12 @@ footer{border-top:1px solid var(--border);padding:40px 0}
 </section>
 
 <script>
-// Symbol definitions per group (top tradable from rank-first selector)
+// Symbol definitions per group (rank-first selector — dynamic, updated periodically)
 var _tvGroupSymbols = {
-  'etf_intraday': ['USO','PDBC','XLE','EWY','EWT','SMH','QQQ','IWM','SOXX','IGV','SPY','GLD'],
-  'etf_swing':    ['USO','PDBC','XLE','EWY','EWT','GLD','IBIT','SLV','SMH','QQQ','GDX','IGV'],
-  'crypto':       ['BTC','ETH','SOL','ADA','AVAX','LINK','DOT','DOGE','AAVE','CRV','LTC','UNI'],
-  'crypto_intraday': ['ADA','VET','CAKE','RENDER','LTC','SOL','AVAX','BTC','LINK','DOGE','ETH','DOT']
+  'etf_intraday': ['USO','PDBC','XLE','EWY','EWT','SPY','SMH','QQQ','IWM','SOXX','IGV','GLD'],
+  'etf_swing':    ['USO','PDBC','XLE','EWY','EWT','EWJ','HYG','SPY','TLT','SMH','QQQ','GLD'],
+  'crypto':       ['OP','EGLD','ATOM','FIL','XTZ','BTC','ETH','SOL','ADA','AVAX','LINK','CRV'],
+  'crypto_intraday': ['ADA','CAKE','VET','RENDER','LTC','ALGO','XTZ','FET','SOL','BTC','ETH','DOT']
 };
 
 // TradingView symbol mapping
@@ -701,13 +701,16 @@ var _tvSymbolMap = {
   'EWT':'AMEX:EWT','GLD':'AMEX:GLD','SLV':'AMEX:SLV',
   'GDX':'AMEX:GDX','IBIT':'NASDAQ:IBIT','XLK':'NASDAQ:XLK',
   'USO':'AMEX:USO','PDBC':'AMEX:PDBC','XLE':'AMEX:XLE',
-  'EWY':'AMEX:EWY','VET':'BINANCE:VETUSD','CAKE':'BINANCE:CAKEUSD',
+  'EWY':'AMEX:EWY','EWJ':'AMEX:EWJ','HYG':'AMEX:HYG','TLT':'NASDAQ:TLT',
+  'VET':'COINBASE:VETUSD','CAKE':'COINBASE:CAKEUSD',
   'BTC':'COINBASE:BTCUSD','ETH':'COINBASE:ETHUSD','SOL':'COINBASE:SOLUSD',
   'ADA':'COINBASE:ADAUSD','AVAX':'COINBASE:AVAXUSD','LINK':'COINBASE:LINKUSD',
   'DOT':'COINBASE:DOTUSD','DOGE':'COINBASE:DOGEUSD','AAVE':'COINBASE:AAVEUSD',
   'CRV':'COINBASE:CRVUSD','LTC':'COINBASE:LTCUSD','UNI':'COINBASE:UNIUSD',
   'SUSHI':'COINBASE:SUSHIUSD','RENDER':'COINBASE:RENDERUSD',
-  'ARB':'COINBASE:ARBUSD','FIL':'COINBASE:FILUSD'
+  'ARB':'COINBASE:ARBUSD','FIL':'COINBASE:FILUSD',
+  'OP':'COINBASE:OPUSD','EGLD':'COINBASE:EGLDUSD','ATOM':'COINBASE:ATOMUSD',
+  'XTZ':'COINBASE:XTZUSD','ALGO':'COINBASE:ALGOUSD','FET':'COINBASE:FETUSD'
 };
 
 var _currentTVGroup = 'etf_intraday';

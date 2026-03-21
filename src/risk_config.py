@@ -103,7 +103,37 @@ CORRELATION_CLUSTERS: List[Tuple[frozenset, float]] = [
     (frozenset({"SMH", "SOXX"}), 0.20),
     # Tech overlap: QQQ/IGV corr ~0.88 — cap combined at 25%
     (frozenset({"QQQ", "IGV"}), 0.25),
+    # Tech/semi triple overlap: QQQ/SMH/SOXX corr ~0.85+ — cap combined at 30%
+    (frozenset({"QQQ", "SMH", "SOXX"}), 0.30),
+    # Precious metals: GLD/SLV corr ~0.85 — cap combined at 20%
+    (frozenset({"GLD", "SLV"}), 0.20),
 ]
+
+# Drawdown throttle — equity-curve-based position size reduction.
+# When current equity drops below peak by these thresholds, multiply
+# position sizes by the corresponding factor.
+# Format: list of (drawdown_pct, size_multiplier) sorted ascending.
+DRAWDOWN_THROTTLE = [
+    (0.05, 0.75),   # -5% from peak → 75% size
+    (0.10, 0.50),   # -10% → 50% size
+    (0.15, 0.00),   # -15% → halt new entries
+]
+
+
+def drawdown_size_mult(equity: float, peak_equity: float) -> float:
+    """Return position size multiplier based on drawdown from peak equity.
+
+    Returns 1.0 if no drawdown, or the throttle multiplier if drawdown
+    exceeds a threshold. Returns 0.0 to halt new entries at deep drawdown.
+    """
+    if peak_equity <= 0 or equity >= peak_equity:
+        return 1.0
+    dd = (peak_equity - equity) / peak_equity
+    mult = 1.0
+    for threshold, factor in DRAWDOWN_THROTTLE:
+        if dd >= threshold:
+            mult = factor
+    return mult
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +206,7 @@ SWING_RISK = RiskConfig(
     position_pct=0.45,
     max_position_pct=0.12,
     max_sector_pct=0.35,
-    max_total_exposure=0.75,
+    max_total_exposure=0.65,
     max_positions=5,    # Kelly-focused: fewer slots = higher conviction per position
     cost_threshold=0.002,
     target_return=0.02,
