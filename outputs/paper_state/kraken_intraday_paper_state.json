@@ -1,5 +1,5 @@
 {
-  "cash": 100045.19542818387,
+  "cash": 96056.21594390184,
   "initial_balance": 100000.0,
   "positions": {
     "INJ/USD": {
@@ -16,13 +16,13 @@
       "entry_price": 0.4107945,
       "entry_time": "2026-03-22T05:22:16.362552+00:00"
     },
-    "GOMINING/USD": {
-      "symbol": "GOMINING/USD",
-      "qty": 9784.42786,
-      "side": "SHORT",
-      "entry_price": 0.3166416,
-      "entry_time": "2026-03-22T05:22:26.148156+00:00"
+    "BERA/USD": {
+      "symbol": "BERA/USD",
+      "qty": 7721.699292,
+      "side": "LONG",
+      "entry_price": 0.51895935,
+      "entry_time": "2026-03-22T08:30:35.393937+00:00"
     }
   },
-  "last_updated": "2026-03-22T05:22:26.152161+00:00"
+  "last_updated": "2026-03-22T08:30:35.403992+00:00"
 }

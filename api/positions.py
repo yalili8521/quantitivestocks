@@ -192,6 +192,81 @@ def _fetch_kraken_paper(state_filename: str = "kraken_paper_state.json") -> dict
     }
 
 
+def _fetch_gold_scalper() -> dict:
+    """Read gold scalper paper state from GitHub Gist."""
+    gist_id = os.environ.get("KRAKEN_STATE_GIST_ID", "")
+    if not gist_id:
+        return {"account": {"equity": "0", "cash": "0", "buying_power": "0"}, "positions": []}
+
+    try:
+        resp = req.get(
+            f"https://api.github.com/gists/{gist_id}",
+            headers={"Accept": "application/vnd.github.v3+json"},
+            timeout=10,
+        )
+        if not resp.ok:
+            return {"account": {"equity": "0", "cash": "0", "buying_power": "0"}, "positions": []}
+
+        gist_data = resp.json()
+        content = gist_data.get("files", {}).get("gold_scalper_state.json", {}).get("content", "{}")
+        state = json.loads(content)
+    except Exception:
+        return {"account": {"equity": "0", "cash": "0", "buying_power": "0"}, "positions": []}
+
+    equity = state.get("equity", 0)
+    initial = state.get("initial_balance", 5000)
+    position = state.get("position")
+    trade_count = state.get("trade_count", 0)
+
+    positions = []
+    if position and position.get("contracts", 0) > 0:
+        entry_price = position.get("entry_price", 0)
+        contracts = position.get("contracts", 0)
+        direction = position.get("direction", "LONG")
+
+        # Fetch live gold price
+        try:
+            gold_resp = req.get(
+                "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1m&range=1d",
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=10,
+            )
+            if gold_resp.ok:
+                chart = gold_resp.json().get("chart", {}).get("result", [{}])[0]
+                current_price = chart.get("meta", {}).get("regularMarketPrice", entry_price)
+            else:
+                current_price = entry_price
+        except Exception:
+            current_price = entry_price
+
+        pip_val = 0.10
+        if direction == "LONG":
+            pips = (current_price - entry_price) / pip_val
+        else:
+            pips = (entry_price - current_price) / pip_val
+        pnl = pips * contracts  # $1 per pip per MGC contract
+
+        positions.append({
+            "symbol":          "MGC",
+            "qty":             str(contracts),
+            "side":            "long" if direction == "LONG" else "short",
+            "avg_entry_price": str(entry_price),
+            "current_price":   str(current_price),
+            "unrealized_pl":   str(round(pnl, 2)),
+            "unrealized_plpc": str(round(pnl / (entry_price * contracts) if entry_price * contracts > 0 else 0, 4)),
+            "market_value":    str(round(current_price * contracts, 2)),
+        })
+
+    return {
+        "account": {
+            "equity":       str(round(equity, 2)),
+            "cash":         str(round(equity, 2)),  # no margin tracking in paper mode
+            "buying_power": str(round(equity * 2, 2)),
+        },
+        "positions": positions,
+    }
+
+
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         accounts = []
@@ -224,6 +299,15 @@ class handler(BaseHTTPRequestHandler):
             "group":     "crypto_intraday",
             "account":   crypto_intraday_data["account"],
             "positions": crypto_intraday_data["positions"],
+        })
+
+        # Gold Scalper — micro gold paper state from Gist
+        gold_data = _fetch_gold_scalper()
+        accounts.append({
+            "name":      "Gold MGC",
+            "group":     "gold_scalper",
+            "account":   gold_data["account"],
+            "positions": gold_data["positions"],
         })
 
         body = json.dumps({"accounts": accounts}).encode()

@@ -100,7 +100,9 @@ $Groups = @(
     @{ Name = 'crypto';    EnvPrefix = 'KRAKEN_';            Mode = 'daily';    Interval = '5min';
        ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true; SkipKeyCheck = $true },
     @{ Name = 'crypto_intraday'; EnvPrefix = 'KRAKEN_';      Mode = 'intraday'; Interval = '5min';
-       ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true; SkipKeyCheck = $true }
+       ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true; SkipKeyCheck = $true },
+    @{ Name = 'gold_scalper';   EnvPrefix = 'AMP_CQG_';       Mode = '';         Interval = '';
+       ExtraArgs = @('--broker', 'paper'); Command = 'gold-scalper'; AlwaysOn = $false; SkipKeyCheck = $true }
 )
 
 $CommonArgs = @('-u', 'main.py')
@@ -135,8 +137,13 @@ function Start-TraderGroup {
     $groupLog    = Join-Path $LogDir ("paper_trader_$($grp.Name)_${ts}.log")
     $groupErrLog = $groupLog -replace '\.log$', '_err.log'
 
-    $modeArgs  = @('--mode', $grp.Mode, '--interval', $grp.Interval)
-    $groupArgs = $CommonArgs + @($grp.Command) + $modeArgs + @('--group', $grp.Name) + $grp.ExtraArgs
+    if ($grp.Mode) {
+        $modeArgs  = @('--mode', $grp.Mode, '--interval', $grp.Interval)
+        $groupArgs = $CommonArgs + @($grp.Command) + $modeArgs + @('--group', $grp.Name) + $grp.ExtraArgs
+    } else {
+        # Gold scalper and other standalone commands — no --mode/--interval/--group
+        $groupArgs = $CommonArgs + @($grp.Command) + $grp.ExtraArgs
+    }
     $ArgLine   = $groupArgs -join ' '
 
     $keyVar = $grp.EnvPrefix + 'KEY'

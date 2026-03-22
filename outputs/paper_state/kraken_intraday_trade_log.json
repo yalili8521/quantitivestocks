@@ -774,5 +774,37 @@
     "price": 0.3166416,
     "time": "2026-03-22T05:22:26.150165+00:00",
     "intent": "open"
+  },
+  {
+    "symbol": "GOMINING/USD",
+    "side": "buy",
+    "qty": 9784.42786,
+    "price": 0.3139569,
+    "time": "2026-03-22T08:26:39.539418+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "GOMINING/USD",
+    "side": "sell",
+    "qty": 9782.489088,
+    "price": 0.31364310000000006,
+    "time": "2026-03-22T08:28:00.192750+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "GOMINING/USD",
+    "side": "buy",
+    "qty": 9782.489088,
+    "price": 0.3109554,
+    "time": "2026-03-22T08:29:19.640518+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "BERA/USD",
+    "side": "buy",
+    "qty": 7721.699292,
+    "price": 0.51895935,
+    "time": "2026-03-22T08:30:35.395948+00:00",
+    "intent": "open"
   }
 ]

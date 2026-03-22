@@ -393,7 +393,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
   <div class="hero-content" style="position:relative;z-index:1; width: 100%; display: flex; flex-direction: column; align-items: center; text-shadow: 0 4px 20px rgba(0,0,0,0.8);">
     <p class="hero-eyebrow" style="background: rgba(34, 197, 94, 0.1); color: #4ade80; padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(34, 197, 94, 0.2); backdrop-filter: blur(4px);">AI-NATIVE QUANTITATIVE TRADING</p>
     <h1 class="hero-title" style="margin-top: 16px;">Quantitative Stocks</h1>
-    <p class="hero-tagline">Four parallel paper-trading groups across ETFs and crypto, driven by ranking, ML expected returns, and hard risk caps.</p>
+    <p class="hero-tagline">Five parallel paper-trading groups across ETFs, crypto, and gold futures, driven by ranking, ML expected returns, and hard risk caps.</p>
     <p style="margin-top: 12px; font-size: 11px; color: var(--text-muted); opacity: 0.7; font-family: var(--mono);">Latest Build: 2026-03-18</p>
   </div>
   <script>
@@ -642,7 +642,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
     </div>
 
     <div id="live-footer" style="font-size:10px;color:var(--text-dim);text-align:center">
-      Live &bull; Alpaca + Kraken Paper Trading (4 accounts) &bull; Auto-refreshes every 60s &bull; <span id="last-update" class="mono" style="color:var(--text-muted)">--</span>
+      Live &bull; Alpaca + Kraken + Gold Scalper Paper Trading (5 accounts) &bull; Auto-refreshes every 60s &bull; <span id="last-update" class="mono" style="color:var(--text-muted)">--</span>
     </div>
   </div>
 </section>
@@ -661,6 +661,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       <button class="acct-tab" onclick="setTVGroup('etf_swing',this)">ETF Swing</button>
       <button class="acct-tab" onclick="setTVGroup('crypto',this)">Crypto</button>
       <button class="acct-tab" onclick="setTVGroup('crypto_intraday',this)">Crypto 5m</button>
+      <button class="acct-tab" onclick="setTVGroup('gold_scalper',this)" style="border-color:rgba(245,158,11,0.3);color:#f59e0b">Gold MGC</button>
     </div>
 
     <!-- Symbol tabs (populated by JS based on selected group) -->
@@ -692,17 +693,23 @@ var _tvGroupSymbols = {
   'etf_intraday': [],
   'etf_swing':    [],
   'crypto':       [],
-  'crypto_intraday': []
+  'crypto_intraday': [],
+  'gold_scalper': ['GC=F']
 };
 
 // TradingView symbol mapping
 var _tvSymbolMap = {
+  'GC=F':'TVC:GOLD',
   'QQQ':'NASDAQ:QQQ','SPY':'AMEX:SPY','IWM':'AMEX:IWM',
   'SMH':'NASDAQ:SMH','SOXX':'NASDAQ:SOXX','IGV':'NASDAQ:IGV',
   'EWT':'AMEX:EWT','GLD':'AMEX:GLD','SLV':'AMEX:SLV',
   'GDX':'AMEX:GDX','IBIT':'NASDAQ:IBIT','XLK':'NASDAQ:XLK',
   'USO':'AMEX:USO','PDBC':'AMEX:PDBC','XLE':'AMEX:XLE',
   'EWY':'AMEX:EWY','EWJ':'AMEX:EWJ','HYG':'AMEX:HYG','TLT':'NASDAQ:TLT',
+  'VGK':'AMEX:VGK','EWH':'AMEX:EWH','URNM':'AMEX:URNM','EWZ':'AMEX:EWZ',
+  'ARKK':'AMEX:ARKK','EWA':'AMEX:EWA','FXI':'AMEX:FXI','EEM':'AMEX:EEM',
+  'XLF':'AMEX:XLF','XLV':'AMEX:XLV','XBI':'AMEX:XBI','KWEB':'AMEX:KWEB',
+  'EFA':'AMEX:EFA','VWO':'AMEX:VWO','DIA':'AMEX:DIA','XLP':'AMEX:XLP',
   'VET':'COINBASE:VETUSD','CAKE':'COINBASE:CAKEUSD',
   'BTC':'COINBASE:BTCUSD','ETH':'COINBASE:ETHUSD','SOL':'COINBASE:SOLUSD',
   'ADA':'COINBASE:ADAUSD','AVAX':'COINBASE:AVAXUSD','LINK':'COINBASE:LINKUSD',
@@ -1639,6 +1646,124 @@ function setTVGroup(group, btn) {
     </div>
     </div>
 
+    <!-- GOLD SCALPER -->
+    <div style="margin-top:64px">
+    <div class="sec-label" style="margin-bottom:8px">GOLD SCALPER &mdash; Multi-TF NYSE &middot; Micro Gold (MGC)</div>
+    <p style="color:var(--text-sec);font-size:13px;margin-bottom:24px">5-timeframe EMA bias alignment &bull; RSI + Engulfing entry &bull; 4-level TP ladder + runner &bull; Paper trading (AMP Futures demo)</p>
+
+    <div class="strat-grid">
+
+      <!-- Gold Scalper card -->
+      <div class="strat glass" style="grid-column: 1 / -1; max-width: 720px;">
+        <div class="strat-head">
+          <span class="strat-sym" style="background: linear-gradient(135deg, #f59e0b, #d97706); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">MGC</span>
+          <span class="strat-badge both">L+S</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:12px 0">
+          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:var(--radius-sm)">
+            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Instrument</div>
+            <div style="font-size:14px;font-weight:700;color:var(--warning)">Micro Gold</div>
+          </div>
+          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:var(--radius-sm)">
+            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Session</div>
+            <div style="font-size:14px;font-weight:700;color:var(--text)">NYSE 6:30-13:00 PT</div>
+          </div>
+          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:var(--radius-sm)">
+            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Base Size</div>
+            <div style="font-size:14px;font-weight:700;color:var(--text)">6 contracts</div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:12px;margin:8px 0 10px;padding:8px 0;border-top:1px solid var(--border-muted);border-bottom:1px solid var(--border-muted)">
+          <div style="flex:1;text-align:center"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Strategy</div><div style="font-size:13px;font-weight:700;color:var(--text)">TC Baby V1.0</div></div>
+          <div style="flex:1;text-align:center"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Timeframes</div><div style="font-size:13px;font-weight:700;color:var(--accent)">D/4H/1H/15m/5m</div></div>
+          <div style="flex:1;text-align:center"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Broker</div><div style="font-size:13px;font-weight:700;color:var(--warning)">Paper (Local)</div></div>
+        </div>
+
+        <!-- TP Ladder -->
+        <div style="margin:16px 0 12px">
+          <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Take-Profit Ladder</div>
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;font-family:var(--mono);font-size:11px">
+            <div style="text-align:center;padding:8px 4px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:var(--radius-xs)">
+              <div style="color:var(--text-muted);font-size:9px;margin-bottom:2px">TP1</div>
+              <div style="color:var(--positive);font-weight:700">60 pips</div>
+              <div style="color:var(--text-dim);font-size:9px">1 ct</div>
+            </div>
+            <div style="text-align:center;padding:8px 4px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:var(--radius-xs)">
+              <div style="color:var(--text-muted);font-size:9px;margin-bottom:2px">TP2</div>
+              <div style="color:var(--positive);font-weight:700">220 pips</div>
+              <div style="color:var(--text-dim);font-size:9px">2 ct</div>
+            </div>
+            <div style="text-align:center;padding:8px 4px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:var(--radius-xs)">
+              <div style="color:var(--text-muted);font-size:9px;margin-bottom:2px">TP3</div>
+              <div style="color:var(--positive);font-weight:700">400 pips</div>
+              <div style="color:var(--text-dim);font-size:9px">1 ct</div>
+            </div>
+            <div style="text-align:center;padding:8px 4px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:var(--radius-xs)">
+              <div style="color:var(--text-muted);font-size:9px;margin-bottom:2px">TP4</div>
+              <div style="color:var(--positive);font-weight:700">600 pips</div>
+              <div style="color:var(--text-dim);font-size:9px">1 ct</div>
+            </div>
+            <div style="text-align:center;padding:8px 4px;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.15);border-radius:var(--radius-xs)">
+              <div style="color:var(--text-muted);font-size:9px;margin-bottom:2px">Runner</div>
+              <div style="color:var(--accent);font-weight:700">Bias Flip</div>
+              <div style="color:var(--text-dim);font-size:9px">1 ct</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Risk Parameters -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0">
+          <div style="text-align:center;padding:8px;background:var(--bg-card);border-radius:var(--radius-xs)">
+            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">Hard Stop</div>
+            <div style="font-size:13px;font-weight:700;color:var(--negative)">300 pips</div>
+          </div>
+          <div style="text-align:center;padding:8px;background:var(--bg-card);border-radius:var(--radius-xs)">
+            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">BE Offset</div>
+            <div style="font-size:13px;font-weight:700;color:var(--text)">+10 pips</div>
+          </div>
+          <div style="text-align:center;padding:8px;background:var(--bg-card);border-radius:var(--radius-xs)">
+            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">Timeout</div>
+            <div style="font-size:13px;font-weight:700;color:var(--text)">120 min</div>
+          </div>
+          <div style="text-align:center;padding:8px;background:var(--bg-card);border-radius:var(--radius-xs)">
+            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">Daily Limit</div>
+            <div style="font-size:13px;font-weight:700;color:var(--negative)">-$1,000</div>
+          </div>
+        </div>
+
+        <!-- Entry Logic -->
+        <div style="margin:12px 0;padding:12px;background:var(--bg-card);border-radius:var(--radius-sm);border:1px solid var(--border-muted)">
+          <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Entry Logic</div>
+          <div style="font-size:12px;color:var(--text-sec);line-height:1.7">
+            <span style="color:var(--accent)">1.</span> 5-TF EMA bias alignment (D/4H/1H/15m/5m must agree)<br>
+            <span style="color:var(--accent)">2.</span> RSI(14) confirmation: &gt;55 for longs, &lt;35 for shorts<br>
+            <span style="color:var(--accent)">3.</span> Engulfing candle pattern on 5m chart<br>
+            <span style="color:var(--accent)">4.</span> Scale: +6ct per $7,500 profit (max 4x = 24ct)
+          </div>
+        </div>
+
+        <!-- SL Ratchet -->
+        <div style="margin:8px 0;padding:12px;background:var(--bg-card);border-radius:var(--radius-sm);border:1px solid var(--border-muted)">
+          <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Stop-Loss Ratchet</div>
+          <div style="font-size:11px;font-family:var(--mono);color:var(--text-sec);line-height:1.8">
+            TP1 hit &rarr; SL moves to BE+10 &nbsp;&bull;&nbsp;
+            TP2 hit &rarr; SL moves to TP1 &nbsp;&bull;&nbsp;
+            TP3 hit &rarr; SL moves to TP2 &nbsp;&bull;&nbsp;
+            TP4 hit &rarr; SL moves to TP3
+          </div>
+        </div>
+
+        <!-- Status -->
+        <div style="margin-top:12px;display:flex;align-items:center;gap:8px">
+          <span id="gold-scalper-status" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--warning);box-shadow:0 0 8px var(--warning)"></span>
+          <span style="font-size:11px;color:var(--text-muted)">Paper trading &mdash; awaiting market hours (NYSE Mon-Fri 6:30 AM PT)</span>
+        </div>
+      </div>
+
+    </div><!-- /gold strat-grid -->
+    </div>
+
   </div>
 </section>
 
@@ -1849,7 +1974,7 @@ function setTVGroup(group, btn) {
         Past performance does not indicate future results.
       </div>
       <div class="footer-meta">
-        <span>3 groups: Intraday + Swing + Crypto</span>
+        <span>5 groups: Intraday + Swing + Crypto + Gold</span>
         <span>Paper trading on Alpaca + Kraken</span>
       </div>
     </div>
@@ -2295,6 +2420,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // ---- Live Data Fetch ----
   var STARTING_EQUITY = 100000;
+  var STARTING_EQUITY_MAP = {
+    'intraday': 100000, 'swing': 100000,
+    'crypto': 100000, 'crypto_intraday': 100000,
+    'gold_scalper': 5000
+  };
   var darkPlotLayout = {paper_bgcolor:'transparent',plot_bgcolor:'transparent',font:{family:'Inter,sans-serif',color:'#94a3b8',size:11},margin:{l:55,r:48,t:8,b:40},xaxis:{gridcolor:'rgba(255,255,255,0.04)',linecolor:'rgba(255,255,255,0.06)'},yaxis:{gridcolor:'rgba(255,255,255,0.04)',linecolor:'rgba(255,255,255,0.06)',tickprefix:'$',separatethousands:true},hovermode:'x unified',showlegend:false};
   var plotConfig = {displayModeBar:false,responsive:true};
 
@@ -2526,8 +2656,9 @@ document.addEventListener('DOMContentLoaded', function() {
       var cash   = parseFloat(acct.cash)   || 0;
       var positionsVal = 0;
       (posAcct.positions || []).forEach(function(p) { positionsVal += Math.abs(parseFloat(p.market_value) || 0); });
-      var pnl      = equity - STARTING_EQUITY;
-      var pnlPct   = STARTING_EQUITY > 0 ? (pnl / STARTING_EQUITY * 100) : 0;
+      var startEq  = STARTING_EQUITY_MAP[group] || STARTING_EQUITY;
+      var pnl      = equity - startEq;
+      var pnlPct   = startEq > 0 ? (pnl / startEq * 100) : 0;
       var cashPct  = equity > 0 ? (cash / equity * 100) : 0;
       var posPct   = equity > 0 ? (positionsVal / equity * 100) : 0;
       var pnlClass = pnl >= 0 ? 'pos' : 'neg';
@@ -2584,11 +2715,20 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     }
 
-    if (histAcct) {
+    if (histAcct || posAcct) {
       var liveEquityForChart = posAcct ? (parseFloat((posAcct.account || {}).equity) || 0) : null;
-      renderEquityChart(histAcct.portfolio, liveEquityForChart);
+      var portfolio = histAcct ? histAcct.portfolio : {};
+      // If no portfolio history but we have live equity, show a flat line
+      if ((!portfolio || !portfolio.timestamps || portfolio.timestamps.length === 0) && liveEquityForChart > 0) {
+        var now = Math.floor(Date.now() / 1000);
+        var dayAgo = now - 86400;
+        portfolio = { timestamps: [dayAgo, now], equity: [liveEquityForChart, liveEquityForChart] };
+      }
+      renderEquityChart(portfolio, liveEquityForChart);
       var pos = posAcct ? (posAcct.positions || []) : [];
-      renderSignalCards(pos, histAcct.orders || [], _bars, histAcct.trades || []);
+      var orders = histAcct ? (histAcct.orders || []) : [];
+      var trades = histAcct ? (histAcct.trades || []) : [];
+      renderSignalCards(pos, orders, _bars, trades);
     }
   }
 

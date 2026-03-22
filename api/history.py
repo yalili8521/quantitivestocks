@@ -362,6 +362,18 @@ class handler(BaseHTTPRequestHandler):
             "trades":    crypto_intraday_data.get("trades", []),
         })
 
+        # Gold Scalper — paper state from same Gist
+        gold_data = _parse_kraken_history(
+            gist_files, "gold_scalper_trade_log.json", "gold_scalper_state.json"
+        )
+        accounts.append({
+            "name":      "Gold MGC",
+            "group":     "gold_scalper",
+            "portfolio": gold_data["portfolio"],
+            "orders":    gold_data["orders"],
+            "trades":    gold_data.get("trades", []),
+        })
+
         # Selector rankings from same Gist
         ranked_symbols: dict = {}
         try:
