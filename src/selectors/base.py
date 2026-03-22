@@ -5,7 +5,7 @@ All selectors share the same interface:
     1. Load a trained ranking model from disk
     2. Fetch universe data (OHLCV for all candidate symbols)
     3. Compute cross-sectional features (z-scored across symbols per date)
-    4. Rank symbols and return top-K
+    4. Rank all symbols by score (position limits applied downstream)
 
 Subclasses implement:
     - UNIVERSE: list of candidate symbols
@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 @dataclass
 class SelectorOutput:
     """Result of a selector ranking."""
-    selected: List[str]                    # top-K symbols (ordered best → worst)
+    selected: List[str]                    # all ranked symbols (ordered best → worst)
     scores: Dict[str, float]              # symbol → ranking score
     all_ranked: List[str]                  # full ranking (all symbols)
     timestamp: Optional[str] = None       # when the ranking was computed
@@ -54,9 +54,9 @@ class BaseSelector(ABC):
 
     @abstractmethod
     def rank(self, universe_data: Dict[str, pd.DataFrame]) -> SelectorOutput:
-        """Rank all symbols and return SelectorOutput with top-K selected."""
+        """Rank all symbols and return SelectorOutput."""
         ...
 
     def select(self, universe_data: Dict[str, pd.DataFrame]) -> List[str]:
-        """Convenience: return just the top-K symbol list."""
+        """Convenience: return the ranked symbol list."""
         return self.rank(universe_data).selected

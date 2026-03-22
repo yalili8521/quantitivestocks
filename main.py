@@ -46,7 +46,8 @@ def _help_text() -> str:
     backtest            Walk-forward backtest with ML predictions
     trade               Start the paper trading loop
     report              Generate the HTML dashboard
-    train-intraday      Train the intraday ETF model
+    train-intraday      Train the intraday ETF model (LGB+GRU ensemble)
+    train-intraday-legacy  Train the old first-30-min LightGBM model
     train-swing         Train the swing ETF model
     train-crypto        Train swing models for crypto -> models/crypto/
     train-crypto-intraday Train intraday models for crypto -> models/crypto_intraday/
@@ -68,6 +69,8 @@ def _help_text() -> str:
     weekly-pipeline     Run the weekly crypto maintenance pipeline
     paused-models       Show persisted paused models
     unpause             Clear a persisted paused-model state
+    gold-scalper        Run the gold multi-TF NYSE scalper (paper trading)
+    gold-backtest       Backtest the gold scalper on historical data
 
   Examples:
     python main.py trade --group swing
@@ -137,6 +140,10 @@ def main() -> None:
         gen_tables.main()
 
     elif command == "train-intraday":
+        from etf_intraday_model import main as etf_intraday_main
+        etf_intraday_main()
+
+    elif command == "train-intraday-legacy":
         from intraday_model import main as intraday_main
         intraday_main()
 
@@ -287,6 +294,14 @@ def main() -> None:
         import scripts.weekly_pipeline as weekly
         weekly.main()
 
+    elif command == "gold-scalper":
+        from src.gold_scalper.engine import main as gold_main
+        gold_main()
+
+    elif command == "gold-backtest":
+        from src.gold_scalper.backtester import main as gold_bt_main
+        gold_bt_main()
+
     elif command == "validate-risk":
         from risk_config import get_risk_config
         for group in ("intraday", "swing", "crypto", "crypto_intraday"):
@@ -309,7 +324,7 @@ def main() -> None:
         print("                      lock-status, model-health, validate-risk, train-selector, train-selector-intraday,")
         print("                      rank-coins, rank-coins-intraday,")
         print("                      screen-universe, screen-etf-universe, select-features, batch-backtest, weekly-pipeline,")
-        print("                      paused-models, unpause")
+        print("                      paused-models, unpause, gold-scalper, gold-backtest")
         print("  Run `python main.py --help` for usage.\n")
         sys.exit(1)
 

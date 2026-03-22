@@ -614,5 +614,165 @@
     "price": 0.1216608,
     "time": "2026-03-21T12:00:03.635732+00:00",
     "intent": "open"
+  },
+  {
+    "symbol": "FET/USD",
+    "side": "sell",
+    "qty": 13123.445037,
+    "price": 0.22678655,
+    "time": "2026-03-21T16:06:57.486783+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "OP/USD",
+    "side": "sell",
+    "qty": 24699.781168,
+    "price": 0.12403795000000001,
+    "time": "2026-03-21T16:06:58.604983+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "ETHFI/USD",
+    "side": "sell",
+    "qty": 1700.649411,
+    "price": 0.58760605,
+    "time": "2026-03-21T16:07:06.379325+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "CVX/USD",
+    "side": "buy",
+    "qty": 613.163324,
+    "price": 1.8459225,
+    "time": "2026-03-21T16:07:12.447589+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "VET/USD",
+    "side": "buy",
+    "qty": 414550.486601,
+    "price": 0.007215605999999999,
+    "time": "2026-03-21T19:11:18.100135+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "FET/USD",
+    "side": "sell",
+    "qty": 13194.023354,
+    "price": 0.22508740000000002,
+    "time": "2026-03-21T19:42:56.133812+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "FET/USD",
+    "side": "buy",
+    "qty": 13194.023354,
+    "price": 0.2237118,
+    "time": "2026-03-21T21:57:54.704323+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "BCH/USD",
+    "side": "sell",
+    "qty": 2.564583,
+    "price": 468.74551,
+    "time": "2026-03-21T21:59:10.281439+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "ETHFI/USD",
+    "side": "buy",
+    "qty": 1700.649411,
+    "price": 0.6019008,
+    "time": "2026-03-21T22:36:36.839308+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "GOMINING/USD",
+    "side": "buy",
+    "qty": 3249.011547,
+    "price": 0.30835409999999996,
+    "time": "2026-03-21T22:36:47.046042+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "CVX/USD",
+    "side": "sell",
+    "qty": 613.163324,
+    "price": 1.8420785000000002,
+    "time": "2026-03-21T22:36:55.937297+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "PENDLE/USD",
+    "side": "buy",
+    "qty": 892.62631,
+    "price": 1.2536264999999998,
+    "time": "2026-03-21T22:38:11.721659+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "GOMINING/USD",
+    "side": "sell",
+    "qty": 3249.011547,
+    "price": 0.30774605000000005,
+    "time": "2026-03-22T00:02:42.145502+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "INJ/USD",
+    "side": "sell",
+    "qty": 877.661489,
+    "price": 2.994502,
+    "time": "2026-03-22T00:04:07.191216+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "PENDLE/USD",
+    "side": "sell",
+    "qty": 892.62631,
+    "price": 1.2103945,
+    "time": "2026-03-22T04:22:56.074499+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "AR/USD",
+    "side": "sell",
+    "qty": 1773.597688,
+    "price": 1.6921535,
+    "time": "2026-03-22T04:53:25.957658+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "BCH/USD",
+    "side": "buy",
+    "qty": 2.564583,
+    "price": 468.234,
+    "time": "2026-03-22T05:22:07.471826+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "AR/USD",
+    "side": "buy",
+    "qty": 1773.597688,
+    "price": 1.6998495,
+    "time": "2026-03-22T05:22:08.684535+00:00",
+    "intent": "close"
+  },
+  {
+    "symbol": "RUNE/USD",
+    "side": "sell",
+    "qty": 9711.468927,
+    "price": 0.4107945,
+    "time": "2026-03-22T05:22:16.363747+00:00",
+    "intent": "open"
+  },
+  {
+    "symbol": "GOMINING/USD",
+    "side": "sell",
+    "qty": 9784.42786,
+    "price": 0.3166416,
+    "time": "2026-03-22T05:22:26.150165+00:00",
+    "intent": "open"
   }
 ]

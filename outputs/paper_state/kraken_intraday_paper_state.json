@@ -1,28 +1,28 @@
 {
-  "cash": 94155.54210690793,
+  "cash": 100045.19542818387,
   "initial_balance": 100000.0,
   "positions": {
-    "VET/USD": {
-      "symbol": "VET/USD",
-      "qty": 414550.486601,
+    "INJ/USD": {
+      "symbol": "INJ/USD",
+      "qty": 877.661489,
       "side": "SHORT",
-      "entry_price": 0.007262,
-      "entry_time": "2026-03-21T02:28:24.974514+00:00"
+      "entry_price": 2.994502,
+      "entry_time": "2026-03-22T00:04:07.190218+00:00"
     },
-    "FET/USD": {
-      "symbol": "FET/USD",
-      "qty": 13123.445037,
-      "side": "LONG",
-      "entry_price": 0.22601295,
-      "entry_time": "2026-03-21T09:30:57.192559+00:00"
+    "RUNE/USD": {
+      "symbol": "RUNE/USD",
+      "qty": 9711.468927,
+      "side": "SHORT",
+      "entry_price": 0.4107945,
+      "entry_time": "2026-03-22T05:22:16.362552+00:00"
     },
-    "OP/USD": {
-      "symbol": "OP/USD",
-      "qty": 24699.781168,
-      "side": "LONG",
-      "entry_price": 0.1216608,
-      "entry_time": "2026-03-21T12:00:03.634732+00:00"
+    "GOMINING/USD": {
+      "symbol": "GOMINING/USD",
+      "qty": 9784.42786,
+      "side": "SHORT",
+      "entry_price": 0.3166416,
+      "entry_time": "2026-03-22T05:22:26.148156+00:00"
     }
   },
-  "last_updated": "2026-03-21T12:00:03.640733+00:00"
+  "last_updated": "2026-03-22T05:22:26.152161+00:00"
 }

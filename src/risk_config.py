@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 VALID_HORIZONS = {
     "10d":  {"mode": "daily",    "models": ["lstm", "xgb_swing", "tft_swing"]},
     "1d":   {"mode": "intraday", "models": ["lgb_intraday"]},
-    "1h":   {"mode": "intraday", "models": ["lgb_intraday_crypto"]},
+    "1h":   {"mode": "intraday", "models": ["lgb_intraday_crypto", "lgb_intraday_etf"]},
 }
 
 # Model type → allowed horizons
@@ -35,6 +35,7 @@ MODEL_HORIZON_MAP = {
     "lgb_intraday":  "1d",
     "intraday_momentum": "1d",
     "lgb_intraday_crypto": "1h",
+    "lgb_intraday_etf": "1h",
 }
 
 
@@ -234,7 +235,7 @@ CRYPTO_RISK = RiskConfig(
     max_position_pct=0.10,        # was 0.05 — allow 10% per coin
     max_sector_pct=0.40,          # was 0.15
     max_total_exposure=0.40,      # was 0.15 — deploy up to 40% of equity
-    max_positions=6,              # selector picks top-6
+    max_positions=6,              # max concurrent positions (risk limit, not selection)
     min_signal_scale=0.2,         # crypto floor: 20% of base (was 10%)
     cost_threshold=0.005,
     target_return=0.04,
@@ -279,8 +280,8 @@ GROUP_EXPECTED_METADATA: Dict[str, Dict[str, object]] = {
     },
     "intraday": {
         "mode": "intraday",
-        "horizon": "1d",
-        "required_models": {"lgb_intraday"},
+        "horizon": "1h",
+        "required_models": {"lgb_intraday_etf"},
     },
     "crypto": {
         "mode": "daily",
@@ -568,8 +569,33 @@ def _load_symbol_caps_from_config() -> Dict[str, Dict[str, float]]:
         return {}
 
 
+def _equal_cap_for_group(group: str) -> float:
+    """Compute equal-weight per-symbol cap from group risk config.
+
+    equal_cap = max_total_exposure / max_positions
+    This is used as the shrinkage prior for Sharpe-tiered caps.
+    """
+    risk = get_risk_config(group)
+    if risk.max_positions > 0:
+        return risk.max_total_exposure / risk.max_positions
+    return risk.max_position_pct
+
+
+# Shrinkage blend: 50% equal cap + 50% Sharpe-tiered cap (Rob Carver).
+# Guards against noisy OOS Sharpe estimates from short backtest windows.
+# Symbols with cap=0 (disabled) stay at 0 — shrinkage doesn't override disabling.
+_SYMBOL_CAP_SHRINKAGE = 0.50
+
+
 def get_symbol_cap(symbol: str, group: str) -> float:
     """Get max % equity for a specific symbol in a group.
+
+    Uses shrinkage blend: 50% equal cap + 50% Sharpe-tiered cap.
+    This limits damage from noisy OOS Sharpe estimates while still
+    rewarding genuinely better models (Rob Carver, Systematic Trading).
+
+    Symbols with cap=0 (disabled) remain at 0 — shrinkage doesn't
+    override the disable gate.
 
     Checks config/trading.json first, falls back to _DEFAULT_SYMBOL_CAPS.
     Returns 1.0 (uncapped) if symbol not found in either.
@@ -580,13 +606,25 @@ def get_symbol_cap(symbol: str, group: str) -> float:
     # Normalize crypto symbol format: BTC/USD → BTC-USD for lookup
     lookup_sym = symbol.replace("/", "-")
 
+    raw_cap = None
     if lookup_sym in group_caps:
-        return group_caps[lookup_sym]
+        raw_cap = group_caps[lookup_sym]
+    elif group == "intraday":
+        raw_cap = _DEFAULT_SYMBOL_CAPS.get(f"{symbol}_intraday")
+    else:
+        raw_cap = _DEFAULT_SYMBOL_CAPS.get(lookup_sym)
 
-    # Fallback to defaults
-    if group == "intraday":
-        return _DEFAULT_SYMBOL_CAPS.get(f"{symbol}_intraday", 0.15)
-    return _DEFAULT_SYMBOL_CAPS.get(lookup_sym, 0.15)
+    if raw_cap is None:
+        return 0.15  # unknown symbol → conservative default (no shrinkage)
+
+    # Disabled symbols stay disabled — shrinkage doesn't override
+    if raw_cap <= 0.0:
+        return 0.0
+
+    # Shrinkage blend: 50% equal + 50% Sharpe-tiered
+    equal_cap = _equal_cap_for_group(group)
+    blended = _SYMBOL_CAP_SHRINKAGE * equal_cap + (1 - _SYMBOL_CAP_SHRINKAGE) * raw_cap
+    return blended
 
 
 def is_symbol_disabled(symbol: str, group: str) -> bool:

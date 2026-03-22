@@ -1,9 +1,10 @@
 """
 Layer 1 selectors — cross-sectional symbol ranking per trading group.
 
-Each selector ranks a universe of symbols and returns top-K for Layer 2
-(per-symbol prediction models). Selectors are optional; groups without
-a trained selector fall back to their static symbol list.
+Each selector ranks a universe of symbols for Layer 2 (per-symbol prediction
+models). Position limits are applied downstream by paper_trader/risk_config.
+Selectors are optional; groups without a trained selector fall back to their
+static symbol list.
 
 Usage:
     from selectors import get_selector

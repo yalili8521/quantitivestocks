@@ -66,7 +66,7 @@ from alerts import AlertEngine
 from risk_config import (
     get_risk_config, check_position_allowed, check_theme_cap,
     validate_model_mode, get_symbol_cap, is_symbol_disabled,
-    get_confidence_multiplier, DeRiskState, evaluate_derisk,
+    DeRiskState, evaluate_derisk,
     get_effective_min_hold, drawdown_size_mult,
 )
 from cost_model import validate_cost_threshold
@@ -100,9 +100,9 @@ SYMBOL_GROUPS: Dict[str, List[str]] = {
     # Disabled (negative Sharpe): BTC, ETH, SOL, DOGE, DOT, SUSHI, AAVE, RENDER
     "crypto": ["CRV/USD", "AVAX/USD", "ADA/USD", "LINK/USD"],
     # Account 4 — Crypto Intraday LGB+GRU (5-min bars, 1-hour horizon)
-    # OOS Sharpe (45d): ATOM 2.63, BCH 2.13, EIGEN 1.75, SAND 1.30, VET 1.30, ETC 1.29
-    # Uses coin selector (top-6) + CryptoIntradayPredictor
-    "crypto_intraday": ["ATOM/USD", "BCH/USD", "LTC/USD", "VET/USD"],
+    # OOS backtest 2026-02-05→03-22: top by Sharpe+PF
+    # Uses coin selector (ranks full universe) + CryptoIntradayPredictor
+    "crypto_intraday": ["ATOM/USD", "AXS/USD", "LPT/USD", "WLD/USD", "FIL/USD", "ICP/USD", "MANA/USD"],
 }
 
 # Legacy / wrong-algorithm positions: opened by a previous buggy model. Manage them
@@ -835,12 +835,12 @@ class AlpacaPaperTrader:
         group_model_dir = get_model_dir(group) if group else model_dir
 
         if group == "intraday":
-            validate_model_mode("lgb_intraday", mode)
+            validate_model_mode("lgb_intraday_etf", mode)
             try:
-                from intraday_model import IntradayPredictor
-                return IntradayPredictor(symbol, model_dir=group_model_dir)
+                from etf_intraday_model import EtfIntradayPredictor
+                return EtfIntradayPredictor(symbol, model_dir=group_model_dir)
             except (FileNotFoundError, ImportError) as exc:
-                log.info("No intraday LightGBM for %s, falling back to LSTM: %s", symbol, exc)
+                log.info("No ETF intraday model for %s, falling back to LSTM: %s", symbol, exc)
         elif group == "swing":
             validate_model_mode("tft_swing", mode)
             try:
@@ -995,17 +995,16 @@ class AlpacaPaperTrader:
         oos_sharpe: dict,
         oos_perf: dict,
         btc_correlations: Optional[Dict[str, float]] = None,
-        w_selector: float = 0.3,
-        w_sharpe: float = 0.4,
-        w_hitrate: float = 0.3,
+        w_selector: float = 0.30,
+        w_sharpe: float = 0.70,
     ) -> Dict[str, float]:
-        """Composite score = w1*selector + w2*sharpe + w3*hit_rate (rank-normalized).
+        """Composite score = w1*selector + w2*blended_sharpe (rank-normalized).
 
-        Uses hit rate (win_rate) instead of OOS return — hit rate is orthogonal
-        to Sharpe (measures consistency, not magnitude), while OOS return is
-        redundant with Sharpe (Sharpe = return / vol).
+        2-factor design (Rob Carver shrinkage):
+        - selector_score: cross-sectional LambdaRank score (momentum, vol, liquidity)
+        - blended_sharpe: exponential decay from OOS prior to live rolling Sharpe
+          w_live = min(1 - 0.5^(n_trades/60), 0.70)  — never fully abandon prior
 
-        ALL ranked coins are included — scoring weight, not a gate.
         BTC correlation penalty (crypto only): highly correlated alts get
         reduced composite score.
 
@@ -1013,10 +1012,10 @@ class AlpacaPaperTrader:
         """
         candidates = []
         for sym, sel_score in rankings:
-            sharpe = oos_sharpe.get(sym, 0)   # default 0 if no OOS data
-            perf = oos_perf.get(sym, {})
-            hitrate = perf.get("win_rate", 0.5) if isinstance(perf, dict) else 0.5
-            candidates.append((sym, sel_score, sharpe, hitrate))
+            oos_s = oos_sharpe.get(sym, 0.0)
+            # Blend OOS Sharpe with live rolling Sharpe (if available)
+            blended = self._blended_sharpe(sym, oos_s)
+            candidates.append((sym, sel_score, blended))
 
         if not candidates:
             return {}
@@ -1034,17 +1033,14 @@ class AlpacaPaperTrader:
 
         sel_scores = [c[1] for c in candidates]
         sharpe_vals = [c[2] for c in candidates]
-        hitrate_vals = [c[3] for c in candidates]
 
         sel_norm = _rank_normalize(sel_scores)
         sharpe_norm = _rank_normalize(sharpe_vals)
-        hitrate_norm = _rank_normalize(hitrate_vals)
 
         result = {}
-        for i, (sym, sel, sharpe, hitrate) in enumerate(candidates):
+        for i, (sym, sel, blended) in enumerate(candidates):
             composite = (w_selector * sel_norm[i]
-                         + w_sharpe * sharpe_norm[i]
-                         + w_hitrate * hitrate_norm[i])
+                         + w_sharpe * sharpe_norm[i])
 
             # BTC correlation penalty: corr=0.9 → 55% score penalty
             if btc_correlations and sym in btc_correlations:
@@ -1056,6 +1052,34 @@ class AlpacaPaperTrader:
         # Sort descending
         result = dict(sorted(result.items(), key=lambda x: -x[1]))
         return result
+
+    def _blended_sharpe(self, symbol: str, oos_sharpe: float) -> float:
+        """Blend OOS Sharpe with live rolling Sharpe using exponential decay.
+
+        w_live = min(1 - 0.5^(n_trades/60), 0.70)
+        blended = (1 - w_live) * oos_sharpe + w_live * live_sharpe
+
+        After 60 trades, live gets 50% weight. Cap at 70% — never fully
+        abandon the OOS prior (Rob Carver's shrinkage principle).
+        Returns oos_sharpe if no live data available.
+        """
+        # Look up live rolling Sharpe from derisk state
+        alpaca_sym = symbol.replace("-", "/")
+        derisk = self._derisk_states.get(alpaca_sym)
+        if derisk is None:
+            derisk = self._derisk_states.get(symbol)
+        if derisk is None:
+            return oos_sharpe
+
+        n_trades = len(derisk.returns)
+        live_sharpe = derisk.rolling_sharpe(window=60)
+        if live_sharpe is None or n_trades < 10:
+            return oos_sharpe
+
+        # Exponential decay: approaches 0.70 as n_trades grows
+        w_live = min(1.0 - 0.5 ** (n_trades / 60.0), 0.70)
+        blended = (1.0 - w_live) * oos_sharpe + w_live * live_sharpe
+        return blended
 
     # -- Coin ranker (Layer 1 → rank ALL, Layer 2 → ML decides) -----------
     def _run_coin_selector(self) -> List[str]:
@@ -1163,9 +1187,10 @@ class AlpacaPaperTrader:
             # Log full ranking
             for i, sym in enumerate(all_ranked, 1):
                 sel_score = dict(result.rankings).get(sym, 0)
-                sharpe = oos_sharpe.get(sym, 0)
-                log.info("  Rank #%d %s: composite=%.3f (sel=%.2f, sharpe=%.2f)",
-                         i, sym, composite[sym], sel_score, sharpe)
+                oos_s = oos_sharpe.get(sym, 0)
+                blended_s = self._blended_sharpe(sym, oos_s)
+                log.info("  Rank #%d %s: composite=%.3f (sel=%.2f, oos_sharpe=%.2f, blended=%.2f)",
+                         i, sym, composite[sym], sel_score, oos_s, blended_s)
 
             # Step 2: Take top-N ranked — only these are candidates
             top_k = self._risk_config.max_positions
@@ -1500,47 +1525,7 @@ class AlpacaPaperTrader:
         except Exception as exc:
             log.warning("Rankings Gist sync error: %s", exc)
 
-    # Rank scalar ranges by universe type:
-    # Crypto: steeper gradient — correlated assets, concentrate on top signals
-    # ETF: shallower gradient — independently diversified, more even sizing
-    _RANK_SCALAR_RANGE = {
-        "crypto":          (0.25, 1.0),
-        "crypto_intraday": (0.25, 1.0),
-        "swing":           (0.50, 1.0),
-        "intraday":        (0.50, 1.0),
-    }
 
-    def _get_rank_scalar(self, symbol: str) -> float:
-        """Get composite-score-based sizing scalar.
-
-        Maps composite score to position weight using the full ranked list.
-        Gradient is steeper for crypto (correlated assets → concentrate capital)
-        and shallower for ETFs (diversified → more even sizing).
-
-        Not in ranked set → floor × 0.8 (exit-only territory).
-        """
-        if not hasattr(self, "_composite_scores") or not self._composite_scores:
-            return 1.0
-        yf_sym = _crypto_to_yfinance(symbol)
-        scores = self._composite_scores
-
-        floor, ceiling = self._RANK_SCALAR_RANGE.get(
-            self.group or "swing", (0.50, 1.0)
-        )
-
-        if yf_sym not in scores:
-            return floor * 0.8  # below minimum ranked → exit-only territory
-
-        vals = list(scores.values())
-        max_score = max(vals) if vals else 1.0
-        min_score = min(vals) if vals else 0.0
-        score_range = max_score - min_score
-
-        if score_range < 1e-6:
-            return (floor + ceiling) / 2  # all equal → midpoint
-
-        normalized = (scores[yf_sym] - min_score) / score_range  # 0 to 1
-        return floor + (ceiling - floor) * normalized
 
     # -- Account info --------------------------------------------------
     def get_account_summary(self) -> dict:
@@ -2450,26 +2435,15 @@ class AlpacaPaperTrader:
                           sizing_pct)
 
             # --- Per-symbol cap (OOS Sharpe-tiered) ---
+            # This is the SINGLE source of OOS-based sizing. Replaces the old
+            # conf_mult (redundant with sym_cap) and rank_scalar (redundant with
+            # sym_cap). Both mapped OOS Sharpe → multiplier, stacking 3 layers
+            # that all expressed the same information.
             sym_cap = get_symbol_cap(symbol, self.group or "swing")
             if sym_cap <= 0.0:
                 return (f"DISABLED  ({symbol} cap=0% by OOS performance)  "
                         f"ML: {direction} E[r]={expected_return:+.4f}")
             sizing_pct = min(sizing_pct, sym_cap)
-
-            # --- Confidence multiplier (OOS Sharpe tier) ---
-            conf_mult = get_confidence_multiplier(symbol)
-            if conf_mult <= 0.0:
-                return (f"DISABLED  ({symbol} conf_mult=0 by negative OOS Sharpe)  "
-                        f"ML: {direction} E[r]={expected_return:+.4f}")
-            sizing_pct *= conf_mult
-
-            # --- Rank-based sizing (Layer 1 ranker, all dynamic groups) ---
-            if self.group in ("crypto", "crypto_intraday") and self._coin_selector is not None:
-                rank_scalar = self._get_rank_scalar(symbol)
-                sizing_pct *= rank_scalar
-            elif self.group in ("swing", "intraday") and self._etf_selector is not None:
-                rank_scalar = self._get_rank_scalar(symbol)
-                sizing_pct *= rank_scalar
 
             # --- BTC correlation penalty (crypto only) ---
             # When BTC position is already open, reduce sizing for highly correlated alts.
@@ -2485,7 +2459,7 @@ class AlpacaPaperTrader:
                         log.info("BTC corr penalty for %s: corr=%.2f → size ×%.2f",
                                  symbol, btc_corr, corr_penalty)
 
-            # --- Auto de-risking check ---
+            # --- Auto de-risking check (rolling performance gate) ---
             size_note = f" [{size_source}]"
             if derisk_state is not None:
                 derisk_action, derisk_reason = evaluate_derisk(
@@ -2499,13 +2473,6 @@ class AlpacaPaperTrader:
                     sizing_pct *= 0.5
                     size_note += f" [derisk-half: {derisk_reason}]"
 
-            # Opt #5: reduce sizing after a recent max-loss in this symbol
-            if last_loss:
-                loss_age_h = (datetime.now(timezone.utc) - last_loss["time"]).total_seconds() / 3600
-                if loss_age_h < self.post_loss_size_hours:
-                    sizing_pct *= self.post_loss_size_mult
-                    size_note += f" [post-loss {self.post_loss_size_mult:.0%}]"
-
             # --- Drawdown throttle (equity-curve-based) ---
             dd_mult = drawdown_size_mult(equity, self._peak_equity)
             if dd_mult <= 0.0:
@@ -2516,28 +2483,13 @@ class AlpacaPaperTrader:
                 sizing_pct *= dd_mult
                 size_note += f" [dd-throttle {dd_mult:.0%}]"
 
-            # --- Soft regime scaling (reduce size, never block) ---
-            if risk.use_soft_regime_scaling and not is_crypto:
-                try:
-                    spy_bars = self.adapter.fetch_daily("SPY", 210)
-                    _spy_c = float(spy_bars["close"].iloc[-1])
-                    _spy_sma = float(spy_bars["close"].rolling(200).mean().iloc[-1])
-                    if _spy_c <= _spy_sma:
-                        sizing_pct *= risk.bear_scaling_factor
-                        size_note += f" [bear-regime {risk.bear_scaling_factor:.0%}]"
-                except Exception:
-                    pass
-                if self.mode != "intraday":
-                    try:
-                        vix_df = self._vix_cache if self._vix_cache is not None else self._get_vix_df()
-                        if not vix_df.empty:
-                            _vix = float(vix_df.iloc[-1].iloc[0] if vix_df.shape[1] == 1
-                                         else vix_df["vix"].iloc[-1])
-                            if _vix >= risk.vix_threshold:
-                                sizing_pct *= risk.high_vix_scaling_factor
-                                size_note += f" [high-vix {risk.high_vix_scaling_factor:.0%}]"
-                    except Exception:
-                        pass
+            # --- Minimum size floor ---
+            # Below ~1% of equity, round-trip costs eat most expected return.
+            # Skip rather than open a position that can't cover its costs.
+            _MIN_SIZE_PCT = 0.01
+            if sizing_pct < _MIN_SIZE_PCT:
+                return (f"SKIP  (sizing {sizing_pct:.3%} < {_MIN_SIZE_PCT:.0%} floor)  "
+                        f"ML: {direction} E[r]={expected_return:+.4f}")
 
             invest = equity * sizing_pct
             qty = invest / current_price

@@ -30,7 +30,6 @@ from risk_config import (
     get_risk_config,
     check_position_allowed,
     check_theme_cap,
-    get_confidence_multiplier,
     get_symbol_cap,
     SYMBOL_SECTOR,
     RiskConfig,
@@ -685,9 +684,7 @@ class PortfolioBacktester:
 
                 sizing_pct = base_frac * signal_pct * regime_scalar
                 sizing_pct = min(sizing_pct, self.risk.max_position_pct)
-                sizing_pct *= rank_scalars.get(sym, 1.0)
                 sizing_pct = min(sizing_pct, get_symbol_cap(sym, self.group))
-                sizing_pct *= get_confidence_multiplier(sym)
                 if self._is_crypto_group() and not self._is_btc_anchor(sym):
                     btc_open = any(self._normalize_symbol(open_sym) == "BTC-USD"
                                    for open_sym in portfolio.positions)

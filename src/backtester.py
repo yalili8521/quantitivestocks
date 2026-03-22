@@ -46,7 +46,6 @@ from risk_config import (
     validate_model_mode,
     get_risk_config,
     get_symbol_cap,
-    get_confidence_multiplier,
     get_effective_min_hold,
     DeRiskState,
     evaluate_derisk,
@@ -455,19 +454,67 @@ class Backtester:
         lgb_model = joblib.load(model_path)
         feature_cols = get_intraday_feature_cols(self.symbol)
 
+        # Load GRU model for ensemble (parity with CryptoIntradayPredictor)
+        gru_path = os.path.join(self.model_dir,
+                                f"{sym_clean}_gru_intraday_crypto.pt")
+        gru_model = None
+        gru_mean = None
+        gru_std = None
+        gru_seq_len = 12  # default GRU_SEQ_LEN
+
         # Load config for cost/target overrides
         crypto_ct = self.cost_threshold
         crypto_tr = self.target_return
+        crypto_pred_scale = 1.0
+        gru_active = False
         if os.path.exists(config_path):
             with open(config_path) as f:
                 cfg = json.load(f)
-            crypto_ct = cfg.get("cost_threshold", CRYPTO_INTRADAY_CT)
+            crypto_ct = max(
+                cfg.get("cost_threshold", CRYPTO_INTRADAY_CT),
+                self.cost_threshold,  # respect auto-adjusted safety threshold
+            )
             crypto_tr = cfg.get("target_return", CRYPTO_INTRADAY_TR)
+            crypto_pred_scale = cfg.get("pred_scale", 1.0)
+            gru_active = cfg.get("gru_active", False)
             saved_features = cfg.get("feature_names")
             if saved_features:
                 feature_cols = saved_features
-        log.info("Loaded LGB for %s (%d features, ct=%.4f, tr=%.4f).",
-                 self.symbol, len(feature_cols), crypto_ct, crypto_tr)
+            # OOS contamination check
+            val_end = cfg.get("val_end")
+            if val_end:
+                val_end_dt = pd.to_datetime(val_end)
+                if val_end_dt.tzinfo is None:
+                    val_end_dt = val_end_dt.tz_localize("UTC")
+                if start_dt < val_end_dt:
+                    log.warning("*** OOS CONTAMINATION: backtest start %s is before "
+                                "model val_end %s — results are NOT out-of-sample! ***",
+                                start_dt.date(), val_end_dt.date())
+
+        # Load GRU if active (matching CryptoIntradayPredictor._load)
+        if gru_active and os.path.exists(gru_path):
+            try:
+                import torch
+                checkpoint = torch.load(gru_path, map_location="cpu", weights_only=False)
+                from attention import GRUWithAttention as GRUReturnModel
+                gru_model = GRUReturnModel(
+                    n_features=checkpoint["n_features"],
+                    hidden=checkpoint["hidden"],
+                    n_layers=checkpoint["n_layers"],
+                )
+                gru_model.load_state_dict(checkpoint["model_state"])
+                gru_model.eval()
+                gru_mean = np.array(checkpoint["scaler_mean"], dtype=np.float32)
+                gru_std = np.array(checkpoint["scaler_std"], dtype=np.float32)
+                gru_seq_len = checkpoint.get("seq_len", 12)
+                log.info("Loaded GRU ensemble for %s (seq_len=%d)", self.symbol, gru_seq_len)
+            except Exception as e:
+                log.warning("Failed to load GRU for %s: %s — using LGB-only", self.symbol, e)
+                gru_model = None
+
+        ensemble_str = "LGB+GRU" if gru_model else "LGB-only"
+        log.info("Loaded %s for %s (%d features, ct=%.4f, tr=%.4f, pred_scale=%.2f).",
+                 ensemble_str, self.symbol, len(feature_cols), crypto_ct, crypto_tr, crypto_pred_scale)
 
         # --- Regime filter: hardcoded BTC SMA(200) gate removed ---
         # Model features (btc_sma200_flag, btc_trend_strength, etc.) handle regime.
@@ -497,7 +544,16 @@ class Backtester:
         cooldown_until = None
         cooldown_skipped = 0
         bars_in_position = 0
+        reentry_cooldown_remaining = 0  # bars to wait after signal_decay exit
         price_rows = []
+
+        # Match paper_trader protections (from risk_config)
+        from risk_config import (
+            CRYPTO_INTRADAY_MIN_HOLD_BARS,
+            CRYPTO_INTRADAY_SIGNAL_REVERSAL_COOLDOWN_BARS,
+        )
+        min_hold_bars = CRYPTO_INTRADAY_MIN_HOLD_BARS          # 12 bars (1 hour)
+        reentry_cooldown_bars = CRYPTO_INTRADAY_SIGNAL_REVERSAL_COOLDOWN_BARS  # 3 bars (15 min)
 
         for i in range(len(features)):
             ts = feature_ts.iloc[i]
@@ -522,10 +578,26 @@ class Backtester:
 
             is_last = (i == len(features) - 1)
 
-            # --- LGB prediction ---
+            # --- LGB + GRU ensemble prediction (parity with CryptoIntradayPredictor) ---
             try:
                 x_row = features[feature_cols].iloc[i:i + 1].values.astype(np.float32)
-                expected_return = float(lgb_model.predict(x_row)[0])
+                lgb_pred = float(lgb_model.predict(x_row)[0])
+
+                gru_pred = None
+                if gru_model is not None and i >= gru_seq_len:
+                    import torch
+                    x_seq = features[feature_cols].iloc[i - gru_seq_len:i].values.astype(np.float32)
+                    x_seq_n = (x_seq - gru_mean) / np.clip(gru_std, 1e-8, None)
+                    x_tensor = torch.from_numpy(x_seq_n[np.newaxis])
+                    with torch.no_grad():
+                        gru_pred = float(gru_model(x_tensor).item())
+
+                # Ensemble: default 70/30 LGB/GRU (matching predictor defaults)
+                if gru_pred is not None:
+                    w_lgb = 0.70
+                    expected_return = (w_lgb * lgb_pred + (1 - w_lgb) * gru_pred) * crypto_pred_scale
+                else:
+                    expected_return = lgb_pred * crypto_pred_scale
             except Exception:
                 expected_return = 0.0
 
@@ -558,16 +630,20 @@ class Backtester:
                     continue
 
                 # Signal-decay: exit when prediction reverses direction
-                if pos.direction == "LONG" and expected_return <= 0:
-                    self._close_position(portfolio, bar_date, bar_close,
-                                         "signal_decay")
-                    recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
-                    bars_in_position = 0
-                elif pos.direction == "SHORT" and expected_return >= 0:
-                    self._close_position(portfolio, bar_date, bar_close,
-                                         "signal_decay")
-                    recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
-                    bars_in_position = 0
+                # Only after minimum hold period (parity with paper_trader)
+                if bars_in_position >= min_hold_bars:
+                    if pos.direction == "LONG" and expected_return <= 0:
+                        self._close_position(portfolio, bar_date, bar_close,
+                                             "signal_decay")
+                        recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
+                        bars_in_position = 0
+                        reentry_cooldown_remaining = reentry_cooldown_bars
+                    elif pos.direction == "SHORT" and expected_return >= 0:
+                        self._close_position(portfolio, bar_date, bar_close,
+                                             "signal_decay")
+                        recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
+                        bars_in_position = 0
+                        reentry_cooldown_remaining = reentry_cooldown_bars
 
                 # Cooldown check after close
                 if len(recent_wins) == 20 and cooldown_until is None:
@@ -582,6 +658,12 @@ class Backtester:
 
             # --- Entry logic (no position) ---
             if is_last:
+                self._record_equity(portfolio, bar_date, bar_close)
+                continue
+
+            # Re-entry cooldown after signal_decay (parity with paper_trader)
+            if reentry_cooldown_remaining > 0:
+                reentry_cooldown_remaining -= 1
                 self._record_equity(portfolio, bar_date, bar_close)
                 continue
 
@@ -602,18 +684,33 @@ class Backtester:
                 enter_dir = "SHORT"
 
             if enter_dir is not None:
-                # Use crypto-specific position sizing
+                # Cost-adjusted entry: only trade if expected return > cost
+                from cost_model import get_symbol_costs, simulate_fill
+                sym_costs = get_symbol_costs(self.symbol)
+                rt_cost_bps = (sym_costs.half_spread_bps + sym_costs.slippage_bps) * 2
+                rt_cost_pct = rt_cost_bps / 10000.0
+                cost_adjusted_return = abs(expected_return) - rt_cost_pct
+                if cost_adjusted_return <= 0:
+                    self._record_equity(portfolio, bar_date, bar_close)
+                    continue
+
+                # Position sizing: Kelly-capped, max 25% of equity per trade
                 equity = self._current_equity(portfolio, bar_close)
                 signal_pct = min(1.0, max(0.1,
                                           abs(expected_return) / crypto_tr))
-                invest_pct = min(self.position_pct * signal_pct, 0.98)
+                invest_pct = min(self.position_pct * signal_pct, 0.25)  # cap at 25%
                 invest = equity * invest_pct
-                shares = invest / bar_close
+
+                # Simulate realistic fill with spread + slippage
+                fill_side = "buy" if enter_dir == "LONG" else "sell"
+                fill_price, _ = simulate_fill(self.symbol, bar_close, fill_side,
+                                              stress_mult=self.stress_cost_mult)
+                shares = invest / fill_price
                 portfolio.cash -= invest
                 portfolio.position = Trade(
-                    entry_date=bar_date, entry_price=bar_close,
+                    entry_date=bar_date, entry_price=fill_price,
                     direction=enter_dir, size=shares,
-                    peak_price=bar_close, atr_at_entry=0.0,
+                    peak_price=fill_price, atr_at_entry=0.0,
                 )
                 bars_in_position = 0
 
@@ -637,6 +734,278 @@ class Backtester:
 
         return self._compute_results(portfolio, price_df)
 
+    def _run_etf_intraday(self, start_date: str,
+                           end_date: Optional[str] = None) -> BacktestResult:
+        """Bar-level backtest for ETF intraday LGB+GRU model (5-min bars).
+
+        Logic per bar:
+          1. Build features via EtfIntradayFeatureEngine
+          2. LGB predicts expected 1-hour (12-bar) forward return
+          3. If |E[r]| > cost_threshold and no position: enter
+          4. Exit on signal decay, max-hold (78 bars), or disaster stop
+        Data fetched from Alpaca.
+        """
+        from etf_intraday_model import (
+            EtfIntradayFeatureEngine, FEATURE_NAMES as ETF_INTRADAY_FEATURES,
+            FORWARD_BARS, MAX_HOLD_BARS, LOOKBACK_BARS,
+            COST_THRESHOLD as ETF_INTRADAY_CT,
+            TARGET_RETURN as ETF_INTRADAY_TR,
+        )
+
+        start_dt = pd.to_datetime(start_date)
+        end_dt = pd.to_datetime(end_date) if end_date else pd.Timestamp.now(tz="US/Eastern")
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.tz_localize("US/Eastern")
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.tz_localize("US/Eastern")
+
+        days_needed = (end_dt - start_dt).days + 30  # extra for feature warmup
+        log.info("Fetching %d days of 5-min bars for %s from Alpaca...",
+                 days_needed, self.symbol)
+
+        bars = self.adapter.fetch_intraday(self.symbol, "5min",
+                                           lookback_days=days_needed)
+        if len(bars) < 500:
+            log.error("%s: only %d bars, need >= 500", self.symbol, len(bars))
+            return self._compute_results(Portfolio(
+                initial_capital=self.initial_capital,
+                cash=self.initial_capital,
+            ))
+        log.info("Got %d bars for %s.", len(bars), self.symbol)
+
+        # Fetch SPY bars for sector_rel_strength (skip if symbol IS SPY)
+        is_spy = self.symbol.upper() == "SPY"
+        spy_bars = None
+        if not is_spy:
+            spy_bars = self.adapter.fetch_intraday("SPY", "5min",
+                                                   lookback_days=days_needed)
+            log.info("Got %d SPY reference bars.", len(spy_bars))
+
+        # Build features
+        engine = EtfIntradayFeatureEngine()
+        features = engine.build_features(bars, spy_bars, symbol=self.symbol)
+        if features.empty:
+            log.error("No features built for %s.", self.symbol)
+            return self._compute_results(Portfolio(
+                initial_capital=self.initial_capital,
+                cash=self.initial_capital,
+            ))
+        log.info("Built %d feature rows for %s.", len(features), self.symbol)
+
+        # Load LightGBM model
+        model_path = os.path.join(self.model_dir,
+                                  f"{self.symbol}_lgb_intraday_etf.joblib")
+        config_path = os.path.join(self.model_dir,
+                                   f"{self.symbol}_lgb_intraday_etf_config.json")
+        if not os.path.exists(model_path):
+            log.error("No ETF intraday model for %s at %s. "
+                      "Run: python main.py train-intraday --symbols %s",
+                      self.symbol, model_path, self.symbol)
+            sys.exit(1)
+
+        lgb_model = joblib.load(model_path)
+        feature_cols = list(ETF_INTRADAY_FEATURES)
+
+        # Load config for cost/target overrides
+        etf_ct = self.cost_threshold
+        etf_tr = self.target_return
+        etf_pred_scale = 1.0
+        if os.path.exists(config_path):
+            with open(config_path) as f:
+                cfg = json.load(f)
+            etf_ct = cfg.get("cost_threshold", ETF_INTRADAY_CT)
+            etf_tr = cfg.get("target_return", ETF_INTRADAY_TR)
+            etf_pred_scale = cfg.get("pred_scale", 1.0)
+            saved_features = cfg.get("feature_names")
+            if saved_features:
+                feature_cols = saved_features
+            # OOS contamination check
+            val_end = cfg.get("val_end")
+            if val_end:
+                val_end_dt = pd.to_datetime(val_end)
+                if val_end_dt.tzinfo is None:
+                    val_end_dt = val_end_dt.tz_localize("US/Eastern")
+                if start_dt < val_end_dt:
+                    log.warning("*** OOS CONTAMINATION: backtest start %s is before "
+                                "model val_end %s — results are NOT out-of-sample! ***",
+                                start_dt.date(), val_end_dt.date())
+        log.info("Loaded LGB for %s (%d features, ct=%.4f, tr=%.4f, pred_scale=%.2f).",
+                 self.symbol, len(feature_cols), etf_ct, etf_tr, etf_pred_scale)
+
+        # Timestamps
+        feature_ts = pd.to_datetime(features["ts"])
+        if feature_ts.dt.tz is None:
+            feature_ts = feature_ts.dt.tz_localize("US/Eastern")
+
+        bars_indexed = bars.set_index("ts")
+        if bars_indexed.index.tz is None:
+            bars_indexed.index = bars_indexed.index.tz_localize("US/Eastern")
+
+        # --- Walk-forward bar-by-bar ---
+        from collections import deque
+        from datetime import timedelta as _td
+
+        portfolio = Portfolio(
+            initial_capital=self.initial_capital,
+            cash=self.initial_capital,
+        )
+        recent_wins: deque = deque(maxlen=20)
+        cooldown_until = None
+        cooldown_skipped = 0
+        bars_in_position = 0
+        reentry_cooldown_remaining = 0
+        price_rows = []
+
+        # Use same min-hold/cooldown as crypto intraday (both are 5-min bar models)
+        from risk_config import (
+            CRYPTO_INTRADAY_MIN_HOLD_BARS,
+            CRYPTO_INTRADAY_SIGNAL_REVERSAL_COOLDOWN_BARS,
+        )
+        min_hold_bars = CRYPTO_INTRADAY_MIN_HOLD_BARS
+        reentry_cooldown_bars = CRYPTO_INTRADAY_SIGNAL_REVERSAL_COOLDOWN_BARS
+
+        for i in range(len(features)):
+            ts = feature_ts.iloc[i]
+            bar_date = ts.date()
+
+            if ts < start_dt:
+                continue
+            if ts > end_dt:
+                break
+
+            # Get close price from bars
+            closest_idx = bars_indexed.index.searchsorted(ts)
+            if closest_idx >= len(bars_indexed):
+                closest_idx = len(bars_indexed) - 1
+            bar_close = float(bars_indexed.iloc[closest_idx]["close"])
+
+            price_rows.append({"date": bar_date, "close": bar_close})
+
+            is_last = (i == len(features) - 1)
+
+            # --- LGB prediction (scaled to match real return magnitude) ---
+            try:
+                x_row = features[feature_cols].iloc[i:i + 1].values.astype(np.float32)
+                expected_return = float(lgb_model.predict(x_row)[0]) * etf_pred_scale
+            except Exception:
+                expected_return = 0.0
+
+            # --- Exit logic ---
+            if portfolio.position is not None:
+                pos = portfolio.position
+                bars_in_position += 1
+
+                if pos.direction == "LONG":
+                    unrealized_pct = (bar_close - pos.entry_price) / pos.entry_price
+                else:
+                    unrealized_pct = (pos.entry_price - bar_close) / pos.entry_price
+
+                # Disaster stop: 1.5% for ETFs (tighter than crypto 2%)
+                if unrealized_pct <= -0.015:
+                    self._close_position(portfolio, bar_date, bar_close,
+                                         "disaster_stop")
+                    recent_wins.append(0)
+                    bars_in_position = 0
+                    self._record_equity(portfolio, bar_date, bar_close)
+                    continue
+
+                # Max-hold exit: after MAX_HOLD_BARS (78 bars = full trading day)
+                if bars_in_position >= MAX_HOLD_BARS:
+                    self._close_position(portfolio, bar_date, bar_close,
+                                         "max_hold")
+                    recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
+                    bars_in_position = 0
+                    self._record_equity(portfolio, bar_date, bar_close)
+                    continue
+
+                # Signal-decay: exit when prediction reverses direction
+                # Only after minimum hold period (parity with paper_trader)
+                if bars_in_position >= min_hold_bars:
+                    if pos.direction == "LONG" and expected_return <= 0:
+                        self._close_position(portfolio, bar_date, bar_close,
+                                             "signal_decay")
+                        recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
+                        bars_in_position = 0
+                        reentry_cooldown_remaining = reentry_cooldown_bars
+                    elif pos.direction == "SHORT" and expected_return >= 0:
+                        self._close_position(portfolio, bar_date, bar_close,
+                                             "signal_decay")
+                        recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
+                        bars_in_position = 0
+                        reentry_cooldown_remaining = reentry_cooldown_bars
+
+                # Cooldown check after close
+                if len(recent_wins) == 20 and cooldown_until is None:
+                    wr = sum(recent_wins) / 20
+                    if wr < 0.5:
+                        cooldown_until = ts + _td(days=7)
+                        log.info("Rolling WR %.0f%% < 50%% at %s -> cooldown 7d",
+                                 wr * 100, ts)
+
+                self._record_equity(portfolio, bar_date, bar_close)
+                continue
+
+            # --- Entry logic (no position) ---
+            if is_last:
+                self._record_equity(portfolio, bar_date, bar_close)
+                continue
+
+            # Re-entry cooldown after signal_decay (parity with paper_trader)
+            if reentry_cooldown_remaining > 0:
+                reentry_cooldown_remaining -= 1
+                self._record_equity(portfolio, bar_date, bar_close)
+                continue
+
+            # Cooldown gate
+            if cooldown_until is not None:
+                if ts < cooldown_until:
+                    cooldown_skipped += 1
+                    self._record_equity(portfolio, bar_date, bar_close)
+                    continue
+                else:
+                    cooldown_until = None
+
+            # Entry signal
+            enter_dir = None
+            if expected_return > etf_ct:
+                enter_dir = "LONG"
+            elif expected_return < -etf_ct:
+                enter_dir = "SHORT"
+
+            if enter_dir is not None:
+                equity = self._current_equity(portfolio, bar_close)
+                signal_pct = min(1.0, max(0.1,
+                                          abs(expected_return) / etf_tr))
+                invest_pct = min(self.position_pct * signal_pct, 0.98)
+                invest = equity * invest_pct
+                shares = invest / bar_close
+                portfolio.cash -= invest
+                portfolio.position = Trade(
+                    entry_date=bar_date, entry_price=bar_close,
+                    direction=enter_dir, size=shares,
+                    peak_price=bar_close, atr_at_entry=0.0,
+                )
+                bars_in_position = 0
+
+            self._record_equity(portfolio, bar_date, bar_close)
+
+        # Close any remaining position
+        if portfolio.position is not None and price_rows:
+            last_close = price_rows[-1]["close"]
+            last_date = price_rows[-1]["date"]
+            self._close_position(portfolio, last_date, last_close,
+                                 "end_of_backtest")
+            self._record_equity(portfolio, last_date, last_close)
+
+        log.info("ETF intraday: %d trades, %d cooldown-skipped bars.",
+                 len(portfolio.closed_trades), cooldown_skipped)
+
+        price_df = pd.DataFrame(price_rows)
+        if not price_df.empty:
+            price_df = price_df.groupby("date").last().reset_index()
+
+        return self._compute_results(portfolio, price_df)
+
     def run(self, start_date: str, end_date: Optional[str] = None,
             seq_len: int = SEQ_LEN) -> BacktestResult:
         """Run the walk-forward backtest with optimized strategy."""
@@ -645,6 +1014,8 @@ class Backtester:
             return self._run_intraday_lgb(start_date, end_date)
         if self.model_type == "crypto_intraday":
             return self._run_crypto_intraday(start_date, end_date)
+        if self.model_type == "etf_intraday":
+            return self._run_etf_intraday(start_date, end_date)
 
         # Fetch data
         if self.mode == "daily":
@@ -1086,16 +1457,13 @@ class Backtester:
         base_pct = base_frac * signal_pct
         base_pct = min(base_pct, risk.max_position_pct)
         base_pct = min(base_pct, get_symbol_cap(self.symbol, self._risk_group))
-        base_pct *= get_confidence_multiplier(self.symbol)
+        # conf_mult and rank_scalar removed — sym_cap is the single OOS-based
+        # sizing factor (avoids redundant stacking of OOS Sharpe multipliers)
         derisk_action, _ = evaluate_derisk(self._derisk_state, window=50)
         if derisk_action == "disable":
             return False
         if derisk_action == "halfsize":
             base_pct *= 0.5
-        if self._max_loss_exit is not None:
-            loss_age_h = self._hours_since(self._max_loss_exit["time"], date)
-            if loss_age_h < risk.post_loss_size_hours:
-                base_pct *= risk.post_loss_size_mult
         if base_pct <= 0:
             return False
 
@@ -1716,8 +2084,8 @@ def main() -> None:
     parser.add_argument("--interval", default="5min", choices=["1min", "5min"],
                         help="Intraday bar interval (default: 5min)")
     parser.add_argument("--model", default="lstm",
-                        choices=["lstm", "swing", "options", "intraday", "crypto_intraday"],
-                        help="Model type: lstm (default), swing, options, intraday, crypto_intraday")
+                        choices=["lstm", "swing", "options", "intraday", "crypto_intraday", "etf_intraday"],
+                        help="Model type: lstm (default), swing, options, intraday, crypto_intraday, etf_intraday")
     parser.add_argument("--model-dir", type=str, default=None,
                         help="Directory for model files (default: models/ or models/crypto/ for crypto)")
     # v2 regression parameters
@@ -1749,6 +2117,12 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # Auto-infer mode from model type — intraday models must use intraday mode
+    _INTRADAY_MODELS = {"intraday", "crypto_intraday", "etf_intraday"}
+    if args.model in _INTRADAY_MODELS and args.mode == "daily":
+        log.info("Auto-setting --mode intraday (required by --model %s)", args.model)
+        args.mode = "intraday"
+
     adapter = build_adapter(args.provider)
     fred_key = os.environ.get("FRED_API_KEY")
 
@@ -1765,7 +2139,7 @@ def main() -> None:
                     break
             else:
                 model_dir = SWING_MODEL_DIR
-        elif args.model == "intraday":
+        elif args.model in ("intraday", "etf_intraday"):
             model_dir = INTRADAY_MODEL_DIR
         elif args.model == "crypto_intraday":
             model_dir = CRYPTO_INTRADAY_MODEL_DIR

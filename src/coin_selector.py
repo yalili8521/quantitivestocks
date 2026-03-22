@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Cross-Sectional Coin Selector (Layer 1)
+Cross-Sectional Coin Ranker (Layer 1)
 ========================================
 LightGBM LambdaRank model that ranks crypto coins cross-sectionally.
-Selects the top-K coins from a ~20-coin universe for Layer 2 per-coin
-swing models to generate return forecasts.
+Ranks the full universe; position limits are applied downstream by
+paper_trader (max_positions in risk_config).
 
 Architecture:
   - Features are z-scored cross-sectionally (relative positioning, not absolute)
   - Label: forward 5-day risk-adjusted return (return / realized vol)
   - Model: LightGBM LambdaRank (optimizes NDCG@3,6)
-  - Output: ranked list of coins + top-K selection
+  - Output: ranked list of all coins ordered by score (no hard cutoff)
 
 Usage (via main.py):
     python main.py train-selector              # train on full universe
@@ -108,9 +108,11 @@ XS_FEATURES_INTRADAY = [
     "spread_proxy_intraday",   # avg((high-low)/close) over 48 bars — liquidity cost
     "rvol_xs",                 # volume / 48-bar MA volume — relative demand
     "realized_vol_24bar",      # std(log returns) annualized — vol level
-    "momentum_acceleration",   # ret_6bar - ret_6bar.shift(6) — momentum derivative
-    "data_quality",            # fraction of valid (non-flat, non-zero-vol) bars in 48-bar window
 ]
+
+# data_quality is computed but used as a pre-filter, not a ranking feature.
+# momentum_acceleration removed: noisy 2nd derivative, redundant with momentum_1h + momentum_4h.
+DATA_QUALITY_THRESHOLD = 0.70  # drop coins with >30% stale/flat bars
 
 
 # ---------------------------------------------------------------------------
@@ -481,6 +483,15 @@ def build_xs_panel_intraday(
     # Round timestamps to nearest 4h for cross-sectional alignment
     panel["snapshot"] = panel["ts"].dt.floor("4h")
 
+    # Pre-filter: drop rows where data_quality is below threshold
+    if "data_quality" in panel.columns:
+        n_before = len(panel)
+        panel = panel[panel["data_quality"] >= DATA_QUALITY_THRESHOLD].reset_index(drop=True)
+        n_dropped = n_before - len(panel)
+        if n_dropped > 0:
+            log.info("Pre-filter: dropped %d/%d rows with data_quality < %.2f",
+                     n_dropped, n_before, DATA_QUALITY_THRESHOLD)
+
     # Cross-sectional z-scoring per snapshot
     for feat_col in XS_FEATURES_INTRADAY:
         if feat_col not in panel.columns:
@@ -778,7 +789,7 @@ class SelectorOutput:
     """Result of running the coin selector."""
     date: str
     rankings: List[Tuple[str, float]]  # [(coin, score), ...] sorted desc
-    selected: List[str]                 # top-K coins
+    selected: List[str]                 # all coins ordered by score (best first)
     regime_ok: bool = True
 
 

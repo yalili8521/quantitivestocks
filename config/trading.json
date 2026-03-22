@@ -9,9 +9,9 @@
     },
     "intraday": {
         "mode": "intraday",
-        "horizon": "1d",
+        "horizon": "1h",
         "allowed_models": [
-            "lgb_intraday"
+            "lgb_intraday_etf"
         ],
         "interval": "5min",
         "cost_threshold": 0.0015,
@@ -96,9 +96,9 @@
         "same_dir_confidence_mult": 1.5,
         "trend_sma": 50,
         "position_pct": 0.15,
-        "max_position_pct": 0.10,
-        "max_sector_pct": 0.40,
-        "max_total_exposure": 0.40,
+        "max_position_pct": 0.1,
+        "max_sector_pct": 0.4,
+        "max_total_exposure": 0.4,
         "max_positions": 6,
         "max_btc_beta": 2.0,
         "kelly_cap": 0.1,
@@ -143,7 +143,7 @@
         "max_total_exposure": 0.12,
         "max_positions": 3,
         "max_btc_beta": 2.0,
-        "kelly_cap": 0.10,
+        "kelly_cap": 0.1,
         "cross_group_kelly_discount": 0.5,
         "kelly_floor": 0.02,
         "selector": {
@@ -189,6 +189,41 @@
             "BTC-USD": 0.0,
             "DOGE-USD": 0.0,
             "RENDER-USD": 0.0
+        },
+        "crypto_intraday": {
+            "_comment": "OOS backtest 2026-02-05 to 2026-03-22. Sharpe tiers: >5=0.04, >3=0.03, >1.5=0.02, else 0",
+            "AXS-USD": 0.04,
+            "LPT-USD": 0.04,
+            "ICP-USD": 0.04,
+            "FIL-USD": 0.04,
+            "ONDO-USD": 0.04,
+            "XLM-USD": 0.04,
+            "WLD-USD": 0.04,
+            "FARTCOIN-USD": 0.03,
+            "MANA-USD": 0.03,
+            "ALGO-USD": 0.03,
+            "EGLD-USD": 0.03,
+            "QNT-USD": 0.03,
+            "1INCH-USD": 0.03,
+            "LTC-USD": 0.03,
+            "LDO-USD": 0.03,
+            "BNB-USD": 0.03,
+            "VIRTUAL-USD": 0.03,
+            "EIGEN-USD": 0.03,
+            "SEI-USD": 0.03,
+            "RENDER-USD": 0.03,
+            "XRP-USD": 0.03,
+            "CRV-USD": 0.02,
+            "GOMINING-USD": 0.02,
+            "XTZ-USD": 0.02,
+            "NEAR-USD": 0.02,
+            "ATOM-USD": 0.04,
+            "BTC-USD": 0.0,
+            "ETH-USD": 0.0,
+            "SOL-USD": 0.0,
+            "BCH-USD": 0.0,
+            "DOGE-USD": 0.0,
+            "VET-USD": 0.0
         }
     },
     "theme_caps": {
@@ -719,9 +754,537 @@
         }
     },
     "oos_sharpe_registry_intraday": {
-        "_comment": "Crypto intraday OOS Sharpe ratios — 1-hour hold, 5-min bars. Populate via backtest --mode intraday."
+        "_comment": "Crypto intraday OOS Sharpe ratios (2026-02-05 to 2026-03-22, 1h hold, 5min bars). Auto-populated from 66-coin backtest.",
+        "1INCH-USD": 4.124,
+        "AAVE-USD": 0.242,
+        "ADA-USD": -2.444,
+        "ALGO-USD": 5.791,
+        "AR-USD": -6.125,
+        "ATOM-USD": 26.734,
+        "AVAX-USD": -0.653,
+        "AXS-USD": 7.998,
+        "BAT-USD": -0.876,
+        "BCH-USD": -2.325,
+        "BERA-USD": 1.282,
+        "BNB-USD": 3.955,
+        "BTC-USD": -1.144,
+        "CAKE-USD": -1.416,
+        "CFX-USD": -3.996,
+        "CHZ-USD": -1.088,
+        "CRV-USD": 3.181,
+        "CVX-USD": 0.0,
+        "DOGE-USD": -3.265,
+        "DOT-USD": 0.998,
+        "EGLD-USD": 5.039,
+        "EIGEN-USD": 3.672,
+        "ENA-USD": -0.122,
+        "ENS-USD": -3.206,
+        "ETC-USD": 1.056,
+        "ETH-USD": 1.196,
+        "ETHFI-USD": 1.46,
+        "FARTCOIN-USD": 5.658,
+        "FET-USD": 1.076,
+        "FIL-USD": 8.212,
+        "GNO-USD": -1.49,
+        "GOMINING-USD": 2.946,
+        "HBAR-USD": -3.398,
+        "HNT-USD": -6.569,
+        "ICP-USD": 9.123,
+        "INJ-USD": -3.927,
+        "JTO-USD": -1.396,
+        "KAS-USD": 0.106,
+        "LDO-USD": 4.245,
+        "LINK-USD": -0.485,
+        "LPT-USD": 11.869,
+        "LTC-USD": 4.568,
+        "MANA-USD": 5.861,
+        "NEAR-USD": 2.195,
+        "ONDO-USD": 7.885,
+        "OP-USD": -0.909,
+        "PENDLE-USD": 0.842,
+        "PYTH-USD": -7.535,
+        "QNT-USD": 4.926,
+        "RAY-USD": 0.089,
+        "RENDER-USD": 3.715,
+        "RUNE-USD": -2.574,
+        "SAND-USD": -1.446,
+        "SEI-USD": 3.79,
+        "SOL-USD": -1.276,
+        "SYRUP-USD": 0.0,
+        "TIA-USD": 0.949,
+        "TRAC-USD": 1.351,
+        "VET-USD": -0.324,
+        "VIRTUAL-USD": 3.96,
+        "WIF-USD": -1.363,
+        "WLD-USD": 5.921,
+        "XDC-USD": -0.435,
+        "XLM-USD": 7.534,
+        "XRP-USD": 4.067,
+        "XTZ-USD": 2.098
     },
     "oos_performance_registry_intraday": {
-        "_comment": "Crypto intraday OOS performance — 1-hour hold, 5-min bars. Populate via backtest --mode intraday."
+        "_comment": "Crypto intraday OOS performance metrics. Auto-populated from 66-coin backtest.",
+        "1INCH-USD": {
+            "trades": 35,
+            "win_rate": 0.486,
+            "profit_factor": 2.726,
+            "max_dd_pct": -6.57,
+            "return_pct": 32.95
+        },
+        "AAVE-USD": {
+            "trades": 27,
+            "win_rate": 0.444,
+            "profit_factor": 1.028,
+            "max_dd_pct": -3.88,
+            "return_pct": 0.21
+        },
+        "ADA-USD": {
+            "trades": 26,
+            "win_rate": 0.423,
+            "profit_factor": 0.609,
+            "max_dd_pct": -4.79,
+            "return_pct": -2.47
+        },
+        "ALGO-USD": {
+            "trades": 124,
+            "win_rate": 0.621,
+            "profit_factor": 1.885,
+            "max_dd_pct": -2.93,
+            "return_pct": 12.57
+        },
+        "AR-USD": {
+            "trades": 27,
+            "win_rate": 0.296,
+            "profit_factor": 0.316,
+            "max_dd_pct": -9.38,
+            "return_pct": -7.5
+        },
+        "ATOM-USD": {
+            "trades": 400,
+            "win_rate": 0.78,
+            "profit_factor": 4.775,
+            "max_dd_pct": -2.15,
+            "return_pct": 256.8
+        },
+        "AVAX-USD": {
+            "trades": 33,
+            "win_rate": 0.455,
+            "profit_factor": 0.873,
+            "max_dd_pct": -3.57,
+            "return_pct": -0.8
+        },
+        "AXS-USD": {
+            "trades": 84,
+            "win_rate": 0.571,
+            "profit_factor": 3.063,
+            "max_dd_pct": -3.89,
+            "return_pct": 94.19
+        },
+        "BAT-USD": {
+            "trades": 26,
+            "win_rate": 0.385,
+            "profit_factor": 0.755,
+            "max_dd_pct": -5.1,
+            "return_pct": -2.31
+        },
+        "BCH-USD": {
+            "trades": 26,
+            "win_rate": 0.346,
+            "profit_factor": 0.592,
+            "max_dd_pct": -5.09,
+            "return_pct": -2.87
+        },
+        "BERA-USD": {
+            "trades": 45,
+            "win_rate": 0.556,
+            "profit_factor": 1.198,
+            "max_dd_pct": -4.61,
+            "return_pct": 2.26
+        },
+        "BNB-USD": {
+            "trades": 117,
+            "win_rate": 0.59,
+            "profit_factor": 1.487,
+            "max_dd_pct": -1.5,
+            "return_pct": 3.72
+        },
+        "BTC-USD": {
+            "trades": 26,
+            "win_rate": 0.308,
+            "profit_factor": 0.796,
+            "max_dd_pct": -1.85,
+            "return_pct": -0.87
+        },
+        "CAKE-USD": {
+            "trades": 26,
+            "win_rate": 0.385,
+            "profit_factor": 0.78,
+            "max_dd_pct": -3.63,
+            "return_pct": -2.07
+        },
+        "CFX-USD": {
+            "trades": 27,
+            "win_rate": 0.333,
+            "profit_factor": 0.367,
+            "max_dd_pct": -6.0,
+            "return_pct": -4.29
+        },
+        "CHZ-USD": {
+            "trades": 25,
+            "win_rate": 0.36,
+            "profit_factor": 0.797,
+            "max_dd_pct": -5.23,
+            "return_pct": -2.79
+        },
+        "CRV-USD": {
+            "trades": 38,
+            "win_rate": 0.605,
+            "profit_factor": 1.595,
+            "max_dd_pct": -4.47,
+            "return_pct": 4.6
+        },
+        "CVX-USD": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "profit_factor": 999.0,
+            "max_dd_pct": 0.0,
+            "return_pct": 0.0
+        },
+        "DOGE-USD": {
+            "trades": 26,
+            "win_rate": 0.346,
+            "profit_factor": 0.572,
+            "max_dd_pct": -4.99,
+            "return_pct": -3.43
+        },
+        "DOT-USD": {
+            "trades": 29,
+            "win_rate": 0.483,
+            "profit_factor": 1.205,
+            "max_dd_pct": -1.8,
+            "return_pct": 1.01
+        },
+        "EGLD-USD": {
+            "trades": 34,
+            "win_rate": 0.5,
+            "profit_factor": 2.226,
+            "max_dd_pct": -2.84,
+            "return_pct": 11.59
+        },
+        "EIGEN-USD": {
+            "trades": 19,
+            "win_rate": 0.526,
+            "profit_factor": 2.264,
+            "max_dd_pct": -6.88,
+            "return_pct": 18.79
+        },
+        "ENA-USD": {
+            "trades": 33,
+            "win_rate": 0.455,
+            "profit_factor": 0.953,
+            "max_dd_pct": -4.1,
+            "return_pct": -0.8
+        },
+        "ENS-USD": {
+            "trades": 24,
+            "win_rate": 0.375,
+            "profit_factor": 0.534,
+            "max_dd_pct": -7.53,
+            "return_pct": -6.78
+        },
+        "ETC-USD": {
+            "trades": 30,
+            "win_rate": 0.533,
+            "profit_factor": 1.248,
+            "max_dd_pct": -3.43,
+            "return_pct": 2.06
+        },
+        "ETH-USD": {
+            "trades": 28,
+            "win_rate": 0.429,
+            "profit_factor": 1.184,
+            "max_dd_pct": -2.09,
+            "return_pct": 1.05
+        },
+        "ETHFI-USD": {
+            "trades": 27,
+            "win_rate": 0.444,
+            "profit_factor": 1.413,
+            "max_dd_pct": -4.55,
+            "return_pct": 1.8
+        },
+        "FARTCOIN-USD": {
+            "trades": 32,
+            "win_rate": 0.562,
+            "profit_factor": 2.144,
+            "max_dd_pct": -18.62,
+            "return_pct": 92.22
+        },
+        "FET-USD": {
+            "trades": 60,
+            "win_rate": 0.517,
+            "profit_factor": 1.133,
+            "max_dd_pct": -3.2,
+            "return_pct": 1.67
+        },
+        "FIL-USD": {
+            "trades": 120,
+            "win_rate": 0.608,
+            "profit_factor": 2.279,
+            "max_dd_pct": -3.83,
+            "return_pct": 36.81
+        },
+        "GNO-USD": {
+            "trades": 29,
+            "win_rate": 0.517,
+            "profit_factor": 0.766,
+            "max_dd_pct": -4.12,
+            "return_pct": -1.66
+        },
+        "GOMINING-USD": {
+            "trades": 28,
+            "win_rate": 0.429,
+            "profit_factor": 1.625,
+            "max_dd_pct": -3.84,
+            "return_pct": 3.42
+        },
+        "HBAR-USD": {
+            "trades": 26,
+            "win_rate": 0.308,
+            "profit_factor": 0.391,
+            "max_dd_pct": -4.87,
+            "return_pct": -3.55
+        },
+        "HNT-USD": {
+            "trades": 26,
+            "win_rate": 0.346,
+            "profit_factor": 0.294,
+            "max_dd_pct": -4.84,
+            "return_pct": -4.84
+        },
+        "ICP-USD": {
+            "trades": 116,
+            "win_rate": 0.647,
+            "profit_factor": 2.352,
+            "max_dd_pct": -4.19,
+            "return_pct": 39.38
+        },
+        "INJ-USD": {
+            "trades": 26,
+            "win_rate": 0.346,
+            "profit_factor": 0.39,
+            "max_dd_pct": -5.33,
+            "return_pct": -4.3
+        },
+        "JTO-USD": {
+            "trades": 4,
+            "win_rate": 0.25,
+            "profit_factor": 0.513,
+            "max_dd_pct": -12.36,
+            "return_pct": -6.01
+        },
+        "KAS-USD": {
+            "trades": 27,
+            "win_rate": 0.481,
+            "profit_factor": 1.014,
+            "max_dd_pct": -2.57,
+            "return_pct": 0.07
+        },
+        "LDO-USD": {
+            "trades": 39,
+            "win_rate": 0.59,
+            "profit_factor": 1.729,
+            "max_dd_pct": -4.55,
+            "return_pct": 14.03
+        },
+        "LINK-USD": {
+            "trades": 33,
+            "win_rate": 0.455,
+            "profit_factor": 0.897,
+            "max_dd_pct": -3.98,
+            "return_pct": -0.65
+        },
+        "LPT-USD": {
+            "trades": 146,
+            "win_rate": 0.658,
+            "profit_factor": 3.132,
+            "max_dd_pct": -3.3,
+            "return_pct": 58.67
+        },
+        "LTC-USD": {
+            "trades": 187,
+            "win_rate": 0.594,
+            "profit_factor": 1.498,
+            "max_dd_pct": -1.99,
+            "return_pct": 8.41
+        },
+        "MANA-USD": {
+            "trades": 59,
+            "win_rate": 0.593,
+            "profit_factor": 2.038,
+            "max_dd_pct": -2.98,
+            "return_pct": 15.53
+        },
+        "NEAR-USD": {
+            "trades": 71,
+            "win_rate": 0.535,
+            "profit_factor": 1.303,
+            "max_dd_pct": -3.35,
+            "return_pct": 3.97
+        },
+        "ONDO-USD": {
+            "trades": 134,
+            "win_rate": 0.597,
+            "profit_factor": 2.023,
+            "max_dd_pct": -5.98,
+            "return_pct": 31.27
+        },
+        "OP-USD": {
+            "trades": 85,
+            "win_rate": 0.565,
+            "profit_factor": 0.887,
+            "max_dd_pct": -10.87,
+            "return_pct": -4.0
+        },
+        "PENDLE-USD": {
+            "trades": 28,
+            "win_rate": 0.429,
+            "profit_factor": 1.134,
+            "max_dd_pct": -6.12,
+            "return_pct": 1.1
+        },
+        "PYTH-USD": {
+            "trades": 27,
+            "win_rate": 0.333,
+            "profit_factor": 0.269,
+            "max_dd_pct": -7.73,
+            "return_pct": -7.42
+        },
+        "QNT-USD": {
+            "trades": 29,
+            "win_rate": 0.517,
+            "profit_factor": 2.464,
+            "max_dd_pct": -3.72,
+            "return_pct": 17.02
+        },
+        "RAY-USD": {
+            "trades": 30,
+            "win_rate": 0.433,
+            "profit_factor": 1.0,
+            "max_dd_pct": -2.98,
+            "return_pct": -0.0
+        },
+        "RENDER-USD": {
+            "trades": 33,
+            "win_rate": 0.515,
+            "profit_factor": 1.784,
+            "max_dd_pct": -2.05,
+            "return_pct": 4.9
+        },
+        "RUNE-USD": {
+            "trades": 26,
+            "win_rate": 0.269,
+            "profit_factor": 0.642,
+            "max_dd_pct": -3.79,
+            "return_pct": -2.09
+        },
+        "SAND-USD": {
+            "trades": 24,
+            "win_rate": 0.417,
+            "profit_factor": 0.478,
+            "max_dd_pct": -38.16,
+            "return_pct": -22.09
+        },
+        "SEI-USD": {
+            "trades": 26,
+            "win_rate": 0.462,
+            "profit_factor": 2.033,
+            "max_dd_pct": -4.5,
+            "return_pct": 8.88
+        },
+        "SOL-USD": {
+            "trades": 27,
+            "win_rate": 0.333,
+            "profit_factor": 0.802,
+            "max_dd_pct": -5.43,
+            "return_pct": -1.59
+        },
+        "SYRUP-USD": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "profit_factor": 999.0,
+            "max_dd_pct": 0.0,
+            "return_pct": 0.0
+        },
+        "TIA-USD": {
+            "trades": 25,
+            "win_rate": 0.44,
+            "profit_factor": 1.184,
+            "max_dd_pct": -9.35,
+            "return_pct": 2.98
+        },
+        "TRAC-USD": {
+            "trades": 52,
+            "win_rate": 0.519,
+            "profit_factor": 1.164,
+            "max_dd_pct": -3.69,
+            "return_pct": 2.39
+        },
+        "VET-USD": {
+            "trades": 26,
+            "win_rate": 0.423,
+            "profit_factor": 0.896,
+            "max_dd_pct": -3.49,
+            "return_pct": -0.54
+        },
+        "VIRTUAL-USD": {
+            "trades": 25,
+            "win_rate": 0.44,
+            "profit_factor": 2.289,
+            "max_dd_pct": -4.25,
+            "return_pct": 15.34
+        },
+        "WIF-USD": {
+            "trades": 25,
+            "win_rate": 0.44,
+            "profit_factor": 0.721,
+            "max_dd_pct": -11.97,
+            "return_pct": -4.95
+        },
+        "WLD-USD": {
+            "trades": 66,
+            "win_rate": 0.621,
+            "profit_factor": 2.087,
+            "max_dd_pct": -6.44,
+            "return_pct": 34.72
+        },
+        "XDC-USD": {
+            "trades": 29,
+            "win_rate": 0.414,
+            "profit_factor": 0.906,
+            "max_dd_pct": -5.71,
+            "return_pct": -1.12
+        },
+        "XLM-USD": {
+            "trades": 191,
+            "win_rate": 0.628,
+            "profit_factor": 1.959,
+            "max_dd_pct": -2.77,
+            "return_pct": 18.79
+        },
+        "XRP-USD": {
+            "trades": 37,
+            "win_rate": 0.541,
+            "profit_factor": 1.794,
+            "max_dd_pct": -2.75,
+            "return_pct": 5.47
+        },
+        "XTZ-USD": {
+            "trades": 39,
+            "win_rate": 0.538,
+            "profit_factor": 1.417,
+            "max_dd_pct": -5.38,
+            "return_pct": 4.13
+        }
     }
 }

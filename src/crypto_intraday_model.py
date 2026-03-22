@@ -415,32 +415,7 @@ except ImportError:
 
 
 if TORCH_AVAILABLE:
-    class GRUReturnModel(nn.Module):
-        """Lightweight GRU for temporal pattern capture in 5-min bars."""
-
-        def __init__(self, n_features: int, hidden: int = GRU_HIDDEN,
-                     n_layers: int = GRU_LAYERS, dropout: float = GRU_DROPOUT):
-            super().__init__()
-            self.gru = nn.GRU(
-                input_size=n_features,
-                hidden_size=hidden,
-                num_layers=n_layers,
-                batch_first=True,
-                dropout=dropout if n_layers > 1 else 0.0,
-            )
-            self.head = nn.Sequential(
-                nn.Linear(hidden, hidden // 2),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-                nn.Linear(hidden // 2, 1),
-            )
-
-        def forward(self, x: "torch.Tensor") -> "torch.Tensor":
-            # x: (batch, seq_len, n_features)
-            out, _ = self.gru(x)
-            # Use last hidden state
-            last = out[:, -1, :]
-            return self.head(last).squeeze(-1)
+    from attention import GRUWithAttention as GRUReturnModel  # Luong attention over all timesteps
 
 
 # ---------------------------------------------------------------------------
@@ -643,11 +618,25 @@ class CryptoIntradayTrainer:
 
         X = training_data[feature_cols].values.astype(np.float32)
         y = training_data["fwd_return"].values.astype(np.float32)
+        timestamps = pd.to_datetime(training_data["ts"])
 
-        # Time-based split (within training window)
+        # Time-based split with temporal gap to prevent label leakage.
+        # The last FORWARD_BARS training rows have labels that peek into
+        # the validation window, so we drop them.
         split_idx = int(len(X) * (1 - val_frac))
-        X_train, X_val = X[:split_idx], X[split_idx:]
-        y_train, y_val = y[:split_idx], y[split_idx:]
+        gap = FORWARD_BARS  # 12 bars = 1 hour gap
+        train_end_idx = max(split_idx - gap, 0)
+        X_train, X_val = X[:train_end_idx], X[split_idx:]
+        y_train, y_val = y[:train_end_idx], y[split_idx:]
+
+        # Record date boundaries for OOS verification
+        train_start_ts = str(timestamps.iloc[0])
+        train_end_ts = str(timestamps.iloc[train_end_idx - 1]) if train_end_idx > 0 else train_start_ts
+        val_start_ts = str(timestamps.iloc[split_idx])
+        val_end_ts = str(timestamps.iloc[-1])
+        log.info("%s: train [%s → %s], gap=%d bars, val [%s → %s]",
+                 symbol, train_start_ts[:10], train_end_ts[:10], gap,
+                 val_start_ts[:10], val_end_ts[:10])
 
         # Winsorize labels at 1st/99th percentile — bounds from TRAIN only
         # to avoid leaking validation data distribution into training.
@@ -746,6 +735,10 @@ class CryptoIntradayTrainer:
             "feature_names": feature_cols,
             "n_features": n_feat,
             "forward_bars": FORWARD_BARS,
+            "train_start": train_start_ts,
+            "train_end": train_end_ts,
+            "val_start": val_start_ts,
+            "val_end": val_end_ts,
             "train_samples": int(len(X_train)),
             "val_samples": int(len(X_val)),
             "val_rmse": round(val_rmse, 6),
