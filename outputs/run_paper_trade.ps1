@@ -1,4 +1,16 @@
-﻿$ErrorActionPreference = 'Stop'
+﻿# ---------------------------------------------------------------------------
+# Single-instance guard: exit if another copy is already running
+# (Must run BEFORE setting ErrorActionPreference to Stop)
+# ---------------------------------------------------------------------------
+$lockFile = Join-Path $env:TEMP 'QuantStocks-PaperTrader.lock'
+try {
+    $script:lockStream = [System.IO.File]::Open($lockFile, 'OpenOrCreate', 'ReadWrite', 'None')
+} catch {
+    Write-Host "[$(Get-Date -Format s)] Another instance is already running - exiting."
+    exit 0
+}
+
+$ErrorActionPreference = 'Stop'
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $PythonExe = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
@@ -48,22 +60,22 @@ function Import-DotEnvFile {
 }
 
 function Test-MarketHours {
-    $tz  = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
+    $tz  = [TimeZoneInfo]::FindSystemTimeZoneById('Pacific Standard Time')
     $now = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $tz)
     $dow = $now.DayOfWeek
     if ($dow -eq 'Saturday' -or $dow -eq 'Sunday') { return $false }
     $t = $now.TimeOfDay
-    # 6:20 AM - 4:25 PM ET
-    return ($t -ge [TimeSpan]'06:20:00' -and $t -le [TimeSpan]'16:25:00')
+    # 6:20 AM - 1:25 PM PT (= 9:20 AM - 4:25 PM ET)
+    return ($t -ge [TimeSpan]'06:20:00' -and $t -le [TimeSpan]'13:25:00')
 }
 
 function Test-AfterMarketClose {
-    $tz  = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
+    $tz  = [TimeZoneInfo]::FindSystemTimeZoneById('Pacific Standard Time')
     $now = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $tz)
     $dow = $now.DayOfWeek
     $t   = $now.TimeOfDay
-    # Weekday after 4:25 PM ET - done for the day
-    if ($dow -ne 'Saturday' -and $dow -ne 'Sunday' -and $t -gt [TimeSpan]'16:25:00') { return $true }
+    # Weekday after 1:25 PM PT (= 4:25 PM ET) - done for the day
+    if ($dow -ne 'Saturday' -and $dow -ne 'Sunday' -and $t -gt [TimeSpan]'13:25:00') { return $true }
     # Weekend
     if ($dow -eq 'Saturday' -or $dow -eq 'Sunday') { return $true }
     return $false
@@ -102,7 +114,7 @@ $Groups = @(
     @{ Name = 'crypto_intraday'; EnvPrefix = 'KRAKEN_';      Mode = 'intraday'; Interval = '5min';
        ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true; SkipKeyCheck = $true },
     @{ Name = 'gold_scalper';   EnvPrefix = 'AMP_CQG_';       Mode = '';         Interval = '';
-       ExtraArgs = @('--broker', 'paper'); Command = 'gold-scalper'; AlwaysOn = $false; SkipKeyCheck = $true }
+       ExtraArgs = @('--broker', 'paper'); Command = 'gold-scalper'; AlwaysOn = $true; SkipKeyCheck = $true }
 )
 
 $CommonArgs = @('-u', 'main.py')
@@ -176,7 +188,13 @@ Write-Host "Python: $PythonExe"
 foreach ($c in $EnvCandidates) { if (Test-Path -LiteralPath $c) { Write-Host "Env: $c" } }
 
 $GroupProcs = @{}
+$inMarketNow = Test-MarketHours
 foreach ($grp in $Groups) {
+    # Skip equity groups at startup if outside market hours
+    if (-not $grp.AlwaysOn -and -not $inMarketNow) {
+        Write-Host "  [$($grp.Name)] Skipped (outside market hours) - watchdog will start at 6:20 AM ET"
+        continue
+    }
     try {
         $proc = Start-TraderGroup $grp
         if ($proc) { $GroupProcs[$grp.Name] = $proc }
@@ -200,12 +218,35 @@ while ($true) {
     $inMarket   = Test-MarketHours
 
     foreach ($grp in $Groups) {
-        # Skip equity groups outside market hours (once market closes, stop restarting them)
         if (-not $grp.AlwaysOn) {
-            if ($afterClose) { continue }
-            if (-not $inMarket) { continue }
+            # --- Market closed: kill running equity groups ---
+            if ($afterClose -or -not $inMarket) {
+                $proc = $GroupProcs[$grp.Name]
+                if ($proc) {
+                    $alive = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
+                    if ($alive) {
+                        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+                        Write-Host "[$(Get-Date -Format s)] [$($grp.Name)] Stopped (market closed)"
+                    }
+                    $GroupProcs.Remove($grp.Name)
+                }
+                continue
+            }
+            # --- Market open: auto-start if not running ---
+            $proc = $GroupProcs[$grp.Name]
+            if (-not $proc) {
+                Write-Host "[$(Get-Date -Format s)] [$($grp.Name)] Market open - launching..."
+                try {
+                    $newProc = Start-TraderGroup $grp
+                    if ($newProc) { $GroupProcs[$grp.Name] = $newProc }
+                } catch {
+                    Write-Host "[$(Get-Date -Format s)] [$($grp.Name)] Launch failed: $_"
+                }
+                continue
+            }
         }
 
+        # Restart dead processes (AlwaysOn groups + equity groups during market hours)
         $proc = $GroupProcs[$grp.Name]
         if (-not $proc) { continue }
         $alive = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
@@ -223,7 +264,11 @@ while ($true) {
     # Log once when equity market closes
     if ($afterClose -and -not $equityDone) {
         $equityDone = $true
-        Write-Host "[$(Get-Date -Format s)] Market closed - intraday will not be restarted (market-hours only)."
-        Write-Host "[$(Get-Date -Format s)] Swing and crypto watchdogs continue 24/7."
+        Write-Host "[$(Get-Date -Format s)] Market closed - equity groups stopped. Crypto continues 24/7."
+    }
+
+    # Reset flag at market open so it logs again tomorrow
+    if ($inMarket -and $equityDone) {
+        $equityDone = $false
     }
 }

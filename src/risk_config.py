@@ -420,12 +420,17 @@ def compute_btc_beta_exposure(
     positions: Dict[str, dict],
     equity: float,
 ) -> float:
-    """Compute total BTC-beta-weighted exposure for crypto positions."""
+    """Compute total BTC-beta-weighted exposure for crypto positions.
+
+    Uses default beta=1.5 for any crypto symbol not in the static map.
+    """
     total_beta = 0.0
+    _default_beta = 1.5
     for sym, pos in positions.items():
-        beta = CRYPTO_BTC_BETA.get(sym, 0.0)
+        _is_crypto = sym.endswith("/USD") or sym.endswith("-USD")
+        beta = CRYPTO_BTC_BETA.get(sym, _default_beta if _is_crypto else 0.0)
         if beta > 0:
-            notional = pos["qty"] * pos["current_price"]
+            notional = abs(pos["qty"] * pos["current_price"])
             total_beta += beta * notional / equity if equity > 0 else 0
     return total_beta
 
@@ -471,9 +476,13 @@ def check_position_allowed(
                        f"> max {risk.max_sector_pct:.1%}")
 
     # 5. BTC beta cap (crypto only)
-    if CRYPTO_BTC_BETA.get(symbol, 0) > 0:
+    # For coins not in the static map, assume beta=1.5 (typical altcoin).
+    _is_crypto_sym = symbol.endswith("/USD") or symbol.endswith("-USD")
+    _default_beta = 1.5
+    sym_beta = CRYPTO_BTC_BETA.get(symbol, _default_beta if _is_crypto_sym else 0.0)
+    if sym_beta > 0:
         current_beta = compute_btc_beta_exposure(positions, equity)
-        new_beta = current_beta + CRYPTO_BTC_BETA[symbol] * position_pct
+        new_beta = current_beta + sym_beta * position_pct
         max_btc_beta = 2.0  # max 2x BTC-equivalent exposure
         if new_beta > max_btc_beta:
             return False, (f"BTC beta exposure {new_beta:.2f} > max {max_btc_beta:.1f}")
@@ -927,23 +936,31 @@ EXIT_PARAMS: Dict[str, Dict[VolTier, ExitParams]] = {
         # Daily-horizon model checked every 5 min: min_hold=36 bars (3h)
         # prevents noise-driven exits. signal_flip_consecutive=3 requires
         # 15 min of sustained disagreement before exiting.
+        #
+        # Tiers differentiated by ATR regime (calibrated from MFE/MAE):
+        #   MEDIUM (BTC, ETH, LTC — ATR <3%): tighter stops, lower thresholds
+        #   HIGH   (LINK, AVAX, DOT — ATR 3-6%): moderate, use ATR scaling
+        #   ULTRA  (DOGE, SHIB, memes — ATR >6%): wider stops, faster exit on flips
         VolTier.MEDIUM: ExitParams(
-            disaster_stop_pct=0.08, profit_lock_arm_pct=0.04,
-            profit_lock_trail_pct=0.02, breakeven_ratchet_pct=0.02,
-            max_underwater_days=30, signal_flip_consecutive=3,
-            min_hold_bars=36,
+            disaster_stop_pct=0.05, profit_lock_arm_pct=0.03,
+            profit_lock_trail_pct=0.015, breakeven_ratchet_pct=0.02,
+            max_underwater_days=30, use_atr=True,
+            disaster_atr_mult=3.0, arm_atr_mult=2.0, trail_atr_mult=1.5,
+            signal_flip_consecutive=3, min_hold_bars=36,
         ),
         VolTier.HIGH: ExitParams(
             disaster_stop_pct=0.08, profit_lock_arm_pct=0.04,
-            profit_lock_trail_pct=0.02, breakeven_ratchet_pct=0.02,
-            max_underwater_days=30, signal_flip_consecutive=3,
-            min_hold_bars=36,
+            profit_lock_trail_pct=0.02, breakeven_ratchet_pct=0.03,
+            max_underwater_days=21, use_atr=True,
+            disaster_atr_mult=2.5, arm_atr_mult=1.8, trail_atr_mult=1.2,
+            signal_flip_consecutive=2, min_hold_bars=36,
         ),
         VolTier.ULTRA: ExitParams(
-            disaster_stop_pct=0.08, profit_lock_arm_pct=0.04,
-            profit_lock_trail_pct=0.02, breakeven_ratchet_pct=0.02,
-            max_underwater_days=30, signal_flip_consecutive=3,
-            min_hold_bars=36,
+            disaster_stop_pct=0.10, profit_lock_arm_pct=0.05,
+            profit_lock_trail_pct=0.025, breakeven_ratchet_pct=0.04,
+            max_underwater_days=14, use_atr=True,
+            disaster_atr_mult=2.0, arm_atr_mult=1.5, trail_atr_mult=1.0,
+            signal_flip_consecutive=2, min_hold_bars=24,
         ),
     },
     "crypto_intraday": {

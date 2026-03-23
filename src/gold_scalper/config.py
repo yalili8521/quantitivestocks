@@ -34,20 +34,21 @@ class GoldScalperConfig:
     require_engulfing: bool = True     # require engulfing candle confirmation
 
     # ── Session (Pacific Time) ──
-    session_start: str = "06:30"   # NYSE open in PT
-    session_end: str = "13:00"     # NYSE close in PT
-    daily_close: str = "12:45"     # force-close all positions
-    friday_close: str = "12:50"    # force-close Friday
+    # COMEX/Globex gold futures: Sun 3:00 PM - Fri 2:00 PM PT
+    # Daily maintenance halt: 2:00 PM - 3:00 PM PT (Mon-Thu)
+    session_start: str = "15:00"   # Globex open (3:00 PM PT)
+    session_end: str = "14:00"     # Globex close (2:00 PM PT next day)
+    daily_close: str = "13:45"     # force-close before maintenance halt
+    friday_close: str = "13:45"    # force-close Friday before weekly close
     timezone: str = "America/Los_Angeles"
 
     # ── Dead Zone Hours (PT) ──
-    # Ranges where no trading is allowed (overnight, pre-market, weekends)
+    # Gold futures halt 2:00-3:00 PM PT daily; closed Sat + Sun until 3 PM
     dead_zone_ranges: tuple = (
-        ("00:30", "07:14", "Mon-Sun"),    # overnight dead zone
-        ("12:44", "20:15", "Mon-Sun"),    # afternoon dead zone
-        ("20:15", "23:59", "Sat"),        # Saturday evening
-        ("00:00", "23:59", "Sun"),        # all Sunday
-        ("00:00", "20:14", "Mon"),        # Monday pre-market
+        ("14:00", "14:59", "Mon-Thu"),    # daily maintenance halt
+        ("13:45", "23:59", "Fri"),        # Friday close through weekend
+        ("00:00", "23:59", "Sat"),        # all Saturday
+        ("00:00", "14:59", "Sun"),        # Sunday until 3:00 PM PT
     )
 
     # ── Margin ──

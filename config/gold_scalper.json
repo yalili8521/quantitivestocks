@@ -1,5 +1,5 @@
 {
-  "_comment": "TC baby V1.0 \u00e2\u20ac\u201d Gold Multi-TF NYSE Scalper parameters",
+  "_comment": "TC baby V1.0 - Gold Multi-TF COMEX/Globex Scalper parameters",
   "symbol": "GC=F",
   "pip_value": 0.1,
   "bias_ema_periods": {
@@ -13,10 +13,10 @@
   "rsi_long_threshold": 55,
   "rsi_short_threshold": 35,
   "require_engulfing": true,
-  "session_start": "06:30",
-  "session_end": "13:00",
-  "daily_close": "12:45",
-  "friday_close": "12:50",
+  "session_start": "15:00",
+  "session_end": "14:00",
+  "daily_close": "13:45",
+  "friday_close": "13:45",
   "timezone": "America/Los_Angeles",
   "margin_long": 0.05,
   "margin_short": 0.05,

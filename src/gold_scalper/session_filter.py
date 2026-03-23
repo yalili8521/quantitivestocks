@@ -1,9 +1,10 @@
-"""Session filter — NYSE trading window, dead zones, forced closes.
+"""Session filter — COMEX/Globex gold futures trading window.
 
-交易时段过滤器：
-- 只在纽约交易所开盘时间交易（太平洋时间6:30-13:00，周一到周五）
-- "死区"时段禁止交易（凌晨、下午收盘后、周末）
-- 每天12:45 PT强制平仓，周五12:50 PT提前平仓
+Gold futures (GC) trade nearly 24 hours on weekdays:
+  - Sunday 3:00 PM PT through Friday 2:00 PM PT
+  - Daily maintenance halt: 2:00 PM - 3:00 PM PT (Mon-Thu)
+  - Weekly close: Friday 2:00 PM PT
+  - Weekly open: Sunday 3:00 PM PT
 """
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ from zoneinfo import ZoneInfo
 
 from src.gold_scalper.config import GoldScalperConfig
 
+_DAY_MAP = {"Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 6}
+
 
 def _parse_time(s: str) -> time:
     """Parse 'HH:MM' to datetime.time."""
@@ -20,6 +23,19 @@ def _parse_time(s: str) -> time:
     if len(parts) < 2:
         raise ValueError(f"Invalid time format: {s!r}, expected HH:MM")
     return time(int(parts[0]), int(parts[1]))
+
+
+def _parse_day_range(day_spec: str) -> set[int]:
+    """Parse day spec like 'Mon-Thu', 'Sat', 'Mon-Sun' into weekday ints."""
+    if "-" in day_spec:
+        start_name, end_name = day_spec.split("-")
+        start_idx = _DAY_MAP[start_name]
+        end_idx = _DAY_MAP[end_name]
+        if start_idx <= end_idx:
+            return set(range(start_idx, end_idx + 1))
+        # Wrap around (e.g. Fri-Mon)
+        return set(range(start_idx, 7)) | set(range(0, end_idx + 1))
+    return {_DAY_MAP[day_spec]}
 
 
 class SessionFilter:
@@ -31,6 +47,14 @@ class SessionFilter:
         self.session_end = _parse_time(config.session_end)
         self.daily_close = _parse_time(config.daily_close)
         self.friday_close = _parse_time(config.friday_close)
+        # Parse dead zone ranges from config
+        self._dead_zones: list[tuple[time, time, set[int]]] = []
+        for start_s, end_s, day_spec in config.dead_zone_ranges:
+            self._dead_zones.append((
+                _parse_time(start_s),
+                _parse_time(end_s),
+                _parse_day_range(day_spec),
+            ))
 
     def _to_pt(self, dt: datetime) -> datetime:
         """Convert any datetime to Pacific Time."""
@@ -41,113 +65,99 @@ class SessionFilter:
     def is_weekday(self, now: datetime) -> bool:
         """Monday=0 .. Friday=4 are weekdays."""
         pt = self._to_pt(now)
-        return pt.weekday() < 5  # Mon-Fri
+        return pt.weekday() < 5
 
     def is_trading_window(self, now: datetime) -> bool:
-        """True if inside NYSE session (6:30am-1:00pm PT, weekdays only).
+        """True if inside Globex session.
 
-        交易窗口：太平洋时间6:30-13:00，仅工作日
+        Handles overnight sessions where session_start > session_end
+        (e.g., 15:00 start, 14:00 end = crosses midnight).
         """
         pt = self._to_pt(now)
-        if not self.is_weekday(pt):
-            return False
         t = pt.time()
-        return self.session_start <= t <= self.session_end
+        dow = pt.weekday()
+
+        # Weekend: only open Sunday >= session_start
+        if dow == 5:  # Saturday
+            return False
+        if dow == 6:  # Sunday: only after session_start
+            return t >= self.session_start
+
+        # Weekdays: overnight session (start > end means crosses midnight)
+        if self.session_start > self.session_end:
+            # In session if: time >= start OR time < end
+            return t >= self.session_start or t < self.session_end
+        else:
+            return self.session_start <= t < self.session_end
 
     def is_dead_zone(self, now: datetime) -> bool:
-        """True if in a dead zone where no new trades should open.
-
-        死区判断：
-        - 每天 00:30-07:14 PT（凌晨死区）
-        - 每天 12:44-20:15 PT（下午死区）
-        - 周六 20:15-23:59 PT
-        - 周日 全天
-        - 周一 00:00-20:14 PT（周一开盘前）
-
-        注意：这些范围来自Pine Script原版，某些与NYSE窗口有重叠。
-        is_trading_window() 和 is_dead_zone() 应该一起用：
-        can_trade = is_trading_window(now) and not is_dead_zone(now)
-        """
+        """True if in a dead zone where no new trades should open."""
         pt = self._to_pt(now)
         t = pt.time()
-        dow = pt.weekday()  # Mon=0, Sun=6
+        dow = pt.weekday()
 
-        # Sunday — all day dead zone
-        if dow == 6:
-            return True
-
-        # Saturday 20:15-23:59
-        if dow == 5 and t >= time(20, 15):
-            return True
-
-        # Monday 00:00-20:14
-        if dow == 0 and t < time(20, 14):
-            return True
-
-        # Every day 00:30-07:14 (overnight)
-        if time(0, 30) <= t <= time(7, 14):
-            return True
-
-        # Every day 12:44-20:15 (afternoon/evening)
-        if time(12, 44) <= t <= time(20, 15):
-            return True
-
+        for dz_start, dz_end, dz_days in self._dead_zones:
+            if dow in dz_days and dz_start <= t <= dz_end:
+                return True
         return False
 
     def can_trade(self, now: datetime) -> bool:
-        """Combined check: in trading window AND not in dead zone.
-
-        可以交易 = 在交易窗口内 且 不在死区内
-        """
+        """Combined check: in trading window AND not in dead zone."""
         return self.is_trading_window(now) and not self.is_dead_zone(now)
 
     def should_force_close(self, now: datetime) -> tuple[bool, str]:
         """Return (True, reason) if positions must be force-closed.
 
-        强制平仓条件：
-        1. 周一到周四：12:45 PT 平仓
-        2. 周五：12:50 PT 平仓（提前5分钟因为周末）
-
-        Returns (should_close, reason_string).
+        - Friday: force-close at friday_close before weekly shutdown
+        - Mon-Thu: force-close at daily_close before maintenance halt
         """
         pt = self._to_pt(now)
         t = pt.time()
         dow = pt.weekday()
 
-        # Friday 12:50-12:54 PT — weekend close
-        if dow == 4 and time(12, 50) <= t <= time(12, 54):
-            return True, "Friday Weekend Close (12:50 PT)"
+        # Friday close (before weekly shutdown)
+        if dow == 4:
+            close_t = self.friday_close
+            if close_t <= t <= time(close_t.hour, close_t.minute + 4):
+                return True, f"Friday Weekly Close ({self.friday_close.strftime('%H:%M')} PT)"
 
-        # Mon-Thu 12:45-12:49 PT — daily close
-        if dow < 4 and time(12, 45) <= t <= time(12, 49):
-            return True, "NYSE Daily Close (12:45 PT)"
+        # Mon-Thu close (before daily maintenance halt)
+        if 0 <= dow <= 3:
+            close_t = self.daily_close
+            if close_t <= t <= time(close_t.hour, close_t.minute + 4):
+                return True, f"Daily Maintenance Close ({self.daily_close.strftime('%H:%M')} PT)"
 
         return False, ""
 
     def should_avoid_entry(self, now: datetime) -> tuple[bool, str]:
-        """True if too close to session end for new entries.
-
-        避免入场：距离强制平仓不到15分钟时不再开新仓
-        """
+        """True if too close to session end for new entries (15 min buffer)."""
         pt = self._to_pt(now)
         t = pt.time()
         dow = pt.weekday()
 
         # Within 15 min of force close
-        if dow == 4 and t >= time(12, 35):  # Friday
-            return True, "Too close to Friday close"
-        if dow < 4 and t >= time(12, 30):   # Mon-Thu
-            return True, "Too close to daily close"
+        close_t = self.friday_close if dow == 4 else self.daily_close
+        buffer_hour = close_t.hour
+        buffer_min = close_t.minute - 15
+        if buffer_min < 0:
+            buffer_hour -= 1
+            buffer_min += 60
+        buffer_time = time(buffer_hour, buffer_min)
+
+        if t >= buffer_time and t <= time(close_t.hour, close_t.minute + 4):
+            label = "Friday close" if dow == 4 else "daily maintenance"
+            return True, f"Too close to {label}"
 
         return False, ""
 
     def minutes_to_session_end(self, now: datetime) -> float:
-        """Minutes remaining until session end (13:00 PT)."""
+        """Minutes remaining until daily force-close."""
         pt = self._to_pt(now)
+        close_t = self.friday_close if pt.weekday() == 4 else self.daily_close
         end_dt = pt.replace(
-            hour=self.session_end.hour,
-            minute=self.session_end.minute,
-            second=0, microsecond=0
+            hour=close_t.hour,
+            minute=close_t.minute,
+            second=0, microsecond=0,
         )
         delta = (end_dt - pt).total_seconds() / 60.0
         return max(0.0, delta)

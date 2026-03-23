@@ -314,6 +314,95 @@ def _parse_kraken_history(
     }
 
 
+def _parse_gold_scalper_history(
+    gist_files: dict,
+    trade_log_filename: str = "gold_scalper_trade_log.json",
+    state_filename: str = "gold_scalper_state.json",
+) -> dict:
+    """Parse gold scalper trade log from Gist.
+
+    Gold scalper log format (per-exit, not paired orders):
+      {"time", "symbol", "direction", "contracts", "entry", "exit", "pnl", "reason"}
+    """
+    if not gist_files:
+        return {"portfolio": {}, "orders": [], "trades": []}
+
+    try:
+        log_content = gist_files.get(trade_log_filename, {}).get("content", "[]")
+        trade_log = json.loads(log_content) if log_content else []
+
+        state_content = gist_files.get(state_filename, {}).get("content", "{}")
+        state = json.loads(state_content) if state_content else {}
+        initial_balance = float(state.get("initial_balance", 5000))
+
+        # Convert to orders format for _recent_orders
+        orders = []
+        for t in trade_log:
+            orders.append({
+                "symbol":    t.get("symbol", "MGC"),
+                "side":      "sell" if t.get("direction") == "SHORT" else "buy",
+                "qty":       str(t.get("contracts", 0)),
+                "price":     str(t.get("exit", 0)),
+                "filled_at": t.get("time", ""),
+                "intent":    "",
+            })
+
+        # Convert to closed trades format directly (already round-tripped)
+        trades = []
+        for t in trade_log:
+            entry = float(t.get("entry", 0))
+            exit_p = float(t.get("exit", 0))
+            contracts = int(t.get("contracts", 0))
+            pnl = float(t.get("pnl", 0))
+            direction = t.get("direction", "LONG")
+            pnl_pct = ((entry - exit_p) / entry * 100) if direction == "SHORT" else ((exit_p - entry) / entry * 100)
+
+            trades.append({
+                "symbol":       t.get("symbol", "MGC"),
+                "direction":    direction,
+                "qty":          str(contracts),
+                "entry_price":  str(round(entry, 2)),
+                "exit_price":   str(round(exit_p, 2)),
+                "market_value": round(contracts * entry, 2),
+                "pnl_dollar":   round(pnl, 2),
+                "pnl_pct":      round(pnl_pct, 2),
+                "opened_at":    "",
+                "closed_at":    t.get("time", ""),
+                "reason":       t.get("reason", ""),
+            })
+
+        # Build equity curve
+        equity_curve = {}
+        if trade_log:
+            cash = initial_balance
+            timestamps = []
+            equity_vals = []
+            for t in sorted(trade_log, key=lambda x: x.get("time", "")):
+                cash += float(t.get("pnl", 0))
+                try:
+                    ts = datetime.fromisoformat(t["time"].replace("Z", "+00:00"))
+                    timestamps.append(int(ts.timestamp()))
+                except (ValueError, KeyError):
+                    continue
+                equity_vals.append(cash)
+            if timestamps:
+                equity_curve = {
+                    "timestamps": timestamps,
+                    "equity": equity_vals,
+                    "profit_loss": [],
+                    "profit_loss_pct": [],
+                }
+
+    except Exception:
+        return {"portfolio": {}, "orders": [], "trades": []}
+
+    return {
+        "portfolio": equity_curve,
+        "orders":    _recent_orders(orders),
+        "trades":    _recent_trades(trades),
+    }
+
+
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         accounts = []
@@ -362,8 +451,8 @@ class handler(BaseHTTPRequestHandler):
             "trades":    crypto_intraday_data.get("trades", []),
         })
 
-        # Gold Scalper — paper state from same Gist
-        gold_data = _parse_kraken_history(
+        # Gold Scalper — paper state from same Gist (different trade log format)
+        gold_data = _parse_gold_scalper_history(
             gist_files, "gold_scalper_trade_log.json", "gold_scalper_state.json"
         )
         accounts.append({

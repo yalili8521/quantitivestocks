@@ -739,6 +739,17 @@ def _prepare_tabular_regression(
     bar_positions = bars_df.index.get_indexer(features_df.index)
     feature_values = features_df.values
 
+    # Validate alignment: all feature rows must map to a valid bar position
+    n_valid = (bar_positions >= 0).sum()
+    n_total = len(bar_positions)
+    if n_valid == 0:
+        raise ValueError("XGBoost label alignment: no feature dates found in bars_df index "
+                         f"({n_total} features, 0 matched)")
+    n_missing = n_total - n_valid
+    if n_missing > 0:
+        log.warning("XGBoost label alignment: %d/%d feature rows have no matching bar",
+                    n_missing, n_total)
+
     X_list, y_list = [], []
     for i in range(len(feature_values)):
         bar_pos = bar_positions[i]
@@ -1378,6 +1389,9 @@ class SwingPredictor:
         self._tft_weight = _TFT_WEIGHT  # start at default, then adapt
         self._MIN_OBS_FOR_DYNAMIC = 20  # require 20 completed observations
 
+        # Calibration map: maps raw predictions → calibrated expected returns
+        self._calibration = None  # type: ignore[assignment]
+
         self._load()
 
     def _load(self) -> None:
@@ -1429,6 +1443,21 @@ class SwingPredictor:
             except Exception as exc:
                 log.warning("Could not load TFT for %s: %s — XGBoost only.", self.symbol, exc)
                 self._tft = None
+
+        # --- Optional: Calibration map ---
+        cal_path = os.path.join(self.model_dir, f"{self.symbol}_calibration.json")
+        if os.path.exists(cal_path):
+            try:
+                from model_monitor import CalibrationMap
+                self._calibration = CalibrationMap.load(cal_path)
+                if self._calibration.bin_edges is not None:
+                    log.info("Loaded calibration map for %s (%d bins).",
+                             self.symbol, self._calibration.n_bins)
+                else:
+                    self._calibration = None
+            except Exception as exc:
+                log.debug("Could not load calibration for %s: %s", self.symbol, exc)
+                self._calibration = None
 
     def predict(self, bars_df: pd.DataFrame, vix_df: pd.DataFrame,
                 seq_len: int = 60) -> dict:
@@ -1564,6 +1593,18 @@ class SwingPredictor:
                 (current_date, xgb_ret, tft_ret, current_price)
             )
 
+        # Apply calibration map if available: raw prediction → calibrated E[r]
+        calibrated_return = expected_return
+        if self._calibration is not None:
+            calibrated_return = self._calibration.calibrated_return(expected_return)
+            # Keep direction from raw prediction but use calibrated magnitude
+            # for confidence and sizing (prevents oversized positions on
+            # overconfident raw predictions)
+            if np.sign(calibrated_return) != np.sign(expected_return) and abs(expected_return) > 0.001:
+                # Calibration flipped direction — trust raw for direction,
+                # but use lower confidence
+                calibrated_return = np.sign(expected_return) * abs(calibrated_return)
+
         if expected_return > COST_THRESHOLD:
             direction = "UP"
         elif expected_return < -COST_THRESHOLD:
@@ -1571,13 +1612,14 @@ class SwingPredictor:
         else:
             direction = "FLAT"
 
-        confidence  = min(1.0, abs(expected_return) / TARGET_RETURN)
+        confidence = min(1.0, abs(calibrated_return) / TARGET_RETURN)
         # Derive display probability from confidence (regression model has no natural prob)
         prob_sign = 1 if expected_return >= 0 else -1
         probability = min(0.95, max(0.05, 0.5 + confidence * 0.45 * prob_sign))
 
         return {
             "expected_return": round(expected_return, 6),
+            "calibrated_return": round(calibrated_return, 6),
             "direction":       direction,
             "probability":     round(probability, 4),
             "confidence":      round(confidence, 4),

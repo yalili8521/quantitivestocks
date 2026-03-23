@@ -53,13 +53,27 @@ _LOW_ETF = SymbolCosts(
     half_spread_bps=3.0, slippage_bps=3.0, fee_bps=0.0, fill_probability=0.90
 )
 
-# Crypto (Alpaca: no commission but wider spreads)
-_CRYPTO_MAJOR = SymbolCosts(
+# Crypto via Alpaca (no commission, wider spreads)
+_CRYPTO_MAJOR_ALPACA = SymbolCosts(
     half_spread_bps=5.0, slippage_bps=5.0, fee_bps=0.0, fill_probability=0.99
 )
 
-_CRYPTO_ALT = SymbolCosts(
+_CRYPTO_ALT_ALPACA = SymbolCosts(
     half_spread_bps=10.0, slippage_bps=10.0, fee_bps=0.0, fill_probability=0.95
+)
+
+# Crypto via Kraken (26bps taker fee per side = 13bps one-way equivalent)
+# Kraken fee schedule: 0.26% taker for volumes < $50k/month
+_KRAKEN_FEE_BPS = 13.0  # 26bps round-trip = 13bps one-way
+
+_CRYPTO_MAJOR = SymbolCosts(
+    half_spread_bps=5.0, slippage_bps=5.0, fee_bps=_KRAKEN_FEE_BPS,
+    fill_probability=0.99,
+)
+
+_CRYPTO_ALT = SymbolCosts(
+    half_spread_bps=10.0, slippage_bps=10.0, fee_bps=_KRAKEN_FEE_BPS,
+    fill_probability=0.95,
 )
 
 # Extended hours multiplier (wider spreads, thinner books)
@@ -151,10 +165,12 @@ def _get_dynamic_crypto_costs(symbol: str) -> SymbolCosts:
     try:
         from universe_screener import get_coin_cost_config
         cfg = get_coin_cost_config(symbol)
+        # Ensure Kraken taker fee is included even if screener returns 0
+        fee = max(cfg["fee_bps"], _KRAKEN_FEE_BPS)
         costs = SymbolCosts(
             half_spread_bps=cfg["spread_bps"],
             slippage_bps=cfg["slippage_bps"],
-            fee_bps=cfg["fee_bps"],
+            fee_bps=fee,
             fill_probability=0.95 if cfg["liquidity_tier"] in ("mega", "large") else 0.90,
         )
     except Exception:

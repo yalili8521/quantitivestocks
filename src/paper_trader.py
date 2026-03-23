@@ -36,6 +36,7 @@ import argparse
 import atexit
 import json
 import logging
+import math
 import os
 import signal
 import subprocess
@@ -665,6 +666,8 @@ class AlpacaPaperTrader:
         self._pending_reconcile: Dict[str, dict] = {}  # symbols that failed to close during reconciliation
         self._crypto_reconciled: bool = False  # True after first post-selector reconciliation
         self._etf_reconciled: bool = False     # True after first ETF selector reconciliation
+        self._stale_since: Dict[str, datetime] = {}   # symbol → first time seen as exit-only
+        self._stale_max_hours: float = 8.0             # auto-close stale positions after 8 hours
 
         # Volatility-tier exit params (classified at startup, recomputed weekly)
         from src.risk_config import (VolTier, ExitParams, classify_vol_tier,
@@ -995,25 +998,51 @@ class AlpacaPaperTrader:
         oos_sharpe: dict,
         oos_perf: dict,
         btc_correlations: Optional[Dict[str, float]] = None,
-        w_selector: float = 0.30,
-        w_sharpe: float = 0.70,
     ) -> Dict[str, float]:
         """Composite score = w1*selector + w2*blended_sharpe (rank-normalized).
 
-        2-factor design (Rob Carver shrinkage):
-        - selector_score: cross-sectional LambdaRank score (momentum, vol, liquidity)
-        - blended_sharpe: exponential decay from OOS prior to live rolling Sharpe
-          w_live = min(1 - 0.5^(n_trades/60), 0.70)  — never fully abandon prior
+        Dynamic weighting (James-Stein shrinkage):
+        - Cold start (< 20 live trades):  30% selector / 70% OOS Sharpe
+        - Warming   (20-60 trades):       50% / 50%
+        - Live      (60+ trades):         70% selector / 30% OOS Sharpe
+
+        This lets the system pivot to new opportunities as live data
+        accumulates, instead of being locked into stale OOS priors.
 
         BTC correlation penalty (crypto only): highly correlated alts get
         reduced composite score.
 
         Returns {symbol: composite_score} sorted descending.
         """
+        # Determine dynamic weights based on median live trade count
+        n_trades_list = []
+        for sym, _ in rankings:
+            alpaca_sym = sym.replace("-", "/")
+            derisk = self._derisk_states.get(alpaca_sym) or self._derisk_states.get(sym)
+            if derisk is not None:
+                n_trades_list.append(len(derisk.returns))
+        median_trades = sorted(n_trades_list)[len(n_trades_list) // 2] if n_trades_list else 0
+
+        if median_trades < 20:
+            w_selector, w_sharpe = 0.30, 0.70  # cold start — trust OOS prior
+        elif median_trades < 60:
+            # Linear interpolation: 30%→70% selector as trades go 20→60
+            frac = (median_trades - 20) / 40.0
+            w_selector = 0.30 + 0.40 * frac
+            w_sharpe = 1.0 - w_selector
+        else:
+            w_selector, w_sharpe = 0.70, 0.30  # trust live selector
+
+        log.info("Composite weights: selector=%.0f%% sharpe=%.0f%% (median_trades=%d)",
+                 w_selector * 100, w_sharpe * 100, median_trades)
+
         candidates = []
+        MIN_OOS_SHARPE = -0.20  # Hard floor: exclude symbols with deeply negative OOS Sharpe
         for sym, sel_score in rankings:
             oos_s = oos_sharpe.get(sym, 0.0)
-            # Blend OOS Sharpe with live rolling Sharpe (if available)
+            if oos_s < MIN_OOS_SHARPE:
+                log.info("Composite: %s excluded (OOS Sharpe %.2f < %.2f)", sym, oos_s, MIN_OOS_SHARPE)
+                continue
             blended = self._blended_sharpe(sym, oos_s)
             candidates.append((sym, sel_score, blended))
 
@@ -1042,14 +1071,13 @@ class AlpacaPaperTrader:
             composite = (w_selector * sel_norm[i]
                          + w_sharpe * sharpe_norm[i])
 
-            # BTC correlation penalty: corr=0.9 → 55% score penalty
+            # BTC correlation penalty: corr=0.9 → 45% score reduction
             if btc_correlations and sym in btc_correlations:
                 btc_corr = btc_correlations[sym]
                 composite *= (1 - 0.5 * btc_corr)
 
             result[sym] = round(composite, 4)
 
-        # Sort descending
         result = dict(sorted(result.items(), key=lambda x: -x[1]))
         return result
 
@@ -1098,6 +1126,9 @@ class AlpacaPaperTrader:
 
         try:
             # Data freshness check: BTC canary
+            # Crypto markets trade 24/7 — yfinance daily bars may lag 1-2 days
+            # on weekends (no equity market close to trigger bar). Only skip
+            # ranking if data is truly stale (>3 days for crypto, >1 day for equities).
             if self._selector_mode != "intraday":
                 try:
                     import yfinance as yf
@@ -1105,10 +1136,12 @@ class AlpacaPaperTrader:
                     if not _btc.empty:
                         _latest = pd.Timestamp(_btc.index[-1]).date()
                         _days_stale = (datetime.now(timezone.utc).date() - _latest).days
-                        if _days_stale > 1:
+                        # Crypto 24/7: tolerate up to 3 days stale (weekend lag)
+                        _stale_threshold = 3 if self.group in ("crypto", "crypto_intraday") else 1
+                        if _days_stale > _stale_threshold:
                             log.warning(
-                                "Coin selector skipped — bars stale (latest BTC bar: %s, %dd old)",
-                                _latest, _days_stale,
+                                "Coin selector skipped — bars stale (latest BTC bar: %s, %dd old, threshold=%dd)",
+                                _latest, _days_stale, _stale_threshold,
                             )
                             if self._selector_active_symbols:
                                 return self._selector_active_symbols
@@ -1192,23 +1225,46 @@ class AlpacaPaperTrader:
                 log.info("  Rank #%d %s: composite=%.3f (sel=%.2f, oos_sharpe=%.2f, blended=%.2f)",
                          i, sym, composite[sym], sel_score, oos_s, blended_s)
 
-            # Step 2: Take top-N ranked — only these are candidates
-            top_k = self._risk_config.max_positions
+            # Step 2: Take top-K ranked as CANDIDATES (K ≥ 12)
+            # The candidate pool is larger than max_positions so that
+            # the gate/sizing stage has enough symbols to choose from.
+            # Actual open positions are still limited by max_positions.
+            _MIN_CANDIDATE_K = 12
+            top_k = max(_MIN_CANDIDATE_K, self._risk_config.max_positions)
             top_n = all_ranked[:top_k]
-            log.info("Ranker: top-%d ranked: %s", top_k, ", ".join(top_n))
+            log.info("Ranker: top-%d candidates: %s", top_k, ", ".join(top_n))
 
             # Store composite scores for rank-weighted sizing
             self._composite_scores = composite
 
-            # Step 3: Filter to top-N that have models + working predictors
+            # Step 3: Filter to top-K that have models + working predictors.
+            # If a top-K symbol has no model, trigger on-the-fly training.
             model_universe = self._get_model_universe()
             top_n_alpaca = [s.replace("-", "/") for s in top_n]
             _selector_model_dir = get_model_dir(self.group)
             ready = []
+            _train_triggered = 0
+            _MAX_TRAIN_PER_CYCLE = 2  # limit on-the-fly training to avoid stalling
             for sym_yf, sym in zip(top_n, top_n_alpaca):
-                if sym_yf not in model_universe and sym_yf.replace("/", "-") not in model_universe:
-                    log.info("Ranker: %s ranked top-%d but no model — skipped", sym, top_k)
-                    continue
+                has_model = (sym_yf in model_universe
+                             or sym_yf.replace("/", "-") in model_universe)
+
+                if not has_model:
+                    # Trigger on-the-fly training if under limit
+                    if _train_triggered < _MAX_TRAIN_PER_CYCLE:
+                        log.info("Ranker: %s ranked top-%d but no model — triggering training",
+                                 sym, top_k)
+                        trained = self._train_on_the_fly(sym)
+                        _train_triggered += 1
+                        if trained:
+                            has_model = True
+                        else:
+                            log.info("Ranker: %s training failed or cooldown — skipped", sym)
+                            continue
+                    else:
+                        log.info("Ranker: %s no model, training limit reached — skipped", sym)
+                        continue
+
                 if sym not in self.predictors or self.predictors[sym] is None:
                     predictor = self._create_predictor(
                         sym, self.group, _selector_model_dir,
@@ -1227,8 +1283,8 @@ class AlpacaPaperTrader:
             if new_crypto:
                 self._classify_vol_tiers_for_crypto(new_crypto)
 
-            log.info("Ranker: %d coins active (top-%d with models): %s",
-                     len(ready), top_k, ", ".join(ready))
+            log.info("Ranker: %d coins active (top-%d candidates, %d trained on-the-fly): %s",
+                     len(ready), top_k, _train_triggered, ", ".join(ready))
             self._selector_active_symbols = ready
 
             # Sync full ranked list (not just ready) to Gist for dashboard
@@ -1307,6 +1363,20 @@ class AlpacaPaperTrader:
                 )
                 if model is None:
                     raise RuntimeError(f"train_intraday_model returned None for {symbol}")
+
+            elif group == "crypto":
+                from swing_model import train_swing_model
+                # Crypto daily uses same XGBoost swing pipeline with crypto model dir
+                model = train_swing_model(
+                    symbol=symbol,
+                    adapter=adapter,
+                    fred_key=fred_key,
+                    lookback=1000,
+                    save_dir=CRYPTO_MODEL_DIR,
+                    train_recent=True,
+                )
+                if model is None:
+                    raise RuntimeError(f"train_swing_model (crypto) returned None for {symbol}")
             else:
                 return False
 
@@ -1625,9 +1695,9 @@ class AlpacaPaperTrader:
                          side.value, symbol, qty, order.id)
             elif session == "extended" and limit_price is not None:
                 if side == OrderSide.BUY:
-                    lp = round(limit_price * 1.001, 2)
+                    lp = math.ceil(limit_price * 1.001 * 100) / 100
                 else:
-                    lp = round(limit_price * 0.999, 2)
+                    lp = math.floor(limit_price * 0.999 * 100) / 100
                 order = self.trading_client.submit_order(
                     LimitOrderRequest(
                         symbol=symbol,
@@ -2004,13 +2074,17 @@ class AlpacaPaperTrader:
         pos = positions.get(symbol)
         has_position = pos is not None and pos["qty"] > 0
 
+        # Clear stale tracker when symbol is back in the active set
+        if not exit_only:
+            self._stale_since.pop(symbol, None)
+
         # Wrongly placed: symbol has no position here — nothing to manage
         if exit_only and not has_position:
             return "EXIT-ONLY  (no position — symbol not in this group)"
 
         # Exit-only with no model signal → close immediately, no reason to hold
         if exit_only and has_position:
-            pred = self._predict(symbol)
+            pred = self.get_prediction(symbol)
             er = pred.get("expected_return", 0.0)
             if er == 0.0 and pred.get("direction", "UNKNOWN") == "UNKNOWN":
                 pos_info = positions[symbol]
@@ -2020,9 +2094,9 @@ class AlpacaPaperTrader:
                 qty_display = f"{qty:.6f}" if is_crypto and isinstance(qty, float) else str(int(qty))
                 reason = "exit_only_no_model (no predictor loaded)"
                 if side == "LONG":
-                    self._sell(symbol, qty, reason)
+                    self.sell(symbol, qty, reason)
                 else:
-                    self._cover(symbol, qty, reason)
+                    self.buy_to_cover(symbol, qty, reason)
                 return (f"EXIT  ({reason}, P&L={pnl_pct:+.2%}, "
                         f"{qty_display} sh {side})")
 
@@ -2096,6 +2170,19 @@ class AlpacaPaperTrader:
                     if result:
                         return result
                     return f"EXIT-DEFERRED  (legacy trailing stop, market closed)"
+
+            # Stale position auto-close: if exit-only for > N hours, close unconditionally
+            if exit_only:
+                if symbol not in self._stale_since:
+                    self._stale_since[symbol] = datetime.now(timezone.utc)
+                stale_hours = (datetime.now(timezone.utc) - self._stale_since[symbol]).total_seconds() / 3600
+                if stale_hours >= self._stale_max_hours:
+                    reason = f"stale_auto_close ({stale_hours:.1f}h exit-only, P&L={pnl_pct:+.2%})"
+                    result = _do_exit(reason, "stale")
+                    if result:
+                        self._stale_since.pop(symbol, None)
+                        return result
+                    return f"EXIT-DEFERRED  (stale auto-close, market closed)"
 
             # ===== LAYER 1: Hard safety (disaster stop) =====
             if not use_legacy_stops:
@@ -2173,13 +2260,16 @@ class AlpacaPaperTrader:
                     signal_min_hold_ok = True
                     if self.group == "crypto_intraday":
                         from src.risk_config import CRYPTO_INTRADAY_MIN_HOLD_BARS
+                        # _ci_bars_held already incremented earlier in the cycle
                         signal_min_hold_ok = (
                             self._ci_bars_held.get(symbol, 0) >= CRYPTO_INTRADAY_MIN_HOLD_BARS
                         )
                     else:
+                        # Use bars_held + 1 to match signal-decay path (line ~2279)
+                        # where counter is incremented before the min-hold check.
+                        _held = self._bars_held.get(symbol, 0) + 1
                         signal_min_hold_ok = (
-                            self._bars_held.get(symbol, 0) + 1 >=
-                            get_effective_min_hold(
+                            _held >= get_effective_min_hold(
                                 getattr(ep, "min_hold_bars", 0),
                                 self._entry_atrs.get(symbol, 0),
                                 bar_atr,
@@ -2417,8 +2507,8 @@ class AlpacaPaperTrader:
                 )
             if kelly_f is not None:
                 # Cross-group discount: scale Kelly for multi-strategy portfolio
-                effective_cap = risk.kelly_cap * risk.cross_group_kelly_discount
-                base_frac = min(kelly_f * risk.cross_group_kelly_discount, effective_cap)
+                # Apply discount only to kelly_f, not to cap (avoid double-discounting)
+                base_frac = min(kelly_f * risk.cross_group_kelly_discount, risk.kelly_cap)
                 size_source = f"kelly={kelly_f:.3f}×{risk.cross_group_kelly_discount:.2f}"
             else:
                 base_frac = risk.position_pct
@@ -2446,18 +2536,17 @@ class AlpacaPaperTrader:
             sizing_pct = min(sizing_pct, sym_cap)
 
             # --- BTC correlation penalty (crypto only) ---
-            # When BTC position is already open, reduce sizing for highly correlated alts.
-            # corr=0.9 → 55% size reduction. Anchor coins (BTC, ETH) are exempt (corr=0).
-            _BTC_KEYS = ("BTC/USD", "BTCUSD")
+            # Always penalize highly BTC-correlated alts, regardless of whether
+            # a BTC position is open. In crypto, ALL alts are implicitly BTC-exposed.
+            # Anchor coins (BTC, ETH) are exempt (their btc_corr is set to 0).
+            _BTC_KEYS = ("BTC/USD", "BTCUSD", "ETH/USD", "ETHUSD")
             if is_crypto and self._btc_correlations and symbol not in _BTC_KEYS:
-                btc_pos = positions.get("BTC/USD") or positions.get("BTCUSD")
-                if btc_pos and btc_pos.get("qty", 0) > 0:
-                    btc_corr = self._btc_correlations.get(symbol, 0.5)
-                    corr_penalty = 1 - 0.5 * btc_corr
-                    sizing_pct *= corr_penalty
-                    if btc_corr > 0.7:
-                        log.info("BTC corr penalty for %s: corr=%.2f → size ×%.2f",
-                                 symbol, btc_corr, corr_penalty)
+                btc_corr = self._btc_correlations.get(symbol, 0.5)
+                corr_penalty = 1 - 0.5 * btc_corr
+                sizing_pct *= corr_penalty
+                if btc_corr > 0.7:
+                    log.info("BTC corr penalty for %s: corr=%.2f → size ×%.2f",
+                             symbol, btc_corr, corr_penalty)
 
             # --- Auto de-risking check (rolling performance gate) ---
             size_note = f" [{size_source}]"
@@ -2527,8 +2616,10 @@ class AlpacaPaperTrader:
             # Hard safety cap: re-count positions as final guard.
             # Even if check_position_allowed passed (stale dict), refuse entry
             # if we're already at max_positions. Belt-and-suspenders.
-            _active_count = sum(1 for p in positions.values()
-                                if p.get("qty", 0) != 0)
+            # Exclude _pending_reconcile (being closed) to avoid blocking entries.
+            _active_count = sum(1 for s, p in positions.items()
+                                if p.get("qty", 0) != 0
+                                and s not in self._pending_reconcile)
             if _active_count >= self._risk_config.max_positions:
                 return (f"HARD-CAP  ({_active_count} >= {self._risk_config.max_positions} positions)  "
                         f"ML: {direction} E[r]={expected_return:+.4f}")
@@ -2716,12 +2807,18 @@ class AlpacaPaperTrader:
                                             limit_price=lp)
                 if oid:
                     log.info("Reconciled %s %s %.6f (stale position closed)", side, sym, qty)
+                    self._stale_since.pop(sym, None)
                 else:
                     # Order was deferred (market closed) — queue for retry
                     self._pending_reconcile[sym] = pos
+                    # Start stale timer so auto-close kicks in after _stale_max_days
+                    if sym not in self._stale_since:
+                        self._stale_since[sym] = datetime.now(timezone.utc)
                     log.warning("Reconcile deferred for %s (market closed) — will retry each cycle", sym)
             except Exception as exc:
                 self._pending_reconcile[sym] = pos
+                if sym not in self._stale_since:
+                    self._stale_since[sym] = datetime.now(timezone.utc)
                 log.error("Failed to close stale position %s: %s — will retry", sym, exc)
         print()
 
