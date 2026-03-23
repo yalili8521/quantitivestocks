@@ -347,28 +347,60 @@ def _parse_gold_scalper_history(
                 "intent":    "",
             })
 
-        # Convert to closed trades format directly (already round-tripped)
-        trades = []
+        # Group partial TP exits into single round-trip trades by entry price
+        from collections import OrderedDict
+        grouped = OrderedDict()  # key = (symbol, direction, entry_price)
         for t in trade_log:
             entry = float(t.get("entry", 0))
-            exit_p = float(t.get("exit", 0))
-            contracts = int(t.get("contracts", 0))
-            pnl = float(t.get("pnl", 0))
             direction = t.get("direction", "LONG")
-            pnl_pct = ((entry - exit_p) / entry * 100) if direction == "SHORT" else ((exit_p - entry) / entry * 100)
+            symbol = t.get("symbol", "MGC")
+            key = (symbol, direction, round(entry, 2))
+
+            if key not in grouped:
+                grouped[key] = {
+                    "symbol": symbol,
+                    "direction": direction,
+                    "entry": entry,
+                    "total_contracts": 0,
+                    "total_pnl": 0.0,
+                    "exits": [],          # (contracts, exit_price) for VWAP
+                    "first_time": t.get("time", ""),
+                    "last_time": t.get("time", ""),
+                    "reasons": [],
+                }
+
+            g = grouped[key]
+            contracts = int(t.get("contracts", 0))
+            exit_p = float(t.get("exit", 0))
+            pnl = float(t.get("pnl", 0))
+            g["total_contracts"] += contracts
+            g["total_pnl"] += pnl
+            g["exits"].append((contracts, exit_p))
+            g["last_time"] = t.get("time", g["last_time"])
+            g["reasons"].append(t.get("reason", ""))
+
+        trades = []
+        for g in grouped.values():
+            total_ct = g["total_contracts"]
+            # VWAP exit price across all partial exits
+            vwap_exit = sum(c * p for c, p in g["exits"]) / total_ct if total_ct else 0
+            entry = g["entry"]
+            direction = g["direction"]
+            pnl_pct = ((entry - vwap_exit) / entry * 100) if direction == "SHORT" else ((vwap_exit - entry) / entry * 100)
+            reasons = sorted(set(g["reasons"]))
 
             trades.append({
-                "symbol":       t.get("symbol", "MGC"),
+                "symbol":       g["symbol"],
                 "direction":    direction,
-                "qty":          str(contracts),
+                "qty":          str(total_ct),
                 "entry_price":  str(round(entry, 2)),
-                "exit_price":   str(round(exit_p, 2)),
-                "market_value": round(contracts * entry, 2),
-                "pnl_dollar":   round(pnl, 2),
+                "exit_price":   str(round(vwap_exit, 2)),
+                "market_value": round(total_ct * entry, 2),
+                "pnl_dollar":   round(g["total_pnl"], 2),
                 "pnl_pct":      round(pnl_pct, 2),
-                "opened_at":    "",
-                "closed_at":    t.get("time", ""),
-                "reason":       t.get("reason", ""),
+                "opened_at":    g["first_time"],
+                "closed_at":    g["last_time"],
+                "reason":       ", ".join(reasons),
             })
 
         # Build equity curve
