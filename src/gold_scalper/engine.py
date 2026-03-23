@@ -79,6 +79,49 @@ class GoldScalperEngine:
         self._last_day: Optional[int] = None
         self._circuit_breaker_fired: bool = False
 
+        # Restore position from broker state (survives process restarts)
+        self._restore_position()
+
+    def _restore_position(self) -> None:
+        """Restore GoldPosition from broker's persisted state on restart.
+
+        Without this, a process restart while in a position would silently
+        abandon the remaining contracts (engine.position = None but broker
+        still has open contracts).
+        """
+        broker_pos = self.broker.get_position(self.config.symbol)
+        if broker_pos is None:
+            return
+
+        direction = broker_pos.get("direction", "LONG")
+        entry_price = broker_pos.get("entry_price", 0)
+        contracts = broker_pos.get("contracts", 0)
+        if contracts <= 0:
+            return
+
+        # Rebuild a minimal GoldPosition — we don't know which TPs were
+        # already hit, so treat it as a fresh position with the remaining
+        # contracts.  The hard stop defaults to the config value from entry.
+        sizer = self.sizer.compute(direction, self.broker.get_account_equity())
+        tp_splits = [0, 0, 0, 0]  # TPs already taken, so zero
+        runner_qty = contracts     # treat all remaining as runner
+
+        self.position = self.position_mgr.create_position(
+            direction=direction,
+            entry_price=entry_price,
+            entry_time=datetime.now(self.tz),
+            total_contracts=contracts,
+            tp_splits=tp_splits,
+            runner_qty=contracts,
+        )
+        # Mark TP2 as hit so the runner exit (bias-flip) is active
+        self.position.tp2_hit = True
+
+        logger.info(
+            f"[RESTORE] Recovered open position: {direction} "
+            f"{contracts}ct @ {entry_price:.2f} — treating as runner"
+        )
+
     def run(self, poll_interval: int = 10) -> None:
         """Main loop — runs until interrupted.
 
