@@ -1,11 +1,19 @@
 {
-    "_comment": "Production trading parameters v3.0 \u00e2\u20ac\u201d OOS-validated sizing, per-symbol caps, auto de-risking.",
-    "_version": "3.0",
+    "_comment": "Production trading parameters v3.1 — OOS-validated sizing, Huber LGB, experimental intraday.",
+    "_version": "3.1",
+    "_retrain_cadence": {
+        "intraday": "monthly (short-horizon anomalies decay fast, McLean & Pontiff 2016)",
+        "swing": "quarterly",
+        "crypto": "quarterly",
+        "_last_intraday_retrain": "2026-03-23",
+        "_last_swing_retrain": null,
+        "_last_crypto_retrain": null
+    },
     "sleeve_budgets": {
-        "_comment": "Max % of total portfolio equity allocated to each sleeve",
-        "swing": 0.5,
-        "intraday": 0.35,
-        "crypto": 0.15
+        "_comment": "Max % of total portfolio equity allocated to each sleeve (rebalanced: swing is proven edge, intraday experimental)",
+        "swing": 0.6,
+        "intraday": 0.15,
+        "crypto": 0.25
     },
     "intraday": {
         "mode": "intraday",
@@ -27,20 +35,20 @@
         "post_loss_size_hours": 4.0,
         "same_dir_confidence_mult": 1.5,
         "trend_sma": 50,
-        "position_pct": 0.35,
-        "max_position_pct": 0.15,
-        "max_sector_pct": 0.45,
-        "max_total_exposure": 0.65,
-        "max_positions": 5,
+        "position_pct": 0.10,
+        "max_position_pct": 0.10,
+        "max_sector_pct": 0.30,
+        "max_total_exposure": 0.20,
+        "max_positions": 1,
         "kelly_cap": 0.2,
         "cross_group_kelly_discount": 0.5,
         "kelly_floor": 0.05,
         "blocked_windows": [
-            "09:30-10:00",
-            "15:30-16:00"
+            "11:30-13:00"
         ],
         "half_size_windows": [
-            "11:30-14:00"
+            "09:30-09:45",
+            "15:45-16:00"
         ]
     },
     "swing": {
@@ -125,7 +133,7 @@
         ],
         "interval": "5min",
         "cost_threshold": 0.005,
-        "target_return": 0.01,
+        "target_return": 0.04,
         "disaster_stop_mult": 3.0,
         "disaster_stop_max_pct": 0.02,
         "profit_lock_atr_mult": 2.0,

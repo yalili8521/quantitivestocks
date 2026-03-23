@@ -86,6 +86,10 @@ def _fetch_vix_for_training(fred_key: Optional[str], lookback_days: int,
         except Exception as exc:
             log.warning("yfinance ^VIX fallback failed: %s", exc)
 
+    if vix_df.empty:
+        log.warning("VIX data is empty (FRED + yfinance both failed) — "
+                     "all VIX features will be NaN")
+
     # Append today's live VIX price so intraday spikes are captured.
     # FRED only updates after market close, so during market hours the last
     # row is yesterday's close — this override fixes that.

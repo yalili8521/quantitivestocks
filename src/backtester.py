@@ -480,16 +480,19 @@ class Backtester:
             saved_features = cfg.get("feature_names")
             if saved_features:
                 feature_cols = saved_features
-            # OOS contamination check
+            # OOS contamination check — hard block to prevent polluted backtests
             val_end = cfg.get("val_end")
             if val_end:
                 val_end_dt = pd.to_datetime(val_end)
                 if val_end_dt.tzinfo is None:
                     val_end_dt = val_end_dt.tz_localize("UTC")
                 if start_dt < val_end_dt:
-                    log.warning("*** OOS CONTAMINATION: backtest start %s is before "
-                                "model val_end %s — results are NOT out-of-sample! ***",
-                                start_dt.date(), val_end_dt.date())
+                    raise ValueError(
+                        f"OOS CONTAMINATION: backtest start {start_dt.date()} is before "
+                        f"model val_end {val_end_dt.date()}. Backtest data would overlap "
+                        f"training/validation data. Use --start with a date after "
+                        f"{val_end_dt.date()} for true out-of-sample results."
+                    )
 
         # Load GRU if active (matching CryptoIntradayPredictor._load)
         if gru_active and os.path.exists(gru_path):
@@ -753,11 +756,11 @@ class Backtester:
         )
 
         start_dt = pd.to_datetime(start_date)
-        end_dt = pd.to_datetime(end_date) if end_date else pd.Timestamp.now(tz="US/Eastern")
+        end_dt = pd.to_datetime(end_date) if end_date else pd.Timestamp.now(tz="UTC")
         if start_dt.tzinfo is None:
-            start_dt = start_dt.tz_localize("US/Eastern")
+            start_dt = start_dt.tz_localize("UTC")
         if end_dt.tzinfo is None:
-            end_dt = end_dt.tz_localize("US/Eastern")
+            end_dt = end_dt.tz_localize("UTC")
 
         days_needed = (end_dt - start_dt).days + 30  # extra for feature warmup
         log.info("Fetching %d days of 5-min bars for %s from Alpaca...",
@@ -819,16 +822,19 @@ class Backtester:
             saved_features = cfg.get("feature_names")
             if saved_features:
                 feature_cols = saved_features
-            # OOS contamination check
+            # OOS contamination check — hard block to prevent polluted backtests
             val_end = cfg.get("val_end")
             if val_end:
                 val_end_dt = pd.to_datetime(val_end)
                 if val_end_dt.tzinfo is None:
                     val_end_dt = val_end_dt.tz_localize("US/Eastern")
                 if start_dt < val_end_dt:
-                    log.warning("*** OOS CONTAMINATION: backtest start %s is before "
-                                "model val_end %s — results are NOT out-of-sample! ***",
-                                start_dt.date(), val_end_dt.date())
+                    raise ValueError(
+                        f"OOS CONTAMINATION: backtest start {start_dt.date()} is before "
+                        f"model val_end {val_end_dt.date()}. Backtest data would overlap "
+                        f"training/validation data. Use --start with a date after "
+                        f"{val_end_dt.date()} for true out-of-sample results."
+                    )
         log.info("Loaded LGB for %s (%d features, ct=%.4f, tr=%.4f, pred_scale=%.2f).",
                  self.symbol, len(feature_cols), etf_ct, etf_tr, etf_pred_scale)
 

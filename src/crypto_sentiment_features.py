@@ -36,6 +36,8 @@ CRYPTO_SENTIMENT_FEATURES = [
     "fear_greed_index",           # 0-100 (0=extreme fear, 100=extreme greed)
     "fear_greed_zscore",          # z-score vs 30-day rolling mean
     "polymarket_btc_bullish",     # Polymarket BTC price-target "Yes" probability
+    "funding_rate",               # Binance perpetual funding rate (8-hourly, daily avg)
+    "funding_rate_zscore",        # Funding rate z-score vs 30-day rolling
 ]
 
 # Cache directory (alongside other data caches)
@@ -277,6 +279,82 @@ def fetch_polymarket_btc_probability() -> pd.Series:
 
 
 # ---------------------------------------------------------------------------
+# 4. Binance Perpetual Funding Rate (public API, no auth)
+# ---------------------------------------------------------------------------
+# Funding rate is a key signal for crypto markets:
+#   - Positive funding = longs pay shorts → crowded long positioning
+#   - Negative funding = shorts pay longs → crowded short positioning
+#   - Extreme positive = contrarian sell signal (Aloosh & Li, 2023)
+#   - Extreme negative = contrarian buy signal
+# Collected every 8 hours, aggregated to daily average.
+
+def fetch_binance_funding_rate(
+    symbol: str = "BTCUSDT",
+    limit: int = 500,
+) -> pd.DataFrame:
+    """Fetch Binance perpetual funding rate history.
+
+    Returns DataFrame with columns ['date', 'funding_rate'] where funding_rate
+    is the daily average of the 8-hourly funding rate snapshots.
+    """
+    # Map yahoo-format symbols to Binance format
+    _YAHOO_TO_BINANCE = {
+        "BTC-USD": "BTCUSDT", "ETH-USD": "ETHUSDT", "SOL-USD": "SOLUSDT",
+        "AVAX-USD": "AVAXUSDT", "LINK-USD": "LINKUSDT", "DOGE-USD": "DOGEUSDT",
+        "ADA-USD": "ADAUSDT", "DOT-USD": "DOTUSDT", "CRV-USD": "CRVUSDT",
+        "AAVE-USD": "AAVEUSDT", "NEAR-USD": "NEARUSDT", "LTC-USD": "LTCUSDT",
+        "ARB-USD": "ARBUSDT", "OP-USD": "OPUSDT", "FIL-USD": "FILUSDT",
+        "APT-USD": "APTUSDT", "INJ-USD": "INJUSDT", "RENDER-USD": "RENDERUSDT",
+        "SUSHI-USD": "SUSHIUSDT", "LDO-USD": "LDOUSDT",
+    }
+    binance_symbol = _YAHOO_TO_BINANCE.get(symbol, symbol)
+
+    cache_name = f"binance_funding_{binance_symbol}"
+    if _cache_fresh(cache_name):
+        cached = _cache_read(cache_name)
+        if cached:
+            return pd.DataFrame(cached)
+
+    log.info("Fetching Binance funding rates for %s...", binance_symbol)
+    url = "https://fapi.binance.com/fapi/v1/fundingRate"
+    params = {"symbol": binance_symbol, "limit": limit}
+
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+
+        if not data:
+            log.warning("Binance funding: empty response for %s", binance_symbol)
+            return pd.DataFrame()
+
+        records = []
+        for row in data:
+            ts_ms = int(row["fundingTime"])
+            rate = float(row["fundingRate"])
+            dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+            records.append({"date": dt.strftime("%Y-%m-%d"), "rate": rate})
+
+        df = pd.DataFrame(records)
+        # Aggregate to daily average (3 funding events per day)
+        daily = df.groupby("date")["rate"].mean().reset_index()
+        daily.columns = ["date", "funding_rate"]
+
+        cache_data = {"date": daily["date"].tolist(),
+                      "funding_rate": daily["funding_rate"].tolist()}
+        _cache_write(cache_name, cache_data)
+        log.info("Binance funding: %d daily rates for %s", len(daily), binance_symbol)
+        return daily
+
+    except Exception as exc:
+        log.warning("Binance funding rate fetch failed for %s: %s", binance_symbol, exc)
+        cached = _cache_read(cache_name)
+        if cached:
+            return pd.DataFrame(cached)
+        return pd.DataFrame()
+
+
+# ---------------------------------------------------------------------------
 # Builder class (mirrors CrossAssetFeatureBuilder pattern)
 # ---------------------------------------------------------------------------
 
@@ -293,6 +371,7 @@ class CryptoSentimentBuilder:
         self._okx_ls: Optional[pd.Series] = None
         self._fear_greed: Optional[pd.Series] = None
         self._polymarket: Optional[pd.Series] = None
+        self._funding_cache: Dict[str, pd.DataFrame] = {}
 
     def _ensure_data(self) -> None:
         """Fetch all data sources (cached, lazy)."""
@@ -368,5 +447,29 @@ class CryptoSentimentBuilder:
             df["polymarket_btc_bullish"] = pm_aligned
         else:
             df["polymarket_btc_bullish"] = np.nan
+
+        # --- Binance Funding Rate ---
+        # Use symbol-specific funding if available, fall back to BTC
+        funding_sym = symbol if symbol else "BTC-USD"
+        if funding_sym not in self._funding_cache:
+            self._funding_cache[funding_sym] = fetch_binance_funding_rate(funding_sym)
+        funding_df = self._funding_cache[funding_sym]
+
+        if funding_df is not None and not funding_df.empty:
+            fund_dates = pd.to_datetime(funding_df["date"]).dt.date
+            fund_map = dict(zip(fund_dates.values, funding_df["funding_rate"].values))
+            fund_aligned = pd.Series(
+                bar_dates.map(lambda d: fund_map.get(d, np.nan)).values,
+                index=bars_df.index,
+            ).astype(float).ffill()
+
+            df["funding_rate"] = fund_aligned
+            # Z-score vs 30-day rolling
+            mean30 = fund_aligned.rolling(30, min_periods=10).mean()
+            std30 = fund_aligned.rolling(30, min_periods=10).std().replace(0, np.nan)
+            df["funding_rate_zscore"] = (fund_aligned - mean30) / std30
+        else:
+            df["funding_rate"] = np.nan
+            df["funding_rate_zscore"] = np.nan
 
         return df

@@ -43,7 +43,7 @@ DAILY_SYMBOLS = [
     "EWJ", "EWS", "XLE", "INDA",
 ]
 
-INTRADAY_SYMBOLS = ["SPY", "QQQ", "IWM", "SOXX"]
+INTRADAY_SYMBOLS = ["SMH"]  # OOS-validated only; SOXX/SLV failed backtest
 SWING_SYMBOLS = ["EWT", "GLD", "EEM", "SLV"]
 # Crypto symbols in yfinance format (Alpaca BTC/USD → yfinance BTC-USD)
 CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD", "SOL-USD"]

@@ -1,5 +1,5 @@
 {
-  "cash": 90029.03369698854,
+  "cash": 80155.87490760944,
   "initial_balance": 100000.0,
   "positions": {
     "XTZ/USD": {
@@ -8,13 +8,6 @@
       "side": "LONG",
       "entry_price": 0.39659819999999996,
       "entry_time": "2026-03-21T15:54:27.418558+00:00"
-    },
-    "QNT/USD": {
-      "symbol": "QNT/USD",
-      "qty": 11.584233,
-      "side": "SHORT",
-      "entry_price": 78.18089,
-      "entry_time": "2026-03-21T15:55:43.490060+00:00"
     },
     "ATOM/USD": {
       "symbol": "ATOM/USD",
@@ -25,18 +18,18 @@
     },
     "OP/USD": {
       "symbol": "OP/USD",
-      "qty": 63355.241321,
+      "qty": 86355.141525,
       "side": "SHORT",
-      "entry_price": 0.11824085000000001,
-      "entry_time": "2026-03-22T00:40:27.501359+00:00"
+      "entry_price": 0.1155422,
+      "entry_time": "2026-03-23T01:23:21.354189+00:00"
     },
-    "AR/USD": {
-      "symbol": "AR/USD",
-      "qty": 5938.014021,
-      "side": "SHORT",
-      "entry_price": 1.6681655000000002,
-      "entry_time": "2026-03-22T08:49:41.068180+00:00"
+    "EGLD/USD": {
+      "symbol": "EGLD/USD",
+      "qty": 2513.152968,
+      "side": "LONG",
+      "entry_price": 3.90195,
+      "entry_time": "2026-03-23T03:06:58.885704+00:00"
     }
   },
-  "last_updated": "2026-03-22T08:49:41.177849+00:00"
+  "last_updated": "2026-03-23T03:06:58.888706+00:00"
 }

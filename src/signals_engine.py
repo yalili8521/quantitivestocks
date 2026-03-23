@@ -393,7 +393,7 @@ def compute_realized_vol(series: pd.Series, window: int = VOL_WINDOW) -> float:
 
 def compute_dollar_volume(df_intra: pd.DataFrame) -> float:
     if df_intra.empty:
-        return 0.0
+        return float("nan")  # Surface missing data to callers (not 0)
     price = df_intra["close"].fillna(0)
     vol = df_intra["volume"].fillna(0)
     return float((price * vol).sum())

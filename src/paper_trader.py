@@ -88,10 +88,11 @@ log = logging.getLogger("paper_trader")
 # Account groups (3 separate Alpaca paper accounts by asset class)
 # ---------------------------------------------------------------------------
 SYMBOL_GROUPS: Dict[str, List[str]] = {
-    # Account 1 — Intraday LightGBM v2
-    # OOS Sharpe (90d): SMH 3.80, SOXX 2.24, IWM 2.05, QQQ 1.60, IGV 1.44
-    # EWT disabled (0 trades in OOS)
-    "intraday":  ["SMH", "IWM", "IGV", "QQQ", "SOXX"],
+    # Account 1 — Intraday LightGBM v3 (OOS backtest validated, Sharpe > 1.0 only)
+    # Kept: SMH (OOS Sharpe 2.33, IC 0.129, dir_acc 54.7%)
+    # Dropped: SOXX (OOS Sharpe -2.80, shorts fail), SLV (OOS -4.2%, pred_scale 50x)
+    # Previously dropped: QQQ (IC 0.006), IGV (dir_acc 49%), IWM (pred_scale 50x)
+    "intraday":  ["SMH"],
     # Account 2 — Swing XGBoost+TFT (daily regression)
     # OOS Sharpe (2024→): GLD 1.55, IBIT 2.20, SLV 1.11, SMH 0.72, QQQ 0.65, GDX 0.59, IGV 0.54
     # XLK disabled (Sharpe 0.19, near-zero edge)
@@ -349,6 +350,34 @@ def _get_session() -> str:
     return "closed"
 
 
+def _parse_window_list(windows: List[str]) -> List[tuple]:
+    """Parse ["HH:MM-HH:MM", ...] into list of (time, time) tuples (ET)."""
+    from datetime import time as dt_time
+    parsed = []
+    for w in windows:
+        try:
+            start_s, end_s = w.split("-")
+            sh, sm = start_s.strip().split(":")
+            eh, em = end_s.strip().split(":")
+            parsed.append((dt_time(int(sh), int(sm)), dt_time(int(eh), int(em))))
+        except (ValueError, AttributeError):
+            log.warning("Invalid time window format: %r — skipping", w)
+    return parsed
+
+
+def _in_time_window(windows: List[tuple]) -> bool:
+    """Check if current ET time falls within any of the parsed windows."""
+    if not windows:
+        return False
+    from datetime import time as dt_time
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    now_et = datetime.now(ZoneInfo("America/New_York")).time()
+    return any(start <= now_et <= end for start, end in windows)
+
+
 def _time_until_next_session() -> str:
     """Time until the next tradeable session opens (extended hours at 04:00 ET)."""
     from datetime import time as dt_time
@@ -472,6 +501,8 @@ class AlpacaPaperTrader:
         legacy_stricter_exit: Optional[Set[str]] = None,
         legacy_no_new_entries: Optional[Set[str]] = None,
         group: Optional[str] = None,
+        blocked_windows: Optional[List[str]] = None,
+        half_size_windows: Optional[List[str]] = None,
     ):
         # Alpaca client is optional when using Kraken for crypto-only group
         if api_key and api_secret:
@@ -501,6 +532,10 @@ class AlpacaPaperTrader:
         self.adapter = build_adapter(provider)
         self.fred_key = os.environ.get("FRED_API_KEY")
         self.group = group
+
+        # Time-of-day windows: block new entries or reduce size during specified ET windows
+        self._blocked_windows = _parse_window_list(blocked_windows or [])
+        self._half_size_windows = _parse_window_list(half_size_windows or [])
 
         self.loss_cooldown_hours = loss_cooldown_hours
         # Opt #1: separate (longer) cooldown after disaster-stop / max-loss
@@ -541,7 +576,7 @@ class AlpacaPaperTrader:
         self._alert_engine = AlertEngine()
         self._consecutive_losses: int = 0
         self._warned_shared_crypto: bool = False  # one-time warn if intraday account has crypto positions
-        self._peak_equity: float = 0.0  # high-water mark for drawdown throttle
+        self._peak_equity: float = 0.0  # high-water mark for drawdown throttle (set below after account init)
 
         # Load group-specific risk config for portfolio constraints
         self._risk_config = get_risk_config(group)
@@ -595,17 +630,15 @@ class AlpacaPaperTrader:
         self._etf_universe: List[str] = []
         self._etf_train_failures: Dict[str, datetime] = {}  # symbol → last failure time
         self._etf_train_cooldown_hours = 24  # retry failed training after 24h
-        if group in ("swing", "intraday"):
+        # ETF selector rotation: enabled for swing only.
+        # Intraday rotation disabled — trades only OOS-validated symbols (IC > 0.05).
+        # Rotating to untested symbols is out-of-distribution inference with no proven edge.
+        if group == "swing":
             try:
                 from etf_screener import load_etf_universe
-                top_k = 10 if group == "swing" else 8
-                if group == "intraday":
-                    from etf_selector import ETFIntradaySelector
-                    self._etf_selector = ETFIntradaySelector(top_k=top_k, min_pool=0)
-                    log.info("Using intraday ETF selector (5-min features)")
-                else:
-                    from etf_selector import ETFSelector
-                    self._etf_selector = ETFSelector(top_k=top_k, min_pool=0)
+                from etf_selector import ETFSelector
+                top_k = 10
+                self._etf_selector = ETFSelector(top_k=top_k, min_pool=0)
                 self._etf_universe = load_etf_universe(SWING_MODEL_DIR)
                 if not self._etf_universe:
                     from etf_screener import ALL_SEED_SYMBOLS
@@ -614,6 +647,8 @@ class AlpacaPaperTrader:
                          group, len(self._etf_universe), top_k)
             except Exception as exc:
                 log.warning("ETF selector init failed: %s — using static symbol list", exc)
+        elif group == "intraday":
+            log.info("Intraday ETF rotation disabled — using static validated symbols: %s", symbols)
 
         # Kraken executor for crypto groups (supports long + short)
         # Paper mode doesn't need real API keys — uses public price API + local state
@@ -638,6 +673,12 @@ class AlpacaPaperTrader:
                 )
                 mode_label = "LIVE" if (kraken_key and kraken_secret) else "PAPER"
                 log.info("Kraken executor enabled for %s group (%s mode)", group, mode_label)
+                # Initialize peak equity from initial_balance so drawdown halt
+                # works correctly even on first cycle after restart.
+                # Without this, _peak_equity starts at 0 and gets set to
+                # current (already-low) equity, masking the true drawdown.
+                self._peak_equity = max(self._peak_equity, self._kraken._paper_initial)
+                log.info("Peak equity initialized to %.0f (initial_balance)", self._peak_equity)
             else:
                 log.info("KRAKEN_EXECUTOR=0 — crypto will use Alpaca (long-only)")
 
@@ -656,6 +697,15 @@ class AlpacaPaperTrader:
                 log.info("Loaded %s model for %s (%s).", model_type, sym, mode)
 
         self._running = True
+
+        # Initialize peak equity from account if not already set (Alpaca accounts)
+        if self._peak_equity <= 0.0:
+            try:
+                acct = self.get_account_summary()
+                self._peak_equity = acct["equity"]
+                log.info("Peak equity initialized to %.0f (current account equity)", self._peak_equity)
+            except Exception:
+                pass  # will be set on first trade cycle
 
         # Model monitor: tracks predicted vs realized returns
         os.makedirs(MONITOR_DIR, exist_ok=True)
@@ -1882,11 +1932,38 @@ class AlpacaPaperTrader:
             else:
                 # 400 days needed: GLD/SLV use frac_diff_close (~282-bar warmup)
                 bars = self.adapter.fetch_daily(ds, 400)
-            vix_df = self._vix_cache if self._vix_cache is not None else self._get_vix_df()
-            return predictor.predict(bars, vix_df)
+
+            # EtfIntradayPredictor expects (bars, spy_bars) — it fetches VIX internally.
+            # Other predictors (LSTM, SwingPredictor) expect (bars, vix_df).
+            from etf_intraday_model import EtfIntradayPredictor
+            if isinstance(predictor, EtfIntradayPredictor):
+                spy_bars = self._get_spy_intraday_bars()
+                result = predictor.predict(bars, spy_bars=spy_bars)
+                if result is None:
+                    return {"direction": "UNKNOWN", "confidence": 0.0, "probability": 0.5}
+                return result
+            else:
+                vix_df = self._vix_cache if self._vix_cache is not None else self._get_vix_df()
+                return predictor.predict(bars, vix_df)
         except Exception as exc:
             log.error("Prediction failed for %s: %s", symbol, exc)
             return {"direction": "UNKNOWN", "confidence": 0.0, "probability": 0.5}
+
+    def _get_spy_intraday_bars(self) -> Optional[pd.DataFrame]:
+        """Fetch SPY 5-min bars for EtfIntradayPredictor's sector relative strength feature."""
+        if hasattr(self, '_spy_intraday_cache'):
+            cache_ts, cache_bars = self._spy_intraday_cache
+            # Reuse cache if less than 5 minutes old
+            if (datetime.now(timezone.utc) - cache_ts).total_seconds() < 300:
+                return cache_bars
+        try:
+            spy_bars = self.adapter.fetch_intraday("SPY", self.intraday_interval, lookback_days=5)
+            if spy_bars is not None and not spy_bars.empty:
+                self._spy_intraday_cache = (datetime.now(timezone.utc), spy_bars)
+                return spy_bars
+        except Exception as exc:
+            log.warning("SPY intraday bars fetch failed: %s", exc)
+        return None
 
     def _get_crypto_intraday_prediction(self, symbol: str, predictor) -> dict:
         """Fetch 5-min bars from Kraken and run CryptoIntradayPredictor.
@@ -3086,6 +3163,26 @@ class AlpacaPaperTrader:
                 self._vix_cache = None   # force fresh fetch this cycle
                 self._get_vix_df()       # populates _vix_cache (or retains old on failure)
 
+                # VIX > 35 hard gate for intraday: model trained on Sep 2025-Mar 2026
+                # (VIX 15-30 range). Extreme vol environments are out-of-distribution.
+                if self.group == "intraday" and self._vix_cache is not None and not self._vix_cache.empty:
+                    try:
+                        latest_vix = float(self._vix_cache["vix_close"].iloc[-1])
+                        if latest_vix > 35.0:
+                            print(f"  [VIX GATE] VIX={latest_vix:.1f} > 35 — "
+                                  f"intraday model untrained on extreme vol. Skipping new entries.")
+                            log.warning("VIX %.1f > 35: intraday hard gate active, exit-only mode", latest_vix)
+                            # Only allow exits on existing positions, no new entries
+                            for sym in cycle_symbols:
+                                pos = positions.get(sym)
+                                if pos and pos.get("qty", 0) != 0:
+                                    action = self.check_and_trade(sym, positions, allocation_per_sym, exit_only=True)
+                                    print(f"  {sym:>5}:  {action}  [VIX gate exit-only]")
+                            continue  # skip to next cycle
+
+                    except (IndexError, KeyError, TypeError):
+                        pass  # VIX fetch issue — proceed normally
+
                 # Positions in this account for symbols not in this cycle's active set.
                 # Option positions (OCC symbols) are NOT managed here — they are legacy.
                 # For crypto with selector: positions from deselected coins are exit-only
@@ -3144,6 +3241,15 @@ class AlpacaPaperTrader:
                         if pos is None or pos["qty"] == 0:
                             print(f"  {sym:>5}:  SKIP  (extended hours -- low liquidity for this ETF)")
                             continue
+                    # Blocked windows: skip new entries, still allow exits
+                    if _in_time_window(self._blocked_windows):
+                        pos = positions.get(sym)
+                        if pos is None or pos.get("qty", 0) == 0:
+                            print(f"  {sym:>5}:  SKIP  (blocked window -- low-alpha period)")
+                            continue
+                    # Half-size windows: reduce allocation during volatile open/close
+                    if _in_time_window(self._half_size_windows):
+                        sym_alloc = sym_alloc * 0.5
                     had_position = sym in positions and positions[sym].get("qty", 0) != 0
                     action = self.check_and_trade(sym, positions, sym_alloc)
                     print(f"  {sym:>5}:  {action}")
@@ -3165,7 +3271,9 @@ class AlpacaPaperTrader:
                         ctx = self._get_market_context(sym)
                         ctx["symbol"] = sym
                         self._alert_engine.check(market_context=ctx)
-                    initial_capital = 100_000.0
+                    initial_capital = (self._kraken._paper_initial
+                                       if self._kraken is not None
+                                       else self._peak_equity or 100_000.0)
                     drawdown_pct = ((account["equity"] - initial_capital) / initial_capital) * 100
                     self._alert_engine.check(portfolio_state={
                         "consecutive_losses": self._consecutive_losses,
@@ -3685,6 +3793,8 @@ def main() -> None:
         legacy_stricter_exit=legacy_stricter,
         legacy_no_new_entries=legacy_no_new,
         group=group,
+        blocked_windows=cfg.get("blocked_windows", []),
+        half_size_windows=cfg.get("half_size_windows", []),
     )
 
     # Show account before starting

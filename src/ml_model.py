@@ -300,6 +300,8 @@ class FeatureEngine:
                 vix_map[d] = row["vix"]
         df["vix"] = bar_dates.map(lambda d: vix_map.get(d, np.nan)).values
         df["vix"] = df["vix"].ffill()
+        if df["vix"].isna().all():
+            log.warning("VIX column is all-NaN after forward-fill — features may be corrupted")
         df["vix_chg"] = df["vix"].pct_change(fill_method=None)
 
         # Order-flow features
@@ -430,6 +432,12 @@ class FeatureEngine:
             "mean": pd.Series(data["mean"]),
             "std": pd.Series(data["std"]),
         }
+        n_mean = len(self._scaler_params["mean"])
+        n_std = len(self._scaler_params["std"])
+        if n_mean != n_std:
+            raise ValueError(
+                f"Scaler mean/std length mismatch in {path}: {n_mean} vs {n_std}"
+            )
 
 
 # ===================================================================

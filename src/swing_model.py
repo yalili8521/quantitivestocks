@@ -148,6 +148,13 @@ TB_PT_PCT = 0.020
 TB_SL_PCT = 0.012
 TB_HORIZON = 7
 FORWARD_DAYS = 10         # regression label: 10-day forward return
+FORWARD_DAYS_SHORT = 5    # short-horizon model: 5-day forward return
+
+# Commodity ETFs that can be pooled into a single model with symbol embedding
+COMMODITY_POOL = ["GLD", "SLV", "GDX", "PDBC", "USO"]
+
+# Symbol → integer ID for pooled models (XGBoost learns symbol-specific splits)
+POOL_SYMBOL_IDS: Dict[str, int] = {sym: i for i, sym in enumerate(COMMODITY_POOL)}
 
 # TFT hyperparams — intentionally small to avoid overfitting on N~800 samples
 # Lim et al. (2021) "Temporal Fusion Transformers for Interpretable Multi-horizon
@@ -257,7 +264,11 @@ def get_swing_feature_cols(symbol: str | None = None) -> list:
     if symbol:
         config = load_feature_config(symbol)
         if config is not None:
-            return resolve_features_from_config(symbol, config)
+            cols = resolve_features_from_config(symbol, config)
+            # Add symbol_id for pooled commodity models
+            if symbol in POOL_SYMBOL_IDS and "symbol_id" not in cols:
+                cols.append("symbol_id")
+            return cols
 
     # --- Fallback: hardcoded feature assembly (original behavior) ---
     cols: list = list(SWING_BASE_FEATURES)
@@ -291,6 +302,10 @@ def get_swing_feature_cols(symbol: str | None = None) -> list:
         cols.extend(get_factor_features(symbol))
     if symbol:
         cols.extend(get_market_features(symbol))
+
+    # Symbol ID for pooled commodity models (ordinal int → XGBoost learns symbol-specific splits)
+    if symbol and symbol in POOL_SYMBOL_IDS:
+        cols.append("symbol_id")
 
     return cols
 
@@ -530,6 +545,10 @@ class SwingFeatureEngine:
                         df[col] = np.nan
 
         # Drop NaN warmup on base features; fill optional features with 0
+        # Symbol ID for pooled models (e.g. commodity pool: GLD=0, SLV=1, ...)
+        if symbol and symbol in POOL_SYMBOL_IDS:
+            df["symbol_id"] = float(POOL_SYMBOL_IDS[symbol])
+
         all_cols = get_swing_feature_cols(symbol)
         df = df.dropna(subset=SWING_BASE_FEATURES)
         for col in all_cols:
@@ -1343,6 +1362,202 @@ def train_swing_model(
 
 
 # ---------------------------------------------------------------------------
+# Pooled commodity model — trains single XGBoost on all COMMODITY_POOL symbols
+# with symbol_id feature enabling symbol-specific tree splits.
+# ---------------------------------------------------------------------------
+
+def train_pooled_commodity_model(
+    adapter,
+    fred_key: Optional[str] = None,
+    lookback: int = 1000,
+    save_dir: str = SWING_MODEL_DIR,
+    train_recent: bool = False,
+    forward_days: int = FORWARD_DAYS,
+) -> Optional[xgb.XGBRegressor]:
+    """Train a single XGBoost model on pooled commodity ETFs (GLD, SLV, GDX, PDBC, USO).
+
+    The symbol_id feature acts as a categorical embedding — XGBoost learns
+    symbol-specific tree splits naturally, so one model captures shared
+    commodity dynamics while adapting to each symbol's idiosyncrasies.
+
+    Benefits over per-symbol models:
+      - 5× more training data (~2500 samples vs ~500 per symbol)
+      - Shared commodity regime features (gold/silver ratio, real yield, etc.)
+      - Symbol-specific behavior via tree routing on symbol_id
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    horizon_tag = f"{forward_days}d"
+    log.info("=== Training POOLED commodity model (%s horizon, %d symbols) ===",
+             horizon_tag, len(COMMODITY_POOL))
+
+    all_X, all_y = [], []
+    all_feature_cols = None
+    engine = SwingFeatureEngine()
+
+    for sym in COMMODITY_POOL:
+        try:
+            bars = adapter.fetch_daily(sym, lookback)
+            if len(bars) < 100:
+                log.warning("Skipping %s — only %d bars", sym, len(bars))
+                continue
+            spy_bars = adapter.fetch_daily("SPY", lookback)
+            vix_df = _fetch_vix_for_training(fred_key, lookback_days=max(lookback, 500),
+                                             include_live=False)
+
+            # Build features (includes symbol_id for COMMODITY_POOL members)
+            features = engine.build_features(bars, vix_df, spy_bars=spy_bars,
+                                             symbol=sym, fred_key=fred_key)
+
+            if len(features) < 50:
+                log.warning("Skipping %s — only %d feature rows", sym, len(features))
+                continue
+
+            feature_cols = list(features.columns)
+            if all_feature_cols is None:
+                all_feature_cols = feature_cols
+            else:
+                # Ensure consistent feature columns across symbols
+                assert feature_cols == all_feature_cols, \
+                    f"Feature mismatch: {sym} has {len(feature_cols)} vs {len(all_feature_cols)}"
+
+            # Scaler: fit on first symbol's training portion, transform all
+            if len(all_X) == 0:
+                split_idx = int(len(features) * 0.8)
+                engine.fit_scaler(features.iloc[:split_idx])
+            full_norm = engine.transform(features)
+
+            X, y = _prepare_tabular_regression(full_norm, bars, forward_days=forward_days)
+            all_X.append(X)
+            all_y.append(y)
+            log.info("  %s: %d samples (mean fwd ret: %+.4f%%)", sym, len(y), y.mean() * 100)
+
+        except Exception as exc:
+            log.warning("Skipping %s in pooled training: %s", sym, exc)
+
+    if not all_X:
+        log.error("No data for pooled commodity model")
+        return None
+
+    X_all = np.concatenate(all_X, axis=0)
+    y_all = np.concatenate(all_y, axis=0)
+    log.info("Pooled dataset: %d total samples, %d features", len(X_all), X_all.shape[1])
+
+    # Walk-forward split (80/20)
+    split = int(len(X_all) * 0.8)
+    X_train, y_train = X_all[:split], y_all[:split]
+    X_val, y_val = X_all[split:], y_all[split:]
+
+    # Demean if needed
+    label_mean = 0.0
+    if len(X_train) < 300:
+        label_mean = float(y_train.mean())
+        y_train = y_train - label_mean
+        y_val = y_val - label_mean
+
+    # XGBoost with larger dataset params
+    xgb_params = dict(_XGB_PARAMS)
+    xgb_params["min_child_weight"] = max(5, len(X_train) // 50)
+    xgb_params["n_estimators"] = 500  # more data → more trees
+    model = xgb.XGBRegressor(**xgb_params)
+    model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+
+    val_preds = model.predict(X_val)
+    val_rmse = float(np.sqrt(np.mean((val_preds - y_val) ** 2)))
+    direction_acc = float(np.mean((val_preds > 0) == (y_val > 0)))
+    log.info("Pooled val RMSE: %.6f | Direction accuracy: %.3f", val_rmse, direction_acc)
+
+    # Save
+    model_tag = f"commodity_pool_xgb_{horizon_tag}"
+    model_path = os.path.join(save_dir, f"{model_tag}.joblib")
+    scaler_path = os.path.join(save_dir, f"{model_tag}_scaler.json")
+    config_path = os.path.join(save_dir, f"{model_tag}_config.json")
+
+    joblib.dump(model, model_path)
+    engine.save_scaler(scaler_path)
+
+    config = {
+        "model_type": "xgb_swing_pooled",
+        "symbols": COMMODITY_POOL,
+        "symbol_ids": POOL_SYMBOL_IDS,
+        "horizon": horizon_tag,
+        "forward_days": forward_days,
+        "val_rmse": round(val_rmse, 8),
+        "val_direction_accuracy": round(direction_acc, 4),
+        "n_train": len(X_train),
+        "n_val": len(X_val),
+        "n_features": len(all_feature_cols),
+        "feature_names": all_feature_cols,
+        "label_mean_removed": round(label_mean, 8),
+    }
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2)
+
+    log.info("Saved pooled commodity model → %s (dir_acc=%.3f)", model_path, direction_acc)
+    return model
+
+
+# ---------------------------------------------------------------------------
+# Short-horizon (5-day) swing model — trains alongside the standard 10-day
+# ---------------------------------------------------------------------------
+
+def train_short_horizon_model(
+    symbol: str,
+    adapter,
+    fred_key: Optional[str] = None,
+    lookback: int = 1000,
+    save_dir: str = SWING_MODEL_DIR,
+    train_end: Optional[str] = None,
+    train_recent: bool = False,
+) -> Optional[xgb.XGBRegressor]:
+    """Train a 5-day horizon XGBoost swing model.
+
+    Identical pipeline to the standard 10-day model but with FORWARD_DAYS_SHORT=5.
+    Captures faster mean-reversion dynamics that the 10-day model misses.
+    The predictor can blend both horizons for stronger signals.
+    """
+    # Reuse train_swing_model but override forward_days via a temporary monkey-patch
+    # This is cleaner than duplicating the entire training function
+    global FORWARD_DAYS
+    original_fwd = FORWARD_DAYS
+    try:
+        FORWARD_DAYS = FORWARD_DAYS_SHORT
+        log.info("=== Training SHORT-HORIZON (5d) swing model for %s ===", symbol)
+        model = train_swing_model(
+            symbol=symbol,
+            adapter=adapter,
+            fred_key=fred_key,
+            lookback=lookback,
+            save_dir=save_dir,
+            train_end=train_end,
+            train_recent=train_recent,
+        )
+    finally:
+        FORWARD_DAYS = original_fwd
+
+    if model is not None:
+        # Rename saved files to include _5d suffix
+        for ext in [".joblib", "_scaler.json", "_config.json"]:
+            src = os.path.join(save_dir, f"{symbol}_xgb_swing{ext}")
+            dst = os.path.join(save_dir, f"{symbol}_xgb_swing_5d{ext}")
+            if os.path.exists(src):
+                import shutil
+                shutil.copy2(src, dst)
+                log.info("Copied %s → %s", os.path.basename(src), os.path.basename(dst))
+
+        # Update the config to reflect 5d horizon
+        config_path = os.path.join(save_dir, f"{symbol}_xgb_swing_5d_config.json")
+        if os.path.exists(config_path):
+            with open(config_path) as f:
+                cfg = json.load(f)
+            cfg["horizon"] = "5d"
+            cfg["target"] = "forward_5d_return"
+            with open(config_path, "w") as f:
+                json.dump(cfg, f, indent=2)
+
+    return model
+
+
+# ---------------------------------------------------------------------------
 # Predictor (inference — compatible with ml_model.Predictor interface)
 # ---------------------------------------------------------------------------
 
@@ -1658,11 +1873,25 @@ def main() -> None:
                              "Overrides --train-end.")
     parser.add_argument("--save-dir", default=SWING_MODEL_DIR,
                         help=f"Directory to save model files (default: {SWING_MODEL_DIR})")
+    parser.add_argument("--pooled-commodity", action="store_true",
+                        help="Train a single pooled model on all commodity ETFs (GLD,SLV,GDX,PDBC,USO)")
+    parser.add_argument("--short-horizon", action="store_true",
+                        help="Also train a 5-day short-horizon model alongside the standard 10-day")
     args = parser.parse_args()
 
     adapter  = build_adapter(args.provider)
     fred_key = os.environ.get("FRED_API_KEY")
     symbols  = [s.strip().upper() for s in args.symbols.split(",")]
+
+    # Pooled commodity model
+    if args.pooled_commodity:
+        train_pooled_commodity_model(
+            adapter=adapter,
+            fred_key=fred_key,
+            lookback=args.lookback,
+            save_dir=args.save_dir,
+            train_recent=args.train_recent,
+        )
 
     for sym in symbols:
         train_swing_model(
@@ -1674,6 +1903,17 @@ def main() -> None:
             train_recent=args.train_recent,
             save_dir=args.save_dir,
         )
+        # Short-horizon (5-day) model
+        if args.short_horizon:
+            train_short_horizon_model(
+                symbol=sym,
+                adapter=adapter,
+                fred_key=fred_key,
+                lookback=args.lookback,
+                save_dir=args.save_dir,
+                train_end=args.train_end,
+                train_recent=args.train_recent,
+            )
 
 
 if __name__ == "__main__":

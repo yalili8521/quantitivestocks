@@ -1,1 +1,101 @@
-[]
+[
+  {
+    "time": "2026-03-23T00:21:22.751540",
+    "symbol": "GC=F",
+    "direction": "SHORT",
+    "contracts": 1,
+    "entry": 4166.60009765625,
+    "exit": 4158.39990234375,
+    "pnl": 82.0,
+    "reason": "TP1",
+    "order_id": "PAPER-000002"
+  },
+  {
+    "time": "2026-03-23T00:22:56.382263",
+    "symbol": "GC=F",
+    "direction": "SHORT",
+    "contracts": 2,
+    "entry": 4166.60009765625,
+    "exit": 4142.7998046875,
+    "pnl": 476.01,
+    "reason": "TP2",
+    "order_id": "PAPER-000003"
+  },
+  {
+    "time": "2026-03-23T00:25:11.217166",
+    "symbol": "GC=F",
+    "direction": "SHORT",
+    "contracts": 1,
+    "entry": 4166.60009765625,
+    "exit": 4125.0,
+    "pnl": 416.0,
+    "reason": "TP3",
+    "order_id": "PAPER-000004"
+  },
+  {
+    "time": "2026-03-23T00:28:30.559427",
+    "symbol": "GC=F",
+    "direction": "SHORT",
+    "contracts": 1,
+    "entry": 4128.7001953125,
+    "exit": 4119.39990234375,
+    "pnl": 93.0,
+    "reason": "TP1",
+    "order_id": "PAPER-000006"
+  },
+  {
+    "time": "2026-03-23T00:32:07.648679",
+    "symbol": "GC=F",
+    "direction": "SHORT",
+    "contracts": 2,
+    "entry": 4128.7001953125,
+    "exit": 4103.5,
+    "pnl": 504.0,
+    "reason": "TP2",
+    "order_id": "PAPER-000007"
+  },
+  {
+    "time": "2026-03-23T00:33:51.901470",
+    "symbol": "GC=F",
+    "direction": "SHORT",
+    "contracts": 3,
+    "entry": 4128.7001953125,
+    "exit": 4125.0,
+    "pnl": 111.01,
+    "reason": "Stopped after TP2 (risk-free)",
+    "order_id": "PAPER-000008"
+  },
+  {
+    "time": "2026-03-23T09:05:22.341612",
+    "symbol": "GC=F",
+    "direction": "SHORT",
+    "contracts": 1,
+    "entry": 4390.0,
+    "exit": 4382.2001953125,
+    "pnl": 78.0,
+    "reason": "TP1",
+    "order_id": "PAPER-000010"
+  },
+  {
+    "time": "2026-03-23T09:06:47.031432",
+    "symbol": "GC=F",
+    "direction": "SHORT",
+    "contracts": 2,
+    "entry": 4390.0,
+    "exit": 4367.60009765625,
+    "pnl": 448.0,
+    "reason": "TP2",
+    "order_id": "PAPER-000011"
+  },
+  {
+    "time": "2026-03-23T09:21:35.860008",
+    "symbol": "GC=F",
+    "direction": "SHORT",
+    "contracts": 3,
+    "entry": 4390.0,
+    "exit": 4380.5,
+    "pnl": 285.0,
+    "reason": "Runner Exit - Bias Flipped",
+    "order_id": "PAPER-000012"
+  }
+]

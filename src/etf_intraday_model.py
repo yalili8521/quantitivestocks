@@ -16,12 +16,13 @@ Strategy:
     3. If abs(E[r]) > cost_threshold: enter LONG/SHORT
     4. Exit via trailing stop, take-profit, or max hold time (6.5 hours)
 
-Features (18 total):
-    Momentum (4):      ret_6bar, ret_12bar, ret_24bar, ret_48bar
+Features (19 total):
+    Momentum (3):      ret_6bar, ret_12bar, ret_24bar
     Volatility (3):    atr_pct, realized_vol_24bar, bb_pct_b
     Microstructure (4): close_position, vwap_deviation, cumulative_delta, spread_proxy
-    Volume (4):        rvol, dollar_volume_zscore, volume_trend, volume_imbalance_12
+    Volume (3):        rvol, volume_imbalance_12, overnight_gap
     Macro (2):         vix, vix_chg
+    Regime (3):        ret_autocorr_24, time_of_day, intraday_regime
     Relative (1):      sector_rel_strength
 
 Label: forward 12-bar (1 hour) return, winsorized at 1st/99th percentile.
@@ -64,11 +65,10 @@ W_LGB = 0.70
 W_GRU = 0.30
 
 FEATURE_NAMES = [
-    # Momentum (4)
+    # Momentum (3) — dropped ret_48bar (weak at 1h horizon, Gao et al. 2018)
     "ret_6bar",              # 30-min return
     "ret_12bar",             # 1-hour return (matches forward target)
     "ret_24bar",             # 2-hour return
-    "ret_48bar",             # 4-hour return
     # Volatility (3)
     "atr_pct",               # ATR(12) / close — intraday vol regime
     "realized_vol_24bar",    # realized vol over 24 bars
@@ -78,14 +78,18 @@ FEATURE_NAMES = [
     "vwap_deviation",        # (close - vwap_12) / close
     "cumulative_delta",      # buy-sell volume imbalance over 12 bars
     "spread_proxy",          # avg((high-low)/close) over 12 bars — liquidity cost
-    # Volume (4)
+    # Volume (2) — dropped dollar_volume_zscore (redundant w/ rvol)
     "rvol",                  # relative volume vs 48-bar avg
-    "dollar_volume_zscore",  # (current $ vol - mean) / std over 48 bars
-    "volume_trend",          # linear slope of volume over 12 bars
     "volume_imbalance_12",   # buy-sell volume ratio
-    # Macro (2)
-    "vix",                   # VIX level (forward-filled daily onto 5-min bars)
-    "vix_chg",               # VIX daily change
+    # New: overnight gap (Berkman et al. 2012, Lou et al. 2019)
+    "overnight_gap",         # open / prev_close - 1 (gap reversal signal)
+    # Macro (2) — VIX now fetched at 5-min intraday granularity
+    "vix",                   # VIX level (5-min intraday, fallback to daily ffill)
+    "vix_chg",               # VIX 12-bar (1-hour) pct change
+    # Regime (3) — academic support for intraday regime separation
+    "ret_autocorr_24",       # rolling 24-bar return autocorrelation (Lo & MacKinlay 1990)
+    "time_of_day",           # sine encoding of minutes-since-open (Heston et al. 2010)
+    "intraday_regime",       # 0=open/close momentum (9:30-10:30,15:00-16:00), 1=midday mean-reversion
     # Relative (1)
     "sector_rel_strength",   # ETF 12-bar ret - SPY 12-bar ret
 ]
@@ -107,7 +111,7 @@ def get_etf_intraday_feature_cols(symbol: str | None = None) -> list:
 # ---------------------------------------------------------------------------
 
 def _fetch_vix_daily() -> pd.DataFrame:
-    """Fetch VIX daily close from yfinance for forward-filling onto 5-min bars."""
+    """Fetch VIX daily close from yfinance (fallback for >60d lookback)."""
     try:
         import yfinance as yf
         vix = yf.Ticker("^VIX")
@@ -119,7 +123,30 @@ def _fetch_vix_daily() -> pd.DataFrame:
         df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None)
         return df
     except Exception as exc:
-        log.warning("VIX fetch failed: %s", exc)
+        log.warning("VIX daily fetch failed: %s", exc)
+        return pd.DataFrame()
+
+
+def _fetch_vix_intraday(period: str = "60d") -> pd.DataFrame:
+    """Fetch VIX at 5-min intervals from yfinance (max 60-day lookback).
+
+    Returns DataFrame with columns [ts, vix_close] or empty DataFrame on failure.
+    """
+    try:
+        import yfinance as yf
+        vix = yf.Ticker("^VIX")
+        hist = vix.history(period=period, interval="5m")
+        if hist.empty or len(hist) < 50:
+            return pd.DataFrame()
+        df = hist[["Close"]].reset_index()
+        df.columns = ["ts", "vix_close"]
+        df["ts"] = pd.to_datetime(df["ts"])
+        if df["ts"].dt.tz is not None:
+            df["ts"] = df["ts"].dt.tz_localize(None)
+        log.info("Fetched %d intraday VIX bars (5-min)", len(df))
+        return df
+    except Exception as exc:
+        log.warning("VIX intraday fetch failed: %s — falling back to daily", exc)
         return pd.DataFrame()
 
 
@@ -127,13 +154,20 @@ class EtfIntradayFeatureEngine:
     """Build feature vectors from 5-minute ETF OHLCV bars."""
 
     def __init__(self):
-        self._vix_cache: Optional[pd.DataFrame] = None
+        self._vix_intraday_cache: Optional[pd.DataFrame] = None
+        self._vix_daily_cache: Optional[pd.DataFrame] = None
 
-    def _get_vix(self) -> pd.DataFrame:
-        """Lazy-load and cache VIX daily data."""
-        if self._vix_cache is None:
-            self._vix_cache = _fetch_vix_daily()
-        return self._vix_cache
+    def _get_vix_intraday(self) -> pd.DataFrame:
+        """Lazy-load and cache VIX 5-min intraday data."""
+        if self._vix_intraday_cache is None:
+            self._vix_intraday_cache = _fetch_vix_intraday()
+        return self._vix_intraday_cache
+
+    def _get_vix_daily(self) -> pd.DataFrame:
+        """Lazy-load and cache VIX daily data (fallback)."""
+        if self._vix_daily_cache is None:
+            self._vix_daily_cache = _fetch_vix_daily()
+        return self._vix_daily_cache
 
     def build_features(
         self,
@@ -165,11 +199,10 @@ class EtfIntradayFeatureEngine:
         lo = df["low"].astype(float)
         v = df["volume"].astype(float)
 
-        # --- Momentum (4) ---
+        # --- Momentum (3) ---
         df["ret_6bar"] = c.pct_change(6)
         df["ret_12bar"] = c.pct_change(12)
         df["ret_24bar"] = c.pct_change(24)
-        df["ret_48bar"] = c.pct_change(48)
 
         # --- Volatility (3) ---
         # ATR(12)
@@ -220,34 +253,9 @@ class EtfIntradayFeatureEngine:
         bar_spread = (h - lo) / c.clip(lower=1e-10)
         df["spread_proxy"] = bar_spread.rolling(12).mean()
 
-        # --- Volume (4) ---
+        # --- Volume (2) ---
         avg_vol_48 = v.rolling(48).mean()
         df["rvol"] = v / avg_vol_48.clip(lower=1)
-
-        # Dollar volume z-score
-        dollar_vol = c * v
-        dv_mean = dollar_vol.rolling(48).mean()
-        dv_std = dollar_vol.rolling(48).std()
-        df["dollar_volume_zscore"] = (dollar_vol - dv_mean) / dv_std.clip(lower=1e-10)
-
-        # Volume trend: linear slope over 12 bars (normalized)
-        def _vol_trend(series, window=12):
-            result = pd.Series(np.nan, index=series.index)
-            x = np.arange(window, dtype=float)
-            x_mean = x.mean()
-            x_var = ((x - x_mean) ** 2).sum()
-            for i in range(window - 1, len(series)):
-                y = series.iloc[i - window + 1:i + 1].values.astype(float)
-                if np.any(np.isnan(y)):
-                    continue
-                y_mean = y.mean()
-                if y_mean <= 0:
-                    continue
-                slope = ((x - x_mean) * (y - y_mean)).sum() / max(x_var, 1e-10)
-                result.iloc[i] = slope / y_mean
-            return result
-
-        df["volume_trend"] = _vol_trend(v)
 
         # Volume imbalance: net buy-sell ratio over 12 bars
         buy_vol_12 = buy_vol.rolling(12).sum()
@@ -255,27 +263,96 @@ class EtfIntradayFeatureEngine:
         total_12 = (buy_vol_12 + sell_vol_12).clip(lower=1)
         df["volume_imbalance_12"] = (buy_vol_12 - sell_vol_12) / total_12
 
-        # --- Macro: VIX (2) ---
-        vix_df = self._get_vix()
-        if not vix_df.empty:
-            ts_col = pd.to_datetime(df["ts"])
-            if ts_col.dt.tz is not None:
-                ts_col = ts_col.dt.tz_localize(None)
-            bar_date = ts_col.dt.normalize()
+        # --- Overnight gap (Berkman et al. 2012, Lou et al. 2019) ---
+        # Detect session boundaries: gap > 30 min between bars
+        ts_col = pd.to_datetime(df["ts"])
+        time_diff = ts_col.diff().dt.total_seconds().fillna(0)
+        session_start = time_diff > 1800  # > 30 min = new session
+        # prev_close is the last close of the previous session
+        prev_session_close = c.shift(1).where(session_start)
+        prev_session_close = prev_session_close.ffill()
+        df["overnight_gap"] = (o / prev_session_close.clip(lower=1e-10)) - 1
+        df["overnight_gap"] = df["overnight_gap"].fillna(0.0)
 
-            # Reindex VIX onto bar dates with forward-fill for gaps/weekends
-            vix_series = vix_df.set_index("date")["vix_close"].sort_index()
-            all_dates = pd.DatetimeIndex(bar_date.unique()).sort_values()
-            vix_reindexed = vix_series.reindex(
-                vix_series.index.union(all_dates)
-            ).sort_index().ffill().bfill()
-            df["vix"] = bar_date.map(vix_reindexed).astype(float)
-            # Fallback if still NaN (date range mismatch)
-            df["vix"] = df["vix"].fillna(20.0)
-            df["vix_chg"] = df["vix"].pct_change().fillna(0.0)
+        # --- Macro: VIX (2) — hybrid intraday (5-min) + daily fallback ---
+        bar_ts = pd.to_datetime(df["ts"])
+        if bar_ts.dt.tz is not None:
+            bar_ts = bar_ts.dt.tz_localize(None)
+
+        vix_intraday = self._get_vix_intraday()
+        if not vix_intraday.empty:
+            # merge_asof: for each bar timestamp, find nearest prior VIX reading
+            # Normalize both to ns precision to avoid merge dtype mismatch
+            bar_frame = pd.DataFrame({"ts": bar_ts.astype("datetime64[ns]")})
+            vix_intraday = vix_intraday.copy()
+            vix_intraday["ts"] = vix_intraday["ts"].astype("datetime64[ns]")
+            vix_sorted = vix_intraday.sort_values("ts")
+            merged = pd.merge_asof(
+                bar_frame, vix_sorted, on="ts", direction="backward"
+            )
+            df["vix"] = merged["vix_close"].values
+            # Bars before the first intraday VIX reading: fill from daily
+            n_missing = df["vix"].isna().sum()
+            if n_missing > 0:
+                vix_daily = self._get_vix_daily()
+                if not vix_daily.empty:
+                    bar_date = bar_ts.dt.normalize()
+                    vix_series = vix_daily.set_index("date")["vix_close"].sort_index()
+                    all_dates = pd.DatetimeIndex(bar_date.unique()).sort_values()
+                    vix_reindexed = vix_series.reindex(
+                        vix_series.index.union(all_dates)
+                    ).sort_index().ffill().bfill()
+                    daily_fill = bar_date.map(vix_reindexed).astype(float)
+                    df["vix"] = df["vix"].fillna(daily_fill)
+                log.info("VIX hybrid: %d bars from intraday, %d filled from daily",
+                         len(df) - n_missing, n_missing)
         else:
-            df["vix"] = 20.0   # neutral default
-            df["vix_chg"] = 0.0
+            # Pure daily fallback (training with >60d lookback)
+            vix_daily = self._get_vix_daily()
+            if not vix_daily.empty:
+                bar_date = bar_ts.dt.normalize()
+                vix_series = vix_daily.set_index("date")["vix_close"].sort_index()
+                all_dates = pd.DatetimeIndex(bar_date.unique()).sort_values()
+                vix_reindexed = vix_series.reindex(
+                    vix_series.index.union(all_dates)
+                ).sort_index().ffill().bfill()
+                df["vix"] = bar_date.map(vix_reindexed).astype(float)
+                log.info("VIX: using daily forward-fill (intraday unavailable)")
+            else:
+                df["vix"] = np.nan
+
+        df["vix"] = df["vix"].ffill().bfill().fillna(20.0)
+        # VIX change: 12-bar (1-hour) pct change for intraday dynamics
+        df["vix_chg"] = df["vix"].pct_change(12).fillna(0.0)
+
+        # --- Regime (2) ---
+        # Return autocorrelation: rolling 24-bar autocorrelation of 5-min returns
+        # AC > 0 = momentum regime, AC < 0 = mean-reversion regime (Lo & MacKinlay 1990)
+        ret_1bar = c.pct_change(1)
+        df["ret_autocorr_24"] = ret_1bar.rolling(24).apply(
+            lambda x: x.autocorr(lag=1) if len(x.dropna()) >= 10 else 0.0,
+            raw=False,
+        ).fillna(0.0)
+
+        # Time-of-day: sine encoding of minutes since market open (9:30 ET)
+        # Captures intraday seasonality (Heston et al. 2010): U-shaped vol, L-shaped spread
+        bar_ts_local = bar_ts
+        try:
+            from zoneinfo import ZoneInfo
+        except ImportError:
+            from backports.zoneinfo import ZoneInfo
+        if bar_ts_local.dt.tz is None:
+            bar_ts_local = bar_ts_local.dt.tz_localize("UTC").dt.tz_convert("America/New_York")
+        else:
+            bar_ts_local = bar_ts_local.dt.tz_convert("America/New_York")
+        minutes_since_open = (bar_ts_local.dt.hour * 60 + bar_ts_local.dt.minute) - 570  # 9:30 = 570
+        minutes_since_open = minutes_since_open.clip(lower=0, upper=390)  # 6.5h = 390 min
+        df["time_of_day"] = np.sin(np.pi * minutes_since_open / 390)  # 0 at open/close, 1 at midday
+
+        # Intraday regime: 0 = momentum window (open/close), 1 = mean-reversion (midday)
+        # Open window: 9:30-10:30 (0-60 min), Close window: 15:00-16:00 (330-390 min)
+        # Gao et al. 2018: momentum strongest at open/close, mean-reversion dominates midday
+        df["intraday_regime"] = ((minutes_since_open > 60) & (minutes_since_open < 330)).astype(float)
 
         # --- Relative: sector relative strength (1) ---
         is_spy = symbol and symbol.upper() == "SPY"
@@ -360,23 +437,30 @@ class EtfIntradayTrainer:
         X_val: np.ndarray, y_val: np.ndarray,
         feature_names: List[str],
     ) -> Tuple:
-        """Train LightGBM regression model."""
+        """Train LightGBM with Huber loss (robust to fat-tailed returns)."""
         train_set = lgb.Dataset(X_train, label=y_train, feature_name=feature_names)
         val_set = lgb.Dataset(X_val, label=y_val, reference=train_set)
 
+        # Auto-set huber_delta from training labels: P90 of |returns|
+        # This treats the top 10% of absolute returns as outliers
+        huber_delta = float(np.percentile(np.abs(y_train), 90))
+        huber_delta = max(huber_delta, 1e-6)  # safety floor
+        log.info("Huber delta (auto): %.6f (P90 of |y_train|)", huber_delta)
+
         params = {
-            "objective": "regression",
-            "metric": "rmse",
+            "objective": "huber",
+            "huber_delta": huber_delta,
+            "metric": "huber",
             "num_leaves": 15,
             "learning_rate": 0.01,
             "feature_fraction": 0.7,
             "bagging_fraction": 0.7,
             "bagging_freq": 5,
-            "min_data_in_leaf": 100,   # fewer bars than crypto (6.5h vs 24h)
+            "min_data_in_leaf": 100,
             "verbose": -1,
             "seed": 42,
-            "lambda_l1": 1.0,
-            "lambda_l2": 5.0,
+            "lambda_l1": 0.5,          # reduced from 1.0 — Huber handles outlier robustness
+            "lambda_l2": 2.0,          # reduced from 5.0
             "max_depth": 4,
         }
 
@@ -395,7 +479,7 @@ class EtfIntradayTrainer:
         )
 
         val_pred = model.predict(X_val)
-        return model, val_pred
+        return model, val_pred, huber_delta
 
     def _train_gru(
         self,
@@ -506,10 +590,10 @@ class EtfIntradayTrainer:
         # Check GRU quality: dir_acc
         dir_correct = ((val_pred_np > 0) == (y_val_seq > 0)).sum()
         gru_dir_acc = dir_correct / len(y_val_seq)
-        log.info("GRU val dir_acc=%.3f (threshold=0.50)", gru_dir_acc)
+        log.info("GRU val dir_acc=%.3f (threshold=0.52)", gru_dir_acc)
 
-        if gru_dir_acc < 0.50:
-            log.warning("GRU dir_acc < 0.50, discarding GRU (LGB-only fallback)")
+        if gru_dir_acc < 0.52:
+            log.warning("GRU dir_acc < 0.52, discarding GRU (LGB-only fallback)")
             return None, mean, std, None
 
         return model, mean, std, val_pred_np
@@ -567,12 +651,19 @@ class EtfIntradayTrainer:
             y_val = np.clip(y_val, lo_q, hi_q)
             log.info("Label winsorization (train-derived): [%.4f, %.4f]", lo_q, hi_q)
 
+        # Compute label_std for deterministic pred_scale at inference.
+        # Model trains on raw returns; at inference, multiply by (label_std / pred_std)
+        # which is stable since label_std is fixed from training data.
+        label_std = float(np.std(y_train))
+        label_std = max(label_std, 1e-8)
+        log.info("Training label std=%.6f (used for pred_scale calibration)", label_std)
+
         log.info("%s: Train %d, Val %d, %d features",
                  symbol, len(X_train), len(X_val), n_feat)
 
         # --- Train LightGBM ---
         log.info("%s: Training LightGBM...", symbol)
-        lgb_model, lgb_val_pred = self._train_lgb(X_train, y_train, X_val, y_val, feature_cols)
+        lgb_model, lgb_val_pred, huber_delta = self._train_lgb(X_train, y_train, X_val, y_val, feature_cols)
 
         # --- Train GRU ---
         gru_model, gru_mean, gru_std, gru_val_pred = self._train_gru(
@@ -608,13 +699,17 @@ class EtfIntradayTrainer:
         lgb_ic, _ = spearmanr(lgb_val_pred, y_val)
         lgb_ic = float(lgb_ic) if not np.isnan(lgb_ic) else 0.0
 
-        # Prediction calibration
+        # Prediction calibration: compute pred_scale = ret_std / pred_std
+        # With Huber + reduced regularization, this should be lower than before.
+        # Also compute label_std-based pred_scale as a stable alternative.
         pred_std = float(np.std(ensemble_pred)) if len(ensemble_pred) > 0 else 1e-6
         ret_std = float(np.std(y_val_aligned)) if len(y_val_aligned) > 0 else 1e-6
-        pred_scale = ret_std / max(pred_std, 1e-8)
-        pred_scale = min(pred_scale, 50.0)
-        log.info("%s: prediction calibration scale=%.2f (pred_std=%.6f, ret_std=%.6f)",
-                 symbol, pred_scale, pred_std, ret_std)
+        ratio_pred_scale = ret_std / max(pred_std, 1e-8)
+        ratio_pred_scale = min(ratio_pred_scale, 50.0)
+        # Use the ratio-based pred_scale (same as before, but now with Huber it should be smaller)
+        pred_scale = ratio_pred_scale
+        log.info("%s: pred_scale=%.2f (ret_std=%.6f, pred_std=%.6f, label_std=%.6f)",
+                 symbol, pred_scale, ret_std, pred_std, label_std)
 
         # Feature importance
         importance = dict(zip(
@@ -665,7 +760,10 @@ class EtfIntradayTrainer:
             "feature_importance": dict(sorted_imp),
             "cost_threshold": COST_THRESHOLD,
             "target_return": TARGET_RETURN,
-            "pred_scale": round(pred_scale, 4),
+            "pred_scale": round(pred_scale, 6),
+            "label_std": round(label_std, 6),
+            "objective": "huber",
+            "huber_delta": round(huber_delta, 6),
         }
         config_path = os.path.join(self.model_dir, f"{sym_clean}_lgb_intraday_etf_config.json")
         with open(config_path, "w") as f:

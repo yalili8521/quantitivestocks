@@ -71,6 +71,8 @@ def _help_text() -> str:
     unpause             Clear a persisted paused-model state
     gold-scalper        Run the gold multi-TF NYSE scalper (paper trading)
     gold-backtest       Backtest the gold scalper on historical data
+    train-pooled-commodity  Train single pooled model for commodity ETFs
+    train-short-horizon     Train 5-day horizon models alongside 10-day
 
   Examples:
     python main.py trade --group swing
@@ -315,6 +317,36 @@ def main() -> None:
             print(f"    kelly_cap:          {risk.kelly_cap:.0%}")
             print(f"    cross_group_disc:   {risk.cross_group_kelly_discount:.2f}")
             print(f"    effective_kelly:    {risk.kelly_cap * risk.cross_group_kelly_discount:.1%}")
+
+    elif command == "train-pooled-commodity":
+        from swing_model import train_pooled_commodity_model
+        from signals_engine import build_adapter
+        _adapter = build_adapter("yahoo")
+        _fred = os.environ.get("FRED_API_KEY")
+        from utils import SWING_MODEL_DIR
+        train_pooled_commodity_model(adapter=_adapter, fred_key=_fred,
+                                     save_dir=SWING_MODEL_DIR, train_recent=True)
+
+    elif command == "train-short-horizon":
+        # Train 5-day horizon models for specified symbols
+        from swing_model import train_short_horizon_model
+        from signals_engine import build_adapter
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--symbols", required=True)
+        parser.add_argument("--provider", default="yahoo")
+        args = parser.parse_args()
+        _adapter = build_adapter(args.provider)
+        _fred = os.environ.get("FRED_API_KEY")
+        from utils import SWING_MODEL_DIR
+        for sym in args.symbols.split(","):
+            train_short_horizon_model(symbol=sym.strip().upper(), adapter=_adapter,
+                                      fred_key=_fred, save_dir=SWING_MODEL_DIR,
+                                      train_recent=True)
+
+    elif command == "equity":
+        from equity_tracker import main as equity_main
+        equity_main()
 
     else:
         print(f"\n  Unknown command: {command!r}")
