@@ -285,6 +285,9 @@ def compute_coin_features_intraday(
     vol_ma_48 = volume.rolling(48).mean()
     feat["rvol_xs"] = (volume / vol_ma_48.replace(0, np.nan)).fillna(1.0)
 
+    # Median dollar volume (288 5-min bars = 1 day) for liquidity filter
+    feat["dollar_vol_median_1d"] = dollar_vol.rolling(288, min_periods=48).median()
+
     # Microstructure: close position within 12-bar range
     rolling_high_12 = high.rolling(12).max()
     rolling_low_12 = low.rolling(12).min()
@@ -491,6 +494,19 @@ def build_xs_panel_intraday(
         if n_dropped > 0:
             log.info("Pre-filter: dropped %d/%d rows with data_quality < %.2f",
                      n_dropped, n_before, DATA_QUALITY_THRESHOLD)
+
+    # Liquidity filter: drop rows where median dollar volume < $5M/day
+    # (same threshold as daily mode — prevents illiquid micro-caps from ranking)
+    if "dollar_vol_median_1d" in panel.columns:
+        # Scale 5-min bar median to daily: median_per_bar * 288 bars/day
+        panel["_daily_dollar_vol"] = panel["dollar_vol_median_1d"] * 288
+        n_before = len(panel)
+        panel = panel[panel["_daily_dollar_vol"] >= MIN_DOLLAR_VOLUME].reset_index(drop=True)
+        n_dropped = n_before - len(panel)
+        if n_dropped > 0:
+            log.info("Liquidity filter (intraday): dropped %d/%d rows below $%dM daily volume",
+                     n_dropped, n_before, MIN_DOLLAR_VOLUME // 1_000_000)
+        panel = panel.drop(columns=["_daily_dollar_vol"], errors="ignore")
 
     # Cross-sectional z-scoring per snapshot
     for feat_col in XS_FEATURES_INTRADAY:

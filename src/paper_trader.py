@@ -2583,13 +2583,23 @@ class AlpacaPaperTrader:
 
         # Determine entry direction.
         # Respect the model's own quality gate; cost threshold is the entry gate.
+        # For crypto, use per-symbol cost threshold from universe.json if higher
+        # than the global config (illiquid coins have wider spreads).
+        effective_cost_threshold = self.cost_threshold
+        if self.group in ("crypto", "crypto_intraday"):
+            yf_sym = _crypto_to_yfinance(symbol) if "/" in symbol else symbol
+            coin_cfg = get_coin_cost_config(yf_sym)
+            per_sym_threshold = coin_cfg.get("cost_threshold", 0.0)
+            if per_sym_threshold > effective_cost_threshold:
+                effective_cost_threshold = per_sym_threshold
+
         enter_dir = None
         if not pred.get("tradeable", True):
             return (f"SKIP  (model gate: not tradeable)  ML: {direction} "
                     f"E[r]={expected_return:+.4f}")
-        if expected_return > self.cost_threshold:
+        if expected_return > effective_cost_threshold:
             enter_dir = "LONG"
-        elif expected_return < -self.cost_threshold:
+        elif expected_return < -effective_cost_threshold:
             enter_dir = "SHORT"
 
         if enter_dir is not None:
@@ -2629,7 +2639,7 @@ class AlpacaPaperTrader:
             if last_loss:
                 loss_age_h = (datetime.now(timezone.utc) - last_loss["time"]).total_seconds() / 3600
                 if loss_age_h < 24 and enter_dir == last_loss["direction"]:
-                    effective_threshold = self.cost_threshold * self.same_dir_confidence_mult
+                    effective_threshold = effective_cost_threshold * self.same_dir_confidence_mult
                     if abs(expected_return) < effective_threshold:
                         return (f"SAME-DIR-BLOCK  ({symbol} {enter_dir} after max-loss {enter_dir}; "
                                 f"E[r]={expected_return:+.4f} < {effective_threshold:.4f} "
