@@ -126,6 +126,8 @@ def _pair_closed_trades(orders: list, fee_pct: float = 0.0) -> list:
                      exit_price, exit_qty, exit_time):
         is_long = entry_side == "buy"
         qty = min(entry_qty, exit_qty)
+        if qty < 1e-10 or entry <= 0:
+            return
         notional = qty * entry
         if is_long:
             raw_pnl = qty * (exit_price - entry)
@@ -421,7 +423,7 @@ def _parse_gold_scalper_history(
             contracts = int(t.get("contracts", 0))
             pnl = float(t.get("pnl", 0))
             direction = t.get("direction", "LONG")
-            pnl_pct = ((entry - exit_p) / entry * 100) if direction == "SHORT" else ((exit_p - entry) / entry * 100)
+            pnl_pct = (((entry - exit_p) / entry * 100) if direction == "SHORT" else ((exit_p - entry) / entry * 100)) if entry else 0.0
 
             trades.append({
                 "symbol":       t.get("symbol", "MGC"),
