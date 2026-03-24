@@ -110,16 +110,48 @@ def _fetch_alpaca(api_key: str, api_secret: str, allowed_symbols: set | None = N
     }
 
 
-def _pair_closed_trades(orders: list) -> list:
-    """Pair open→close orders per symbol into round-trip closed trades."""
+def _pair_closed_trades(orders: list, fee_pct: float = 0.0) -> list:
+    """Pair open→close orders per symbol into round-trip closed trades.
+
+    Handles position overwrites (double opens) by implicitly closing the old
+    position at the new open's price.  When *fee_pct* > 0 (e.g. 0.0026 for
+    Kraken 0.26%), fees on both legs are subtracted from P&L.
+    """
     chrono = sorted(orders, key=lambda o: o.get("filled_at", ""))
-    entry_prices: dict = {}   # symbol → entry price
-    entry_times: dict = {}    # symbol → entry filled_at
+    # symbol → {price, qty, side, time}
+    entries: dict = {}
     trades: list = []
+
+    def _close_trade(sym, entry, entry_qty, entry_side, entry_time,
+                     exit_price, exit_qty, exit_time):
+        is_long = entry_side == "buy"
+        qty = min(entry_qty, exit_qty)
+        notional = qty * entry
+        if is_long:
+            raw_pnl = qty * (exit_price - entry)
+        else:
+            raw_pnl = qty * (entry - exit_price)
+        fee = (qty * entry + qty * exit_price) * fee_pct
+        pnl_dollar = raw_pnl - fee
+        pnl_pct = (pnl_dollar / notional * 100) if notional else 0.0
+
+        trades.append({
+            "symbol":      sym,
+            "direction":   "LONG" if is_long else "SHORT",
+            "qty":         str(round(qty, 6)),
+            "entry_price": str(round(entry, 6)),
+            "exit_price":  str(round(exit_price, 6)),
+            "market_value": round(notional, 2),
+            "pnl_dollar":  round(pnl_dollar, 2),
+            "pnl_pct":     round(pnl_pct, 2),
+            "opened_at":   entry_time,
+            "closed_at":   exit_time,
+        })
 
     for o in chrono:
         sym = o.get("symbol", "")
         intent = o.get("intent", "")
+        side = o.get("side", "")
         try:
             price = float(o.get("price", 0))
             qty = float(o.get("qty", 0))
@@ -127,33 +159,26 @@ def _pair_closed_trades(orders: list) -> list:
             continue
         if not sym or not price:
             continue
+        filled_at = o.get("filled_at", "")
 
         if "open" in intent:
-            entry_prices[sym] = price
-            entry_times[sym] = o.get("filled_at", "")
-        elif "close" in intent and sym in entry_prices:
-            entry = entry_prices[sym]
-            is_long = o.get("side") == "sell"  # sell_to_close → was long
-            if is_long:
-                pnl_dollar = qty * (price - entry)
+            # If reopening a symbol that's already open, close the old one
+            if sym in entries:
+                e = entries[sym]
+                _close_trade(sym, e["price"], e["qty"], e["side"],
+                             e["time"], price, e["qty"], filled_at)
+            entries[sym] = {"price": price, "qty": qty, "side": side,
+                            "time": filled_at}
+        elif "close" in intent and sym in entries:
+            e = entries[sym]
+            _close_trade(sym, e["price"], e["qty"], e["side"],
+                         e["time"], price, qty, filled_at)
+            # Handle partial close
+            remaining = e["qty"] - qty
+            if remaining > 1e-10:
+                e["qty"] = remaining
             else:
-                pnl_dollar = qty * (entry - price)
-            pnl_pct = ((price - entry) / entry * 100) if is_long else ((entry - price) / entry * 100)
-
-            trades.append({
-                "symbol":      sym,
-                "direction":   "LONG" if is_long else "SHORT",
-                "qty":         o.get("qty", "0"),
-                "entry_price": str(round(entry, 6)),
-                "exit_price":  o.get("price", "0"),
-                "market_value": round(qty * entry, 2),
-                "pnl_dollar":  round(pnl_dollar, 2),
-                "pnl_pct":     round(pnl_pct, 2),
-                "opened_at":   entry_times.get(sym, ""),
-                "closed_at":   o.get("filled_at", ""),
-            })
-            del entry_prices[sym]
-            entry_times.pop(sym, None)
+                del entries[sym]
 
     return trades
 
@@ -340,7 +365,7 @@ def _parse_kraken_history(
     return {
         "portfolio": portfolio,
         "orders": _recent_orders(orders),
-        "trades": _recent_trades(_pair_closed_trades(orders)),
+        "trades": _recent_trades(_pair_closed_trades(orders, fee_pct=0.0026)),
     }
 
 
