@@ -1,100 +1,82 @@
 {
   "symbol": "GLD",
-  "trained_at": "2026-03-17",
+  "trained_at": "2026-03-23",
   "feature_cols": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
-    "sector_breadth"
+    "sector_breadth",
+    "symbol_id"
   ],
   "importances": [
-    0.057981,
-    0.044075,
-    0.048553,
-    0.042484,
-    0.028645,
-    0.054666,
-    0.028286,
-    0.021731,
-    0.0,
-    0.032884,
-    0.03104,
-    0.030939,
-    0.008281,
-    0.011475,
-    0.131966,
-    0.080991,
-    0.04323,
-    0.057897,
-    0.043501,
-    0.058995,
-    0.009141,
-    0.03482,
-    0.037895,
-    0.025774,
-    0.034751
+    0.071766,
+    0.088532,
+    0.075971,
+    0.089248,
+    0.046206,
+    0.04988,
+    0.079544,
+    0.075635,
+    0.063631,
+    0.046021,
+    0.053232,
+    0.083452,
+    0.074067,
+    0.052583,
+    0.050231,
+    0.0
   ],
   "top_10": [
     [
-      "gold_silver_ratio",
-      0.131966
-    ],
-    [
-      "correlation_regime",
-      0.080991
-    ],
-    [
-      "beta_smb",
-      0.058995
-    ],
-    [
-      "ret252",
-      0.057981
-    ],
-    [
-      "month_cos",
-      0.057897
-    ],
-    [
-      "macd_hist_norm",
-      0.054666
-    ],
-    [
-      "bb_bandwidth",
-      0.048553
+      "vol20",
+      0.089248
     ],
     [
       "rel_momentum_vs_spy_252",
-      0.044075
+      0.088532
     ],
     [
-      "breakeven_inflation_5y",
-      0.043501
+      "gold_silver_ratio",
+      0.083452
     ],
     [
-      "beta_rmw",
-      0.04323
+      "spy_trend_strength",
+      0.079544
+    ],
+    [
+      "ret63",
+      0.075971
+    ],
+    [
+      "real_yield_10y",
+      0.075635
+    ],
+    [
+      "vix_regime",
+      0.074067
+    ],
+    [
+      "ret252",
+      0.071766
+    ],
+    [
+      "risk_appetite_ratio",
+      0.063631
+    ],
+    [
+      "cboe_skew",
+      0.053232
     ]
   ]
 }

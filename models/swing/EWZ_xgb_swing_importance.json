@@ -1,100 +1,82 @@
 {
   "symbol": "EWZ",
-  "trained_at": "2026-03-17",
+  "trained_at": "2026-03-23",
   "feature_cols": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
-    "sector_breadth"
+    "sector_breadth",
+    "symbol_id"
   ],
   "importances": [
-    0.066513,
-    0.033768,
-    0.009381,
-    0.027337,
-    0.030251,
-    0.033397,
-    0.022049,
-    0.094532,
-    0.116592,
-    0.074067,
-    0.009002,
-    0.032477,
-    0.012741,
+    0.075249,
+    0.050918,
+    0.063234,
+    0.073172,
+    0.050979,
+    0.03291,
+    0.135128,
     0.0,
-    0.052978,
-    0.018945,
-    0.034504,
-    0.032463,
-    0.009788,
-    0.063491,
-    0.029985,
-    0.038166,
-    0.084211,
-    0.042503,
-    0.03086
+    0.067494,
+    0.062409,
+    0.035889,
+    0.096163,
+    0.060519,
+    0.107251,
+    0.088686,
+    0.0
   ],
   "top_10": [
     [
-      "fed_funds_rate",
-      0.116592
-    ],
-    [
       "spy_trend_strength",
-      0.094532
-    ],
-    [
-      "ret63",
-      0.084211
-    ],
-    [
-      "real_yield_10y",
-      0.074067
-    ],
-    [
-      "ret252",
-      0.066513
-    ],
-    [
-      "beta_smb",
-      0.063491
-    ],
-    [
-      "gold_silver_ratio",
-      0.052978
+      0.135128
     ],
     [
       "credit_spread_zscore",
-      0.042503
+      0.107251
     ],
     [
-      "ret21",
-      0.038166
+      "gold_silver_ratio",
+      0.096163
     ],
     [
-      "beta_rmw",
-      0.034504
+      "sector_breadth",
+      0.088686
+    ],
+    [
+      "ret252",
+      0.075249
+    ],
+    [
+      "vol20",
+      0.073172
+    ],
+    [
+      "risk_appetite_ratio",
+      0.067494
+    ],
+    [
+      "ret63",
+      0.063234
+    ],
+    [
+      "beta_mkt",
+      0.062409
+    ],
+    [
+      "vix_regime",
+      0.060519
     ]
   ]
 }

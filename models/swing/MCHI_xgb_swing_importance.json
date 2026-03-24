@@ -1,0 +1,82 @@
+{
+  "symbol": "MCHI",
+  "trained_at": "2026-03-23",
+  "feature_cols": [
+    "ret252",
+    "rel_momentum_vs_spy_252",
+    "ret63",
+    "vol20",
+    "rsi14",
+    "macd_hist_norm",
+    "spy_trend_strength",
+    "real_yield_10y",
+    "risk_appetite_ratio",
+    "beta_mkt",
+    "cboe_skew",
+    "gold_silver_ratio",
+    "vix_regime",
+    "credit_spread_zscore",
+    "sector_breadth",
+    "symbol_id"
+  ],
+  "importances": [
+    0.040114,
+    0.034325,
+    0.044974,
+    0.106287,
+    0.054317,
+    0.03955,
+    0.115599,
+    0.102536,
+    0.068258,
+    0.044173,
+    0.137021,
+    0.062555,
+    0.07876,
+    0.028644,
+    0.042886,
+    0.0
+  ],
+  "top_10": [
+    [
+      "cboe_skew",
+      0.137021
+    ],
+    [
+      "spy_trend_strength",
+      0.115599
+    ],
+    [
+      "vol20",
+      0.106287
+    ],
+    [
+      "real_yield_10y",
+      0.102536
+    ],
+    [
+      "vix_regime",
+      0.07876
+    ],
+    [
+      "risk_appetite_ratio",
+      0.068258
+    ],
+    [
+      "gold_silver_ratio",
+      0.062555
+    ],
+    [
+      "rsi14",
+      0.054317
+    ],
+    [
+      "ret63",
+      0.044974
+    ],
+    [
+      "beta_mkt",
+      0.044173
+    ]
+  ]
+}

@@ -813,12 +813,14 @@ class Backtester:
         etf_ct = self.cost_threshold
         etf_tr = self.target_return
         etf_pred_scale = 1.0
+        etf_vol_normalized = False
         if os.path.exists(config_path):
             with open(config_path) as f:
                 cfg = json.load(f)
             etf_ct = cfg.get("cost_threshold", ETF_INTRADAY_CT)
             etf_tr = cfg.get("target_return", ETF_INTRADAY_TR)
             etf_pred_scale = cfg.get("pred_scale", 1.0)
+            etf_vol_normalized = cfg.get("label_vol_normalized", False)
             saved_features = cfg.get("feature_names")
             if saved_features:
                 feature_cols = saved_features
@@ -835,8 +837,40 @@ class Backtester:
                         f"training/validation data. Use --start with a date after "
                         f"{val_end_dt.date()} for true out-of-sample results."
                     )
-        log.info("Loaded LGB for %s (%d features, ct=%.4f, tr=%.4f, pred_scale=%.2f).",
-                 self.symbol, len(feature_cols), etf_ct, etf_tr, etf_pred_scale)
+
+        # Load multi-horizon models (6-bar, 24-bar)
+        lgb_6bar = None
+        lgb_24bar = None
+        lgb_6_path = os.path.join(self.model_dir, f"{self.symbol}_lgb_intraday_etf_6bar.joblib")
+        lgb_24_path = os.path.join(self.model_dir, f"{self.symbol}_lgb_intraday_etf_24bar.joblib")
+        if os.path.exists(lgb_6_path):
+            lgb_6bar = joblib.load(lgb_6_path)
+        if os.path.exists(lgb_24_path):
+            lgb_24bar = joblib.load(lgb_24_path)
+
+        # Load pooled model
+        from etf_intraday_model import (
+            INTRADAY_SYMBOL_TO_POOL, INTRADAY_CLUSTER_SYMBOL_IDS,
+            INTRADAY_VOL_LOOKBACK, INTRADAY_VOL_FLOOR,
+        )
+        etf_pooled_model = None
+        etf_pooled_features = None
+        pool_name = INTRADAY_SYMBOL_TO_POOL.get(self.symbol.upper())
+        if pool_name:
+            pool_path = os.path.join(self.model_dir, f"{pool_name}_pool_lgb_intraday.joblib")
+            pool_cfg_path = os.path.join(self.model_dir, f"{pool_name}_pool_lgb_intraday_config.json")
+            if os.path.exists(pool_path):
+                etf_pooled_model = joblib.load(pool_path)
+                if os.path.exists(pool_cfg_path):
+                    with open(pool_cfg_path) as pcf:
+                        etf_pooled_features = json.load(pcf).get("feature_names")
+
+        log.info("Loaded LGB for %s (%d features, ct=%.4f, tr=%.4f, pred_scale=%.2f, "
+                 "vol_norm=%s, horizons=%s, pooled=%s).",
+                 self.symbol, len(feature_cols), etf_ct, etf_tr, etf_pred_scale,
+                 etf_vol_normalized,
+                 "+".join(["12"] + (["6"] if lgb_6bar else []) + (["24"] if lgb_24bar else [])),
+                 "yes" if etf_pooled_model else "no")
 
         # Timestamps
         feature_ts = pd.to_datetime(features["ts"])
@@ -891,8 +925,47 @@ class Backtester:
 
             # --- LGB prediction (scaled to match real return magnitude) ---
             try:
-                x_row = features[feature_cols].iloc[i:i + 1].values.astype(np.float32)
+                avail_cols = [c for c in feature_cols if c in features.columns]
+                x_row = features[avail_cols].iloc[i:i + 1].values.astype(np.float32)
                 expected_return = float(lgb_model.predict(x_row)[0]) * etf_pred_scale
+
+                # Multi-horizon consensus
+                if lgb_6bar is not None or lgb_24bar is not None:
+                    pred_6 = float(lgb_6bar.predict(x_row)[0]) if lgb_6bar else None
+                    pred_24 = float(lgb_24bar.predict(x_row)[0]) if lgb_24bar else None
+                    if pred_6 is not None and pred_24 is not None:
+                        signs = [np.sign(pred_6), np.sign(expected_return), np.sign(pred_24)]
+                        agreement = sum(1 for s in signs if s == signs[0])
+                        if agreement == 3:
+                            expected_return = 0.25 * pred_6 + 0.50 * expected_return + 0.25 * pred_24
+                        elif agreement >= 2:
+                            expected_return *= 0.5
+                        else:
+                            expected_return *= 0.3
+                    elif pred_6 is not None and np.sign(pred_6) == np.sign(expected_return):
+                        expected_return = 0.40 * pred_6 + 0.60 * expected_return
+
+                # Pooled model blend (70/30)
+                if etf_pooled_model is not None and etf_pooled_features:
+                    sym_id = INTRADAY_CLUSTER_SYMBOL_IDS.get(
+                        pool_name or "", {}).get(self.symbol.upper(), 0)
+                    pool_row = features[avail_cols].iloc[i:i + 1].copy()
+                    pool_row["symbol_id"] = sym_id
+                    pool_avail = [c for c in etf_pooled_features if c in pool_row.columns]
+                    x_pool = pool_row[pool_avail].values.astype(np.float32)
+                    pooled_pred = float(etf_pooled_model.predict(x_pool)[0])
+                    expected_return = 0.70 * expected_return + 0.30 * pooled_pred
+
+                # Vol-denormalization
+                if etf_vol_normalized:
+                    close_s = bars_indexed["close"].astype(float)
+                    log_ret_s = np.log(close_s / close_s.shift(1))
+                    cur_vol = log_ret_s.rolling(INTRADAY_VOL_LOOKBACK).std().iloc[
+                        min(closest_idx, len(close_s) - 1)]
+                    if np.isnan(cur_vol) or cur_vol < INTRADAY_VOL_FLOOR:
+                        cur_vol = INTRADAY_VOL_FLOOR
+                    expected_return = expected_return * cur_vol
+
             except Exception:
                 expected_return = 0.0
 
@@ -1074,6 +1147,40 @@ class Backtester:
             log.info("Loaded XGBoost swing for %s (%d features).",
                      self.symbol, len(get_swing_feature_cols(self.symbol)))
 
+            # Check if model was trained with vol-normalized labels
+            swing_vol_normalized = False
+            swing_feature_names = None  # feature names from config (for correct column selection)
+            cfg_path = os.path.join(self.model_dir, f"{self.symbol}_xgb_swing_config.json")
+            if os.path.exists(cfg_path):
+                with open(cfg_path) as _cf:
+                    _swing_cfg = json.load(_cf)
+                swing_vol_normalized = _swing_cfg.get("label_vol_normalized", False)
+                swing_feature_names = _swing_cfg.get("feature_names")
+                if swing_vol_normalized:
+                    log.info("Vol-normalized labels detected — will denormalize predictions.")
+
+            # Load pooled cluster model if available (blend 70/30 with per-symbol)
+            # Load 5d short-horizon model if available
+            xgb_5d_model = None
+            xgb_5d_path = os.path.join(self.model_dir, f"{self.symbol}_xgb_swing_5d.joblib")
+            if os.path.exists(xgb_5d_path):
+                xgb_5d_model = joblib.load(xgb_5d_path)
+                log.info("Loaded 5d short-horizon XGBoost for multi-horizon blend.")
+
+            pooled_xgb = None
+            pooled_feature_names = None
+            from swing_model import SYMBOL_TO_POOL
+            if self.symbol in SYMBOL_TO_POOL:
+                pool_name = SYMBOL_TO_POOL[self.symbol]
+                pooled_path = os.path.join(self.model_dir, f"{pool_name}_pool_xgb_10d.joblib")
+                pooled_cfg_path = os.path.join(self.model_dir, f"{pool_name}_pool_xgb_10d_config.json")
+                if os.path.exists(pooled_path):
+                    pooled_xgb = joblib.load(pooled_path)
+                    if os.path.exists(pooled_cfg_path):
+                        with open(pooled_cfg_path) as _pcf:
+                            pooled_feature_names = json.load(_pcf).get("feature_names")
+                    log.info("Loaded pooled %s model for ensemble.", pool_name)
+
         else:  # "lstm" (default)
             engine = FeatureEngine()
             suffix = "" if self.mode == "daily" else f"_{self.intraday_interval}"
@@ -1181,8 +1288,41 @@ class Backtester:
 
             # --- Get prediction (v2 regression: expected return) ---
             if xgb_model is not None:
-                x_row = features_norm.iloc[idx_pos:idx_pos + 1].values.astype(np.float32)
+                if swing_feature_names:
+                    avail = [c for c in swing_feature_names if c in features_norm.columns]
+                    x_row = features_norm[avail].iloc[idx_pos:idx_pos + 1].values.astype(np.float32)
+                else:
+                    x_row = features_norm.iloc[idx_pos:idx_pos + 1].values.astype(np.float32)
                 expected_return = float(xgb_model.predict(x_row)[0])
+                # Multi-horizon blend: 5d + 10d (60/40 when agreeing)
+                if xgb_5d_model is not None:
+                    try:
+                        ret_5d = float(xgb_5d_model.predict(x_row)[0])
+                        if np.sign(ret_5d) == np.sign(expected_return):
+                            expected_return = 0.60 * expected_return + 0.40 * ret_5d
+                    except Exception:
+                        pass
+                # Blend with pooled cluster model (70/30)
+                if pooled_xgb is not None:
+                    try:
+                        if pooled_feature_names:
+                            pcols = [c for c in pooled_feature_names if c in features_norm.columns]
+                            px = features_norm[pcols].iloc[idx_pos:idx_pos + 1].values.astype(np.float32)
+                        else:
+                            px = x_row
+                        pooled_ret = float(pooled_xgb.predict(px)[0])
+                        expected_return = 0.70 * expected_return + 0.30 * pooled_ret
+                    except Exception:
+                        pass  # fall back to per-symbol only
+                # Vol-denormalize: multiply by current trailing 20-day realized vol
+                if swing_vol_normalized:
+                    vol_floor = 0.005 / np.sqrt(252)
+                    lookback_start = max(0, feat_idx - 20)
+                    trail_rets = close_s.iloc[lookback_start:feat_idx].pct_change().dropna()
+                    cur_vol = trail_rets.std() if len(trail_rets) >= 5 else vol_floor
+                    if np.isnan(cur_vol) or cur_vol < vol_floor:
+                        cur_vol = vol_floor
+                    expected_return = expected_return * cur_vol
             else:
                 window_start = idx_pos - effective_seq_len
                 window = features_norm.iloc[window_start:idx_pos].values
@@ -1238,6 +1378,19 @@ class Backtester:
                 if pos.breakeven_armed and unrealized_pct <= 0:
                     pos.exit_layer = "breakeven"
                     self._close_position(portfolio, bar_date, bar_close, "breakeven_ratchet", bar_time=bar_time)
+                    self._record_equity(portfolio, bar_date, bar_close)
+                    continue
+
+                # LAYER 1.5: Strong opposing signal override
+                # If model predicts >2x cost_threshold in opposing direction, exit immediately
+                strong_opposing = ((pos.direction == "LONG" and expected_return < -2 * self.cost_threshold)
+                                   or (pos.direction == "SHORT" and expected_return > 2 * self.cost_threshold))
+                if strong_opposing and pos.bars_held >= 2:
+                    pos.exit_layer = "signal_override"
+                    self._close_position(portfolio, bar_date, bar_close,
+                                         "strong_signal_override", bar_time=bar_time)
+                    if portfolio.closed_trades:
+                        swing_recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
                     self._record_equity(portfolio, bar_date, bar_close)
                     continue
 
@@ -1461,6 +1614,15 @@ class Backtester:
             base_frac = min(self.position_pct, risk.position_pct)
 
         base_pct = base_frac * signal_pct
+
+        # Inverse-vol sizing: scale inversely with realized vol
+        # Target vol = 15% annualized. Higher vol → smaller position.
+        if bar_atr > 0 and price > 0:
+            realized_vol_ann = (bar_atr / price) * np.sqrt(252)
+            target_vol = 0.15
+            inv_vol_mult = min(2.0, max(0.3, target_vol / max(realized_vol_ann, 0.05)))
+            base_pct *= inv_vol_mult
+
         base_pct = min(base_pct, risk.max_position_pct)
         base_pct = min(base_pct, get_symbol_cap(self.symbol, self._risk_group))
         # conf_mult and rank_scalar removed — sym_cap is the single OOS-based

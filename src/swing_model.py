@@ -153,8 +153,33 @@ FORWARD_DAYS_SHORT = 5    # short-horizon model: 5-day forward return
 # Commodity ETFs that can be pooled into a single model with symbol embedding
 COMMODITY_POOL = ["GLD", "SLV", "GDX", "PDBC", "USO"]
 
+# Cluster pools for cross-sectional training — each trains ONE shared XGBoost
+# with symbol_id enabling symbol-specific tree splits.
+POOL_CLUSTERS: Dict[str, list] = {
+    "commodity":      ["GLD", "SLV", "GDX", "GDXJ", "PDBC", "USO", "IAU", "URNM", "XLB"],
+    "fixed_income":   ["BND", "LQD", "HYG", "EMB", "TLT", "IEF", "SHY", "TIP"],
+    "intl_developed": ["VGK", "EWG", "EWJ", "EWU", "EWA", "EWC", "EWH", "EWY"],
+    "intl_emerging":  ["EEM", "VWO", "EWZ", "EWW", "EWT", "MCHI", "INDA"],
+    "us_growth":      ["QQQ", "IWF", "IGV", "SMH", "SOXX", "XLK", "ARKK", "CIBR"],
+    "us_value":       ["SPY", "IWM", "IWB", "VTV", "VBR", "MTUM", "QUAL", "USMV"],
+    "us_sector":      ["XLE", "XLF", "XLI", "XLP", "XLRE", "XLU", "XLV", "XLY"],
+    "crypto_etf":     ["IBIT", "FBTC", "ETHA"],
+}
+
+# Build flat lookup: symbol → pool name
+SYMBOL_TO_POOL: Dict[str, str] = {}
+for _pool_name, _pool_syms in POOL_CLUSTERS.items():
+    for _sym in _pool_syms:
+        SYMBOL_TO_POOL[_sym] = _pool_name
+
 # Symbol → integer ID for pooled models (XGBoost learns symbol-specific splits)
 POOL_SYMBOL_IDS: Dict[str, int] = {sym: i for i, sym in enumerate(COMMODITY_POOL)}
+
+# Per-cluster symbol IDs
+CLUSTER_SYMBOL_IDS: Dict[str, Dict[str, int]] = {
+    name: {sym: i for i, sym in enumerate(syms)}
+    for name, syms in POOL_CLUSTERS.items()
+}
 
 # TFT hyperparams — intentionally small to avoid overfitting on N~800 samples
 # Lim et al. (2021) "Temporal Fusion Transformers for Interpretable Multi-horizon
@@ -265,8 +290,8 @@ def get_swing_feature_cols(symbol: str | None = None) -> list:
         config = load_feature_config(symbol)
         if config is not None:
             cols = resolve_features_from_config(symbol, config)
-            # Add symbol_id for pooled commodity models
-            if symbol in POOL_SYMBOL_IDS and "symbol_id" not in cols:
+            # Add symbol_id for pooled cluster models
+            if symbol in SYMBOL_TO_POOL and "symbol_id" not in cols:
                 cols.append("symbol_id")
             return cols
 
@@ -303,8 +328,8 @@ def get_swing_feature_cols(symbol: str | None = None) -> list:
     if symbol:
         cols.extend(get_market_features(symbol))
 
-    # Symbol ID for pooled commodity models (ordinal int → XGBoost learns symbol-specific splits)
-    if symbol and symbol in POOL_SYMBOL_IDS:
+    # Symbol ID for pooled cluster models (ordinal int → XGBoost learns symbol-specific splits)
+    if symbol and symbol in SYMBOL_TO_POOL:
         cols.append("symbol_id")
 
     return cols
@@ -545,9 +570,10 @@ class SwingFeatureEngine:
                         df[col] = np.nan
 
         # Drop NaN warmup on base features; fill optional features with 0
-        # Symbol ID for pooled models (e.g. commodity pool: GLD=0, SLV=1, ...)
-        if symbol and symbol in POOL_SYMBOL_IDS:
-            df["symbol_id"] = float(POOL_SYMBOL_IDS[symbol])
+        # Symbol ID for pooled cluster models (e.g. commodity: GLD=0, SLV=1, ...)
+        if symbol and symbol in SYMBOL_TO_POOL:
+            pool_name = SYMBOL_TO_POOL[symbol]
+            df["symbol_id"] = float(CLUSTER_SYMBOL_IDS[pool_name][symbol])
 
         all_cols = get_swing_feature_cols(symbol)
         df = df.dropna(subset=SWING_BASE_FEATURES)
@@ -749,14 +775,30 @@ def _prepare_tabular_regression(
     features_df: pd.DataFrame,
     bars_df: pd.DataFrame,
     forward_days: int = FORWARD_DAYS,
+    vol_normalize: bool = True,
+    cost_adjust_bps: float = 0.0,
 ) -> tuple:
     """Forward N-day return regression labels for XGBoost.
 
-    Returns (X, y) as float32 numpy arrays.
+    Args:
+        vol_normalize: If True, divide returns by trailing 20-day realized vol.
+            This makes the model learn risk-adjusted signal strength rather than
+            raw returns that conflate alpha with volatility regime.
+            At prediction time, multiply output by current vol to recover real units.
+        cost_adjust_bps: If > 0, subtract this many bps from |fwd_ret| as round-trip
+            cost. Teaches the model to ignore moves that won't survive trading costs.
+
+    Returns (X, y, vol_mean) as float32 numpy arrays + mean vol for config.
     """
     full_close = bars_df["close"].astype(float).values
     bar_positions = bars_df.index.get_indexer(features_df.index)
     feature_values = features_df.values
+
+    # Trailing 20-day realized vol (annualized) for vol normalization
+    close_series = pd.Series(full_close)
+    trailing_vol = close_series.pct_change().rolling(20).std().values
+    # Floor vol to prevent division by near-zero in calm markets
+    VOL_FLOOR = 0.005 / np.sqrt(252)  # ~0.03% daily = ~5% annualized floor
 
     # Validate alignment: all feature rows must map to a valid bar position
     n_valid = (bar_positions >= 0).sum()
@@ -769,7 +811,9 @@ def _prepare_tabular_regression(
         log.warning("XGBoost label alignment: %d/%d feature rows have no matching bar",
                     n_missing, n_total)
 
-    X_list, y_list = [], []
+    cost_frac = cost_adjust_bps / 10000.0  # convert bps to decimal
+
+    X_list, y_list, vol_list = [], [], []
     for i in range(len(feature_values)):
         bar_pos = bar_positions[i]
         if bar_pos < 0 or bar_pos + forward_days >= len(full_close):
@@ -778,10 +822,23 @@ def _prepare_tabular_regression(
         if entry_price <= 0:
             continue
         fwd_ret = (full_close[bar_pos + forward_days] - entry_price) / entry_price
+
+        # Cost-adjusted: subtract estimated round-trip cost from magnitude
+        if cost_frac > 0:
+            fwd_ret = fwd_ret - np.sign(fwd_ret) * cost_frac
+
+        # Vol-normalized: divide by trailing vol so model learns risk-adjusted alpha
+        raw_vol = trailing_vol[bar_pos] if bar_pos < len(trailing_vol) else np.nan
+        bar_vol = raw_vol if not np.isnan(raw_vol) and raw_vol > VOL_FLOOR else VOL_FLOOR
+        if vol_normalize:
+            fwd_ret = fwd_ret / bar_vol
+            vol_list.append(bar_vol)
+
         X_list.append(feature_values[i])
         y_list.append(fwd_ret)
 
     y_arr = np.array(y_list, dtype=np.float32)
+    vol_mean = float(np.mean(vol_list)) if vol_list else 0.0
 
     # Percentile-based Winsorization (1st/99th) — more robust than fixed ±10%
     if len(y_arr) > 20:
@@ -789,7 +846,10 @@ def _prepare_tabular_regression(
         y_arr = np.clip(y_arr, p1, p99)
         log.info("Label Winsorization: clipped to [%.4f, %.4f] (1st/99th pctile)", p1, p99)
 
-    return np.array(X_list, dtype=np.float32), y_arr
+    if vol_normalize:
+        log.info("Labels vol-normalized (mean_vol=%.4f, cost_adj=%.1fbps)", vol_mean, cost_adjust_bps)
+
+    return np.array(X_list, dtype=np.float32), y_arr, vol_mean
 
 
 # ---------------------------------------------------------------------------
@@ -915,12 +975,14 @@ def _prepare_sequence_regression(
     bars_df: pd.DataFrame,
     seq_len: int = _TFT_SEQ_LEN,
     forward_days: int = FORWARD_DAYS,
+    vol_normalize: bool = True,
+    cost_adjust_bps: float = 0.0,
 ) -> tuple:
     """Sliding-window sequences for TFT training.
 
     For each valid bar i (i >= seq_len, i + forward_days < len(bars)):
         X[i] = features_norm[i-seq_len : i]   shape: (seq_len, n_features)
-        y[i] = forward 10-day return at bar i
+        y[i] = forward 10-day return at bar i (vol-normalized if enabled)
 
     Labels are winsorized to 1st/99th percentile (same as XGBoost) to ensure
     both models train on the same target scale.
@@ -929,6 +991,12 @@ def _prepare_sequence_regression(
     bar_positions  = bars_df.index.get_indexer(features_norm.index)
     feature_values = features_norm.values
     n = len(feature_values)
+
+    # Trailing vol for normalization (same as XGBoost)
+    close_series = pd.Series(full_close)
+    trailing_vol = close_series.pct_change().rolling(20).std().values
+    VOL_FLOOR = 0.005 / np.sqrt(252)
+    cost_frac = cost_adjust_bps / 10000.0
 
     X_list, y_list = [], []
     for i in range(seq_len, n):
@@ -939,6 +1007,15 @@ def _prepare_sequence_regression(
         if entry_price <= 0:
             continue
         fwd_ret = (full_close[bar_pos + forward_days] - entry_price) / entry_price
+
+        if cost_frac > 0:
+            fwd_ret = fwd_ret - np.sign(fwd_ret) * cost_frac
+
+        if vol_normalize:
+            raw_vol = trailing_vol[bar_pos] if bar_pos < len(trailing_vol) else np.nan
+            bar_vol = raw_vol if not np.isnan(raw_vol) and raw_vol > VOL_FLOOR else VOL_FLOOR
+            fwd_ret = fwd_ret / bar_vol
+
         X_list.append(feature_values[i - seq_len:i])
         y_list.append(fwd_ret)
 
@@ -968,7 +1045,10 @@ def train_tft_swing_model(
     Called from train_swing_model() after XGBoost has been saved.
     Shares the same scaler — features_norm is already z-scored.
     """
-    X_all, y_all = _prepare_sequence_regression(features_norm, bars_df, seq_len)
+    X_all, y_all = _prepare_sequence_regression(
+        features_norm, bars_df, seq_len,
+        vol_normalize=True, cost_adjust_bps=0.0,  # cost already in XGB labels; TFT shares target scale
+    )
     if len(X_all) < 50:
         log.warning("[TFT] %s: only %d sequences — skipping TFT.", symbol, len(X_all))
         return None
@@ -1206,10 +1286,18 @@ def train_swing_model(
     engine.fit_scaler(features.iloc[:split_idx])
     full_norm = engine.transform(features)
 
-    # 4. Forward return labels
-    X_all, y_all = _prepare_tabular_regression(full_norm, bars, forward_days=FORWARD_DAYS)
-    log.info("Labeled %d samples. Mean fwd return: %+.4f%%",
-             len(y_all), y_all.mean() * 100)
+    # 4. Forward return labels (vol-normalized + cost-adjusted)
+    try:
+        from cost_model import get_symbol_costs
+        rt_cost_bps = get_symbol_costs(symbol).round_trip_bps
+    except Exception:
+        rt_cost_bps = 7.0  # default mid-tier ETF cost
+    X_all, y_all, vol_mean = _prepare_tabular_regression(
+        full_norm, bars, forward_days=FORWARD_DAYS,
+        vol_normalize=True, cost_adjust_bps=rt_cost_bps,
+    )
+    log.info("Labeled %d samples. Mean vol-norm return: %+.4f (cost_adj=%.1fbps)",
+             len(y_all), y_all.mean(), rt_cost_bps)
 
     # 5. Walk-forward split (80/20 within the training-only window)
     split = int(len(X_all) * 0.8)
@@ -1333,6 +1421,9 @@ def train_swing_model(
         "train_end":            train_end or "all_data",
         "train_mode":           "walk_forward_75_25" if train_recent else "standard",
         "label_mean_removed":   round(label_mean, 8),
+        "label_vol_normalized": True,
+        "label_cost_adjust_bps": rt_cost_bps,
+        "training_vol_mean":    round(vol_mean, 8),
     }
     with open(config_path, "w") as f:
         json.dump(config, f, indent=2)
@@ -1362,11 +1453,12 @@ def train_swing_model(
 
 
 # ---------------------------------------------------------------------------
-# Pooled commodity model — trains single XGBoost on all COMMODITY_POOL symbols
+# Pooled cluster model — trains single XGBoost on all symbols in a cluster
 # with symbol_id feature enabling symbol-specific tree splits.
 # ---------------------------------------------------------------------------
 
-def train_pooled_commodity_model(
+def train_pooled_cluster_model(
+    cluster_name: str,
     adapter,
     fred_key: Optional[str] = None,
     lookback: int = 1000,
@@ -1374,27 +1466,33 @@ def train_pooled_commodity_model(
     train_recent: bool = False,
     forward_days: int = FORWARD_DAYS,
 ) -> Optional[xgb.XGBRegressor]:
-    """Train a single XGBoost model on pooled commodity ETFs (GLD, SLV, GDX, PDBC, USO).
+    """Train a single XGBoost model on all symbols in a cluster.
 
     The symbol_id feature acts as a categorical embedding — XGBoost learns
     symbol-specific tree splits naturally, so one model captures shared
-    commodity dynamics while adapting to each symbol's idiosyncrasies.
+    dynamics while adapting to each symbol's idiosyncrasies.
 
     Benefits over per-symbol models:
-      - 5× more training data (~2500 samples vs ~500 per symbol)
-      - Shared commodity regime features (gold/silver ratio, real yield, etc.)
+      - N× more training data (e.g. 8 symbols × ~500 = ~4000 samples)
+      - Shared regime features across correlated assets
       - Symbol-specific behavior via tree routing on symbol_id
     """
+    if cluster_name not in POOL_CLUSTERS:
+        log.error("Unknown cluster: %s. Available: %s", cluster_name, list(POOL_CLUSTERS.keys()))
+        return None
+
+    pool_symbols = POOL_CLUSTERS[cluster_name]
+    sym_ids = CLUSTER_SYMBOL_IDS[cluster_name]
     os.makedirs(save_dir, exist_ok=True)
     horizon_tag = f"{forward_days}d"
-    log.info("=== Training POOLED commodity model (%s horizon, %d symbols) ===",
-             horizon_tag, len(COMMODITY_POOL))
+    log.info("=== Training POOLED %s model (%s horizon, %d symbols: %s) ===",
+             cluster_name, horizon_tag, len(pool_symbols), ", ".join(pool_symbols))
 
     all_X, all_y = [], []
     all_feature_cols = None
     engine = SwingFeatureEngine()
 
-    for sym in COMMODITY_POOL:
+    for sym in pool_symbols:
         try:
             bars = adapter.fetch_daily(sym, lookback)
             if len(bars) < 100:
@@ -1404,7 +1502,6 @@ def train_pooled_commodity_model(
             vix_df = _fetch_vix_for_training(fred_key, lookback_days=max(lookback, 500),
                                              include_live=False)
 
-            # Build features (includes symbol_id for COMMODITY_POOL members)
             features = engine.build_features(bars, vix_df, spy_bars=spy_bars,
                                              symbol=sym, fred_key=fred_key)
 
@@ -1416,9 +1513,13 @@ def train_pooled_commodity_model(
             if all_feature_cols is None:
                 all_feature_cols = feature_cols
             else:
-                # Ensure consistent feature columns across symbols
-                assert feature_cols == all_feature_cols, \
-                    f"Feature mismatch: {sym} has {len(feature_cols)} vs {len(all_feature_cols)}"
+                if feature_cols != all_feature_cols:
+                    # Align columns — some symbols may have extra/missing features
+                    common = [c for c in all_feature_cols if c in feature_cols]
+                    log.warning("Feature mismatch for %s: %d vs %d cols, using %d common",
+                                sym, len(feature_cols), len(all_feature_cols), len(common))
+                    all_feature_cols = common
+                    features = features[common]
 
             # Scaler: fit on first symbol's training portion, transform all
             if len(all_X) == 0:
@@ -1426,7 +1527,15 @@ def train_pooled_commodity_model(
                 engine.fit_scaler(features.iloc[:split_idx])
             full_norm = engine.transform(features)
 
-            X, y = _prepare_tabular_regression(full_norm, bars, forward_days=forward_days)
+            try:
+                from cost_model import get_symbol_costs
+                rt_cost = get_symbol_costs(sym).round_trip_bps
+            except Exception:
+                rt_cost = 7.0
+            X, y, _ = _prepare_tabular_regression(
+                full_norm, bars, forward_days=forward_days,
+                vol_normalize=True, cost_adjust_bps=rt_cost,
+            )
             all_X.append(X)
             all_y.append(y)
             log.info("  %s: %d samples (mean fwd ret: %+.4f%%)", sym, len(y), y.mean() * 100)
@@ -1435,19 +1544,20 @@ def train_pooled_commodity_model(
             log.warning("Skipping %s in pooled training: %s", sym, exc)
 
     if not all_X:
-        log.error("No data for pooled commodity model")
+        log.error("No data for pooled %s model", cluster_name)
         return None
 
     X_all = np.concatenate(all_X, axis=0)
     y_all = np.concatenate(all_y, axis=0)
-    log.info("Pooled dataset: %d total samples, %d features", len(X_all), X_all.shape[1])
+    log.info("Pooled %s dataset: %d total samples, %d features",
+             cluster_name, len(X_all), X_all.shape[1])
 
-    # Walk-forward split (80/20)
-    split = int(len(X_all) * 0.8)
+    # Walk-forward split (75/25 matching per-symbol models)
+    split = int(len(X_all) * 0.75)
     X_train, y_train = X_all[:split], y_all[:split]
     X_val, y_val = X_all[split:], y_all[split:]
 
-    # Demean if needed
+    # Demean if small dataset
     label_mean = 0.0
     if len(X_train) < 300:
         label_mean = float(y_train.mean())
@@ -1457,17 +1567,19 @@ def train_pooled_commodity_model(
     # XGBoost with larger dataset params
     xgb_params = dict(_XGB_PARAMS)
     xgb_params["min_child_weight"] = max(5, len(X_train) // 50)
-    xgb_params["n_estimators"] = 500  # more data → more trees
+    xgb_params["n_estimators"] = min(500, max(200, len(X_train) // 5))
     model = xgb.XGBRegressor(**xgb_params)
     model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
 
     val_preds = model.predict(X_val)
     val_rmse = float(np.sqrt(np.mean((val_preds - y_val) ** 2)))
     direction_acc = float(np.mean((val_preds > 0) == (y_val > 0)))
-    log.info("Pooled val RMSE: %.6f | Direction accuracy: %.3f", val_rmse, direction_acc)
+    ic = float(np.corrcoef(val_preds, y_val)[0, 1]) if len(val_preds) > 5 else 0.0
+    log.info("Pooled %s — RMSE: %.6f | Dir acc: %.3f | IC: %.3f",
+             cluster_name, val_rmse, direction_acc, ic)
 
     # Save
-    model_tag = f"commodity_pool_xgb_{horizon_tag}"
+    model_tag = f"{cluster_name}_pool_xgb_{horizon_tag}"
     model_path = os.path.join(save_dir, f"{model_tag}.joblib")
     scaler_path = os.path.join(save_dir, f"{model_tag}_scaler.json")
     config_path = os.path.join(save_dir, f"{model_tag}_config.json")
@@ -1477,23 +1589,55 @@ def train_pooled_commodity_model(
 
     config = {
         "model_type": "xgb_swing_pooled",
-        "symbols": COMMODITY_POOL,
-        "symbol_ids": POOL_SYMBOL_IDS,
+        "cluster": cluster_name,
+        "symbols": pool_symbols,
+        "symbol_ids": sym_ids,
         "horizon": horizon_tag,
         "forward_days": forward_days,
         "val_rmse": round(val_rmse, 8),
         "val_direction_accuracy": round(direction_acc, 4),
+        "val_ic": round(ic, 4),
         "n_train": len(X_train),
         "n_val": len(X_val),
-        "n_features": len(all_feature_cols),
+        "n_features": len(all_feature_cols) if all_feature_cols else 0,
         "feature_names": all_feature_cols,
         "label_mean_removed": round(label_mean, 8),
+        "label_vol_normalized": True,
     }
     with open(config_path, "w") as f:
         json.dump(config, f, indent=2)
 
-    log.info("Saved pooled commodity model → %s (dir_acc=%.3f)", model_path, direction_acc)
+    log.info("Saved pooled %s model → %s", cluster_name, model_path)
     return model
+
+
+def train_pooled_commodity_model(
+    adapter, fred_key=None, lookback=1000, save_dir=SWING_MODEL_DIR,
+    train_recent=False, forward_days=FORWARD_DAYS,
+):
+    """Backward-compat wrapper → trains the 'commodity' cluster."""
+    return train_pooled_cluster_model(
+        "commodity", adapter, fred_key=fred_key, lookback=lookback,
+        save_dir=save_dir, train_recent=train_recent, forward_days=forward_days,
+    )
+
+
+def train_all_pooled_clusters(
+    adapter,
+    fred_key: Optional[str] = None,
+    lookback: int = 1000,
+    save_dir: str = SWING_MODEL_DIR,
+    train_recent: bool = False,
+    forward_days: int = FORWARD_DAYS,
+) -> Dict[str, Optional[xgb.XGBRegressor]]:
+    """Train pooled models for ALL clusters defined in POOL_CLUSTERS."""
+    results = {}
+    for cluster_name in POOL_CLUSTERS:
+        results[cluster_name] = train_pooled_cluster_model(
+            cluster_name, adapter, fred_key=fred_key, lookback=lookback,
+            save_dir=save_dir, train_recent=train_recent, forward_days=forward_days,
+        )
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -1624,12 +1768,14 @@ class SwingPredictor:
 
         # Load feature names from XGBoost config (handles feature count mismatch
         # when new features are added but model hasn't been retrained yet)
+        self._vol_normalized = False  # whether model was trained on vol-normalized labels
         xgb_cfg_path = os.path.join(self.model_dir, f"{self.symbol}_xgb_swing_config.json")
         if os.path.exists(xgb_cfg_path):
             try:
                 with open(xgb_cfg_path) as f:
                     xgb_cfg = json.load(f)
                 self._xgb_feature_names = xgb_cfg.get("feature_names")
+                self._vol_normalized = xgb_cfg.get("label_vol_normalized", False)
             except Exception:
                 pass
 
@@ -1658,6 +1804,40 @@ class SwingPredictor:
             except Exception as exc:
                 log.warning("Could not load TFT for %s: %s — XGBoost only.", self.symbol, exc)
                 self._tft = None
+
+        # --- Optional: Short-horizon (5d) XGBoost for multi-horizon blend ---
+        self._xgb_5d: Optional[xgb.XGBRegressor] = None
+        self._xgb_5d_feature_names: Optional[List[str]] = None
+        xgb_5d_path = os.path.join(self.model_dir, f"{self.symbol}_xgb_swing_5d.joblib")
+        if os.path.exists(xgb_5d_path):
+            try:
+                self._xgb_5d = joblib.load(xgb_5d_path)
+                cfg_5d_path = os.path.join(self.model_dir, f"{self.symbol}_xgb_swing_5d_config.json")
+                if os.path.exists(cfg_5d_path):
+                    with open(cfg_5d_path) as f:
+                        cfg_5d = json.load(f)
+                    self._xgb_5d_feature_names = cfg_5d.get("feature_names")
+                log.info("Loaded 5d short-horizon XGBoost for %s.", self.symbol)
+            except Exception as exc:
+                log.debug("Could not load 5d model for %s: %s", self.symbol, exc)
+
+        # --- Optional: Pooled cluster model (ensemble with per-symbol) ---
+        self._pooled_model: Optional[xgb.XGBRegressor] = None
+        self._pooled_feature_names: Optional[List[str]] = None
+        if self.symbol in SYMBOL_TO_POOL:
+            pool_name = SYMBOL_TO_POOL[self.symbol]
+            pooled_path = os.path.join(self.model_dir, f"{pool_name}_pool_xgb_10d.joblib")
+            pooled_cfg_path = os.path.join(self.model_dir, f"{pool_name}_pool_xgb_10d_config.json")
+            if os.path.exists(pooled_path):
+                try:
+                    self._pooled_model = joblib.load(pooled_path)
+                    if os.path.exists(pooled_cfg_path):
+                        with open(pooled_cfg_path) as f:
+                            pcfg = json.load(f)
+                        self._pooled_feature_names = pcfg.get("feature_names")
+                    log.info("Loaded pooled %s model for %s ensemble.", pool_name, self.symbol)
+                except Exception as exc:
+                    log.debug("Could not load pooled model for %s: %s", self.symbol, exc)
 
         # --- Optional: Calibration map ---
         cal_path = os.path.join(self.model_dir, f"{self.symbol}_calibration.json")
@@ -1802,6 +1982,50 @@ class SwingPredictor:
                 log.warning("[TFT] predict failed for %s: %s — XGB only.", self.symbol, exc)
                 expected_return = xgb_ret
 
+        # Multi-horizon blend: 5d + 10d (60/40 when agreeing, 10d-only when disagreeing)
+        xgb_5d_ret = None
+        if self._xgb_5d is not None:
+            try:
+                if self._xgb_5d_feature_names:
+                    cols_5d = [c for c in self._xgb_5d_feature_names if c in features_norm.columns]
+                    x5 = features_norm[cols_5d].iloc[-1:].values.astype(np.float32)
+                else:
+                    x5 = x  # same features
+                xgb_5d_ret = float(self._xgb_5d.predict(x5)[0])
+                # Blend when horizons agree on direction
+                if np.sign(xgb_5d_ret) == np.sign(expected_return):
+                    expected_return = 0.60 * expected_return + 0.40 * xgb_5d_ret
+                # else: keep 10d only (horizons disagree → lower conviction)
+            except Exception:
+                pass
+
+        # Blend with pooled cluster model if available (70/30 per-symbol/pooled)
+        pooled_ret = None
+        if self._pooled_model is not None:
+            try:
+                if self._pooled_feature_names:
+                    pcols = [c for c in self._pooled_feature_names if c in features_norm.columns]
+                    px = features_norm[pcols].iloc[-1:].values.astype(np.float32)
+                else:
+                    px = features_norm.iloc[-1:].values.astype(np.float32)
+                pooled_ret = float(self._pooled_model.predict(px)[0])
+                # Blend: 70% per-symbol, 30% pooled
+                expected_return = 0.70 * expected_return + 0.30 * pooled_ret
+            except Exception as exc:
+                log.debug("Pooled prediction failed for %s: %s", self.symbol, exc)
+
+        # Vol-denormalize: convert risk-adjusted prediction back to real return units
+        # Model was trained on fwd_ret / vol, so multiply by current trailing vol
+        if self._vol_normalized:
+            close_prices = bars_df["close"].astype(float)
+            current_vol = close_prices.pct_change().rolling(20).std().iloc[-1]
+            vol_floor = 0.005 / np.sqrt(252)
+            current_vol = max(current_vol if not np.isnan(current_vol) else vol_floor, vol_floor)
+            expected_return = expected_return * current_vol
+            if tft_ret is not None:
+                tft_ret = tft_ret * current_vol
+            xgb_ret = xgb_ret * current_vol
+
         # Queue this prediction for 10-day evaluation
         if current_date is not None:
             self._pending_preds.append(
@@ -1874,7 +2098,11 @@ def main() -> None:
     parser.add_argument("--save-dir", default=SWING_MODEL_DIR,
                         help=f"Directory to save model files (default: {SWING_MODEL_DIR})")
     parser.add_argument("--pooled-commodity", action="store_true",
-                        help="Train a single pooled model on all commodity ETFs (GLD,SLV,GDX,PDBC,USO)")
+                        help="Train a single pooled model on all commodity ETFs")
+    parser.add_argument("--pooled-cluster", default=None,
+                        help="Train a pooled model for a specific cluster (e.g. commodity, fixed_income)")
+    parser.add_argument("--pooled-all", action="store_true",
+                        help="Train pooled models for ALL clusters")
     parser.add_argument("--short-horizon", action="store_true",
                         help="Also train a 5-day short-horizon model alongside the standard 10-day")
     args = parser.parse_args()
@@ -1883,14 +2111,21 @@ def main() -> None:
     fred_key = os.environ.get("FRED_API_KEY")
     symbols  = [s.strip().upper() for s in args.symbols.split(",")]
 
-    # Pooled commodity model
-    if args.pooled_commodity:
+    # Pooled cluster models
+    if args.pooled_all:
+        train_all_pooled_clusters(
+            adapter=adapter, fred_key=fred_key, lookback=args.lookback,
+            save_dir=args.save_dir, train_recent=args.train_recent,
+        )
+    elif args.pooled_cluster:
+        train_pooled_cluster_model(
+            args.pooled_cluster, adapter=adapter, fred_key=fred_key,
+            lookback=args.lookback, save_dir=args.save_dir, train_recent=args.train_recent,
+        )
+    elif args.pooled_commodity:
         train_pooled_commodity_model(
-            adapter=adapter,
-            fred_key=fred_key,
-            lookback=args.lookback,
-            save_dir=args.save_dir,
-            train_recent=args.train_recent,
+            adapter=adapter, fred_key=fred_key, lookback=args.lookback,
+            save_dir=args.save_dir, train_recent=args.train_recent,
         )
 
     for sym in symbols:

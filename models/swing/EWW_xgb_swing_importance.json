@@ -1,100 +1,82 @@
 {
   "symbol": "EWW",
-  "trained_at": "2026-03-18",
+  "trained_at": "2026-03-23",
   "feature_cols": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
-    "sector_breadth"
+    "sector_breadth",
+    "symbol_id"
   ],
   "importances": [
-    0.031063,
-    0.03661,
-    0.032879,
-    0.081201,
-    0.029442,
-    0.021973,
-    0.021935,
-    0.073913,
-    0.014617,
-    0.026218,
-    0.047097,
-    0.0197,
-    0.027854,
-    0.015929,
-    0.122065,
-    0.039073,
-    0.036116,
-    0.021555,
-    0.061117,
-    0.108097,
-    0.020882,
-    0.041203,
-    0.029004,
-    0.020864,
-    0.019596
+    0.05297,
+    0.046637,
+    0.052918,
+    0.081392,
+    0.05815,
+    0.045211,
+    0.092162,
+    0.094753,
+    0.062689,
+    0.062143,
+    0.041627,
+    0.140183,
+    0.063061,
+    0.073539,
+    0.032564,
+    0.0
   ],
   "top_10": [
     [
       "gold_silver_ratio",
-      0.122065
+      0.140183
     ],
     [
-      "beta_smb",
-      0.108097
-    ],
-    [
-      "vol20",
-      0.081201
+      "real_yield_10y",
+      0.094753
     ],
     [
       "spy_trend_strength",
-      0.073913
+      0.092162
     ],
     [
-      "breakeven_inflation_5y",
-      0.061117
+      "vol20",
+      0.081392
+    ],
+    [
+      "credit_spread_zscore",
+      0.073539
+    ],
+    [
+      "vix_regime",
+      0.063061
     ],
     [
       "risk_appetite_ratio",
-      0.047097
+      0.062689
     ],
     [
-      "ret21",
-      0.041203
+      "beta_mkt",
+      0.062143
     ],
     [
-      "correlation_regime",
-      0.039073
+      "rsi14",
+      0.05815
     ],
     [
-      "rel_momentum_vs_spy_252",
-      0.03661
-    ],
-    [
-      "beta_rmw",
-      0.036116
+      "ret252",
+      0.05297
     ]
   ]
 }

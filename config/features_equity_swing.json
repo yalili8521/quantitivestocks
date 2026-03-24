@@ -1,33 +1,23 @@
 {
-  "version": "3.0",
+  "version": "4.0",
   "asset_class": "equity_swing",
-  "created_at": "2026-03-17",
+  "created_at": "2026-03-23",
   "target_horizon": "10d",
   "design_notes": "v3: domain-weighted selection. Scoring = (0.4*IC + 0.6*XGB_imp) \u00d7 domain_weight. Asset class 'equity_swing' uses group weights and slot constraints to enforce domain priors while letting data rank within groups. Cross-asset features (FX, commodity, yield signals) selected by IC.",
   "core_features": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
     "sector_breadth"
   ],
@@ -236,7 +226,7 @@
   },
   "selection_metadata": {
     "total_features_analyzed": 98,
-    "features_selected": 25,
+    "features_selected": 15,
     "dead_features_removed": [
       "btc_drawdown",
       "btc_momentum_accel",
@@ -258,6 +248,18 @@
       "vix_term_inverted",
       "vix_term_ratio",
       "volume_spike"
+    ],
+    "v4_pruned_features": [
+      {"feature": "ret21", "reason": "horizon conflict with 10d target; lowest IC in momentum group"},
+      {"feature": "fed_funds_rate", "reason": "r=-0.93 with real_yield_10y; redundant macro slot"},
+      {"feature": "breakeven_inflation_5y", "reason": "lowest composite in macro group (0.618)"},
+      {"feature": "beta_smb", "reason": "lowest Fama-French composite (0.537); keep beta_mkt only"},
+      {"feature": "beta_rmw", "reason": "second Fama-French slot unnecessary at 15 features"},
+      {"feature": "month_cos", "reason": "direction consistency 50.6% (coin flip)"},
+      {"feature": "bb_bandwidth", "reason": "correlated with vol20; keep vol20 (more general)"},
+      {"feature": "t10y3m_slope", "reason": "XGB importance = 0.0; redundant cross-asset macro"},
+      {"feature": "correlation_regime", "reason": "keep risk_appetite_ratio (higher composite)"},
+      {"feature": "vpoc_distance", "reason": "lowest overall composite (0.370); microstructure less critical for daily"}
     ],
     "redundant_pairs_removed": [
       {
@@ -667,6 +669,6 @@
         "group": "microstructure"
       }
     },
-    "samples_per_feature_ratio": 20.0
+    "samples_per_feature_ratio": 33.3
   }
 }

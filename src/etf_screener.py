@@ -583,6 +583,241 @@ def _save_etf_universe(
 
 
 # ---------------------------------------------------------------------------
+# Momentum / relative-strength scoring
+# ---------------------------------------------------------------------------
+
+def compute_etf_momentum_scores(symbols: List[str]) -> Dict[str, float]:
+    """Compute cross-sectional momentum scores for a list of ETFs.
+
+    For each ETF, computes a momentum_score in [0, 1] based on:
+      - 6-month absolute return (ret_126)
+      - 3-month absolute return (ret_63)
+      - 3-month excess return vs SPY (ret_63_vs_spy)
+      - 1-month return with negative weight (mild mean-reversion)
+
+    All returns are rank-percentiled across the universe, then combined:
+      momentum_score = 0.40 * rank(ret_126)
+                     + 0.40 * rank(ret_63)
+                     + 0.20 * rank(ret_63_vs_spy)
+                     - 0.10 * rank(ret_21)
+
+    The result is clipped to [0, 1] so it combines cleanly with base_score.
+
+    Returns:
+        {symbol: momentum_score} for each symbol with sufficient data.
+        Symbols with insufficient history get score 0.5 (neutral).
+    """
+    import yfinance as yf
+    import pandas as pd
+
+    # Need SPY as benchmark — ensure it's in the download
+    all_syms = list(set(symbols) | {"SPY"})
+    log.info("Computing momentum scores for %d ETFs...", len(symbols))
+
+    try:
+        data = yf.download(all_syms, period="9mo", progress=False, auto_adjust=True)
+        if data.empty:
+            log.warning("Momentum: no data returned from yfinance")
+            return {s: 0.5 for s in symbols}
+        close = data["Close"] if "Close" in data.columns else data
+    except Exception as exc:
+        log.warning("Momentum: yfinance download failed: %s", exc)
+        return {s: 0.5 for s in symbols}
+
+    # Compute returns for each lookback
+    results: Dict[str, Dict[str, float]] = {}
+    spy_close = close["SPY"] if "SPY" in close.columns else None
+
+    for sym in symbols:
+        if sym not in close.columns:
+            results[sym] = {"ret_126": np.nan, "ret_63": np.nan,
+                            "ret_21": np.nan, "ret_63_vs_spy": np.nan}
+            continue
+
+        c = close[sym].dropna()
+        if len(c) < 130:  # need ~6 months
+            results[sym] = {"ret_126": np.nan, "ret_63": np.nan,
+                            "ret_21": np.nan, "ret_63_vs_spy": np.nan}
+            continue
+
+        ret_126 = float((c.iloc[-1] / c.iloc[-126]) - 1) if len(c) >= 126 else np.nan
+        ret_63 = float((c.iloc[-1] / c.iloc[-63]) - 1) if len(c) >= 63 else np.nan
+        ret_21 = float((c.iloc[-1] / c.iloc[-21]) - 1) if len(c) >= 21 else np.nan
+
+        # Excess return vs SPY (3-month)
+        ret_63_vs_spy = np.nan
+        if spy_close is not None and len(c) >= 63:
+            spy_c = spy_close.dropna()
+            if len(spy_c) >= 63:
+                spy_ret_63 = float((spy_c.iloc[-1] / spy_c.iloc[-63]) - 1)
+                ret_63_vs_spy = ret_63 - spy_ret_63
+
+        results[sym] = {
+            "ret_126": ret_126,
+            "ret_63": ret_63,
+            "ret_21": ret_21,
+            "ret_63_vs_spy": ret_63_vs_spy,
+        }
+
+    # Cross-sectional rank percentiles (0 = worst, 1 = best)
+    df = pd.DataFrame(results).T
+    ranked = pd.DataFrame(index=df.index)
+    for col in ["ret_126", "ret_63", "ret_21", "ret_63_vs_spy"]:
+        valid = df[col].dropna()
+        if len(valid) >= 2:
+            ranked[col] = valid.rank(pct=True)
+        else:
+            ranked[col] = 0.5
+
+    # Fill NaN ranks with 0.5 (neutral)
+    ranked = ranked.fillna(0.5)
+
+    # Composite momentum score
+    momentum = (
+        0.40 * ranked["ret_126"]
+        + 0.40 * ranked["ret_63"]
+        + 0.20 * ranked["ret_63_vs_spy"]
+        - 0.10 * ranked["ret_21"]   # mild 1-month mean-reversion
+    )
+
+    # Clip to [0, 1]
+    momentum = momentum.clip(0.0, 1.0)
+
+    scores = {sym: round(float(momentum.loc[sym]), 4) if sym in momentum.index else 0.5
+              for sym in symbols}
+
+    # Log top/bottom 5
+    sorted_scores = sorted(scores.items(), key=lambda x: -x[1])
+    top5 = ", ".join(f"{s}={v:.3f}" for s, v in sorted_scores[:5])
+    bot5 = ", ".join(f"{s}={v:.3f}" for s, v in sorted_scores[-5:])
+    log.info("Momentum scores: top5=[%s] bot5=[%s]", top5, bot5)
+
+    return scores
+
+
+# ---------------------------------------------------------------------------
+# Intraday activity scoring
+# ---------------------------------------------------------------------------
+
+def compute_etf_intraday_activity_scores(symbols: List[str]) -> Dict[str, float]:
+    """Compute intraday-specific activity scores for ETF ranking.
+
+    For each ETF, computes an intraday_activity_score in [0, 1] based on:
+      - ATR% (14-day Average True Range as % of price) — captures daily range
+      - Opening-range volatility proxy (high-low range of recent days)
+      - Overnight gap frequency (abs gap > 0.5% in last 60 days)
+
+    All metrics are rank-percentiled across the universe, then combined:
+      intraday_activity = 0.50 * rank(atr_pct)
+                        + 0.30 * rank(avg_range_pct)
+                        + 0.20 * rank(gap_frequency)
+
+    Returns:
+        {symbol: intraday_activity_score} for each symbol.
+        Symbols with insufficient data get 0.5 (neutral).
+    """
+    import yfinance as yf
+    import pandas as pd
+
+    log.info("Computing intraday activity scores for %d ETFs...", len(symbols))
+
+    try:
+        data = yf.download(symbols, period="4mo", progress=False, auto_adjust=True)
+        if data.empty:
+            log.warning("Intraday activity: no data returned")
+            return {s: 0.5 for s in symbols}
+    except Exception as exc:
+        log.warning("Intraday activity: yfinance failed: %s", exc)
+        return {s: 0.5 for s in symbols}
+
+    results: Dict[str, Dict[str, float]] = {}
+
+    for sym in symbols:
+        try:
+            if len(symbols) == 1:
+                high = data["High"].astype(float)
+                low = data["Low"].astype(float)
+                close = data["Close"].astype(float)
+                opn = data["Open"].astype(float)
+            else:
+                high = data["High"][sym].astype(float)
+                low = data["Low"][sym].astype(float)
+                close = data["Close"][sym].astype(float)
+                opn = data["Open"][sym].astype(float)
+        except (KeyError, TypeError):
+            results[sym] = {"atr_pct": np.nan, "avg_range_pct": np.nan,
+                            "gap_freq": np.nan}
+            continue
+
+        high = high.dropna()
+        low = low.dropna()
+        close = close.dropna()
+        opn = opn.dropna()
+
+        if len(close) < 30:
+            results[sym] = {"atr_pct": np.nan, "avg_range_pct": np.nan,
+                            "gap_freq": np.nan}
+            continue
+
+        # ATR% (14-day)
+        prev_close = close.shift(1)
+        tr = pd.concat([
+            high - low,
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ], axis=1).max(axis=1)
+        atr_14 = tr.rolling(14).mean().iloc[-1]
+        atr_pct = float(atr_14 / close.iloc[-1]) if close.iloc[-1] > 0 else 0.0
+
+        # Average daily range % (last 30 days)
+        range_pct = ((high - low) / close).tail(30)
+        avg_range_pct = float(range_pct.mean()) if len(range_pct) > 0 else 0.0
+
+        # Overnight gap frequency (abs(open/prev_close - 1) > 0.5%)
+        lookback = min(60, len(close) - 1)
+        if lookback > 0:
+            # Align open and previous close
+            gaps = (opn.iloc[-lookback:].values / close.iloc[-lookback-1:-1].values) - 1
+            gap_freq = float(np.sum(np.abs(gaps) > 0.005) / lookback)
+        else:
+            gap_freq = 0.0
+
+        results[sym] = {
+            "atr_pct": atr_pct,
+            "avg_range_pct": avg_range_pct,
+            "gap_freq": gap_freq,
+        }
+
+    # Cross-sectional rank percentiles
+    df = pd.DataFrame(results).T
+    ranked = pd.DataFrame(index=df.index)
+    for col in ["atr_pct", "avg_range_pct", "gap_freq"]:
+        valid = df[col].dropna()
+        if len(valid) >= 2:
+            ranked[col] = valid.rank(pct=True)
+        else:
+            ranked[col] = 0.5
+    ranked = ranked.fillna(0.5)
+
+    # Composite
+    activity = (
+        0.50 * ranked["atr_pct"]
+        + 0.30 * ranked["avg_range_pct"]
+        + 0.20 * ranked["gap_freq"]
+    ).clip(0.0, 1.0)
+
+    scores = {sym: round(float(activity.loc[sym]), 4) if sym in activity.index else 0.5
+              for sym in symbols}
+
+    sorted_scores = sorted(scores.items(), key=lambda x: -x[1])
+    top5 = ", ".join(f"{s}={v:.3f}" for s, v in sorted_scores[:5])
+    bot5 = ", ".join(f"{s}={v:.3f}" for s, v in sorted_scores[-5:])
+    log.info("Intraday activity scores: top5=[%s] bot5=[%s]", top5, bot5)
+
+    return scores
+
+
+# ---------------------------------------------------------------------------
 # Load functions (mirror universe_screener.py interface)
 # ---------------------------------------------------------------------------
 def load_etf_universe(save_dir: Optional[str] = None) -> List[str]:

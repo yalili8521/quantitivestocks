@@ -1,100 +1,82 @@
 {
   "symbol": "EWU",
-  "trained_at": "2026-03-18",
+  "trained_at": "2026-03-23",
   "feature_cols": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
-    "sector_breadth"
+    "sector_breadth",
+    "symbol_id"
   ],
   "importances": [
-    0.107737,
-    0.026472,
-    0.009934,
-    0.034689,
-    0.017062,
-    0.00713,
-    0.031909,
-    0.071445,
-    0.0,
-    0.053503,
-    0.038437,
-    0.021789,
-    0.047448,
-    0.039322,
-    0.083642,
-    0.02011,
-    0.022097,
-    0.036447,
-    0.022672,
-    0.041208,
-    0.057685,
-    0.021422,
-    0.041477,
-    0.016954,
-    0.12941
+    0.070379,
+    0.0648,
+    0.055258,
+    0.064742,
+    0.07361,
+    0.097501,
+    0.053174,
+    0.124666,
+    0.051788,
+    0.056556,
+    0.044179,
+    0.061421,
+    0.04975,
+    0.065037,
+    0.067137,
+    0.0
   ],
   "top_10": [
     [
-      "sector_breadth",
-      0.12941
+      "real_yield_10y",
+      0.124666
+    ],
+    [
+      "macd_hist_norm",
+      0.097501
+    ],
+    [
+      "rsi14",
+      0.07361
     ],
     [
       "ret252",
-      0.107737
+      0.070379
+    ],
+    [
+      "sector_breadth",
+      0.067137
+    ],
+    [
+      "credit_spread_zscore",
+      0.065037
+    ],
+    [
+      "rel_momentum_vs_spy_252",
+      0.0648
+    ],
+    [
+      "vol20",
+      0.064742
     ],
     [
       "gold_silver_ratio",
-      0.083642
+      0.061421
     ],
     [
-      "spy_trend_strength",
-      0.071445
-    ],
-    [
-      "vix_regime",
-      0.057685
-    ],
-    [
-      "real_yield_10y",
-      0.053503
-    ],
-    [
-      "cboe_skew",
-      0.047448
-    ],
-    [
-      "ret63",
-      0.041477
-    ],
-    [
-      "beta_smb",
-      0.041208
-    ],
-    [
-      "t10y3m_slope",
-      0.039322
+      "beta_mkt",
+      0.056556
     ]
   ]
 }

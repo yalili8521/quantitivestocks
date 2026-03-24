@@ -1,0 +1,82 @@
+{
+  "symbol": "VWO",
+  "trained_at": "2026-03-23",
+  "feature_cols": [
+    "ret252",
+    "rel_momentum_vs_spy_252",
+    "ret63",
+    "vol20",
+    "rsi14",
+    "macd_hist_norm",
+    "spy_trend_strength",
+    "real_yield_10y",
+    "risk_appetite_ratio",
+    "beta_mkt",
+    "cboe_skew",
+    "gold_silver_ratio",
+    "vix_regime",
+    "credit_spread_zscore",
+    "sector_breadth",
+    "symbol_id"
+  ],
+  "importances": [
+    0.035577,
+    0.041615,
+    0.09139,
+    0.064908,
+    0.042186,
+    0.059281,
+    0.044493,
+    0.131545,
+    0.083292,
+    0.074259,
+    0.060045,
+    0.081027,
+    0.066397,
+    0.047282,
+    0.076705,
+    0.0
+  ],
+  "top_10": [
+    [
+      "real_yield_10y",
+      0.131545
+    ],
+    [
+      "ret63",
+      0.09139
+    ],
+    [
+      "risk_appetite_ratio",
+      0.083292
+    ],
+    [
+      "gold_silver_ratio",
+      0.081027
+    ],
+    [
+      "sector_breadth",
+      0.076705
+    ],
+    [
+      "beta_mkt",
+      0.074259
+    ],
+    [
+      "vix_regime",
+      0.066397
+    ],
+    [
+      "vol20",
+      0.064908
+    ],
+    [
+      "cboe_skew",
+      0.060045
+    ],
+    [
+      "macd_hist_norm",
+      0.059281
+    ]
+  ]
+}

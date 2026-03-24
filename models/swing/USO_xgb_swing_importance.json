@@ -1,100 +1,82 @@
 {
   "symbol": "USO",
-  "trained_at": "2026-03-18",
+  "trained_at": "2026-03-23",
   "feature_cols": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
-    "sector_breadth"
+    "sector_breadth",
+    "symbol_id"
   ],
   "importances": [
-    0.078374,
-    0.074397,
-    0.038364,
-    0.048161,
-    0.039798,
-    0.030571,
-    0.049973,
-    0.046212,
-    0.0,
-    0.020816,
-    0.037241,
-    0.021831,
-    0.011588,
-    0.000656,
-    0.038458,
-    0.038792,
-    0.046133,
-    0.034541,
-    0.062438,
-    0.047825,
-    0.087646,
-    0.033333,
+    0.089602,
+    0.062317,
+    0.062512,
+    0.079843,
+    0.068752,
     0.057999,
-    0.019423,
-    0.03543
+    0.090324,
+    0.085586,
+    0.049569,
+    0.045744,
+    0.046548,
+    0.080131,
+    0.08091,
+    0.040032,
+    0.060132,
+    0.0
   ],
   "top_10": [
     [
-      "vix_regime",
-      0.087646
+      "spy_trend_strength",
+      0.090324
     ],
     [
       "ret252",
-      0.078374
+      0.089602
     ],
     [
-      "rel_momentum_vs_spy_252",
-      0.074397
+      "real_yield_10y",
+      0.085586
     ],
     [
-      "breakeven_inflation_5y",
-      0.062438
+      "vix_regime",
+      0.08091
     ],
     [
-      "ret63",
-      0.057999
-    ],
-    [
-      "vpoc_distance",
-      0.049973
+      "gold_silver_ratio",
+      0.080131
     ],
     [
       "vol20",
-      0.048161
+      0.079843
     ],
     [
-      "beta_smb",
-      0.047825
+      "rsi14",
+      0.068752
     ],
     [
-      "spy_trend_strength",
-      0.046212
+      "ret63",
+      0.062512
     ],
     [
-      "beta_rmw",
-      0.046133
+      "rel_momentum_vs_spy_252",
+      0.062317
+    ],
+    [
+      "sector_breadth",
+      0.060132
     ]
   ]
 }

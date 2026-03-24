@@ -1,100 +1,82 @@
 {
   "symbol": "EWC",
-  "trained_at": "2026-03-18",
+  "trained_at": "2026-03-23",
   "feature_cols": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
-    "sector_breadth"
+    "sector_breadth",
+    "symbol_id"
   ],
   "importances": [
-    0.043176,
-    0.060397,
-    0.019178,
-    0.015233,
-    0.028892,
-    0.026452,
-    0.020876,
-    0.031904,
-    0.0,
-    0.011226,
-    0.044006,
-    0.036878,
-    0.023473,
-    0.0,
-    0.039765,
-    0.044067,
-    0.053135,
-    0.045369,
-    0.025893,
-    0.062736,
-    0.117782,
-    0.028318,
-    0.02876,
-    0.060836,
-    0.131648
+    0.067162,
+    0.037783,
+    0.056552,
+    0.061635,
+    0.043563,
+    0.104936,
+    0.090459,
+    0.076375,
+    0.050445,
+    0.056103,
+    0.044706,
+    0.086595,
+    0.062852,
+    0.088321,
+    0.072512,
+    0.0
   ],
   "top_10": [
     [
-      "sector_breadth",
-      0.131648
+      "macd_hist_norm",
+      0.104936
     ],
     [
-      "vix_regime",
-      0.117782
-    ],
-    [
-      "beta_smb",
-      0.062736
+      "spy_trend_strength",
+      0.090459
     ],
     [
       "credit_spread_zscore",
-      0.060836
+      0.088321
     ],
     [
-      "rel_momentum_vs_spy_252",
-      0.060397
+      "gold_silver_ratio",
+      0.086595
     ],
     [
-      "beta_rmw",
-      0.053135
+      "real_yield_10y",
+      0.076375
     ],
     [
-      "month_cos",
-      0.045369
-    ],
-    [
-      "correlation_regime",
-      0.044067
-    ],
-    [
-      "risk_appetite_ratio",
-      0.044006
+      "sector_breadth",
+      0.072512
     ],
     [
       "ret252",
-      0.043176
+      0.067162
+    ],
+    [
+      "vix_regime",
+      0.062852
+    ],
+    [
+      "vol20",
+      0.061635
+    ],
+    [
+      "ret63",
+      0.056552
     ]
   ]
 }

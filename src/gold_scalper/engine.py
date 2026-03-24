@@ -302,6 +302,9 @@ class GoldScalperEngine:
 
         if action.action == "CLOSE_ALL":
             self.broker.close_all(symbol, action.reason)
+            # Mark engine position as flat so is_flat returns True this tick
+            if self.position:
+                self.position.remaining_contracts = 0
 
         elif action.action == "CLOSE_PARTIAL":
             self.broker.close_partial(

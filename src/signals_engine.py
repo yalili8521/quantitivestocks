@@ -649,9 +649,18 @@ def score_overheat(
 # Main engine
 # ===================================================================
 def _build_alpaca_adapter() -> AlpacaAdapter:
-    """Create an AlpacaAdapter from environment variables."""
-    api_key = os.environ.get("ALPACA_API_KEY", "")
-    api_secret = os.environ.get("ALPACA_API_SECRET", "")
+    """Create an AlpacaAdapter from environment variables.
+
+    Falls back through group-specific keys (intraday → swing) when the
+    generic ALPACA_API_KEY is not set.  Any account works for market-data
+    access; the group-specific keys only matter for order placement.
+    """
+    api_key = (os.environ.get("ALPACA_API_KEY")
+               or os.environ.get("ALPACA_INTRADAY_KEY")
+               or os.environ.get("ALPACA_SWING_KEY", ""))
+    api_secret = (os.environ.get("ALPACA_API_SECRET")
+                  or os.environ.get("ALPACA_INTRADAY_SECRET")
+                  or os.environ.get("ALPACA_SWING_SECRET", ""))
     return AlpacaAdapter(api_key, api_secret)
 
 

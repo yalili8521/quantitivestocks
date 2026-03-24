@@ -1,100 +1,82 @@
 {
   "symbol": "HYG",
-  "trained_at": "2026-03-17",
+  "trained_at": "2026-03-23",
   "feature_cols": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
-    "sector_breadth"
+    "sector_breadth",
+    "symbol_id"
   ],
   "importances": [
-    0.049793,
-    0.071191,
-    0.010073,
-    0.015808,
-    0.004519,
-    0.00732,
-    0.105674,
-    0.07532,
-    0.233418,
-    0.075326,
-    0.068684,
-    0.033894,
-    0.003826,
-    0.001411,
-    0.007181,
-    0.05069,
-    0.028617,
-    0.031342,
-    0.008904,
-    0.013721,
-    0.012926,
-    0.005557,
-    0.023868,
-    0.026981,
-    0.033954
+    0.04568,
+    0.077955,
+    0.054146,
+    0.05328,
+    0.038918,
+    0.04997,
+    0.074079,
+    0.118864,
+    0.092097,
+    0.066762,
+    0.037462,
+    0.059786,
+    0.08247,
+    0.089348,
+    0.059182,
+    0.0
   ],
   "top_10": [
     [
-      "fed_funds_rate",
-      0.233418
-    ],
-    [
-      "vpoc_distance",
-      0.105674
-    ],
-    [
       "real_yield_10y",
-      0.075326
-    ],
-    [
-      "spy_trend_strength",
-      0.07532
-    ],
-    [
-      "rel_momentum_vs_spy_252",
-      0.071191
+      0.118864
     ],
     [
       "risk_appetite_ratio",
-      0.068684
+      0.092097
     ],
     [
-      "correlation_regime",
-      0.05069
+      "credit_spread_zscore",
+      0.089348
     ],
     [
-      "ret252",
-      0.049793
+      "vix_regime",
+      0.08247
     ],
     [
-      "sector_breadth",
-      0.033954
+      "rel_momentum_vs_spy_252",
+      0.077955
+    ],
+    [
+      "spy_trend_strength",
+      0.074079
     ],
     [
       "beta_mkt",
-      0.033894
+      0.066762
+    ],
+    [
+      "gold_silver_ratio",
+      0.059786
+    ],
+    [
+      "sector_breadth",
+      0.059182
+    ],
+    [
+      "ret63",
+      0.054146
     ]
   ]
 }

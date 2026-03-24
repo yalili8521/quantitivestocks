@@ -72,7 +72,10 @@ def _help_text() -> str:
     gold-scalper        Run the gold multi-TF NYSE scalper (paper trading)
     gold-backtest       Backtest the gold scalper on historical data
     train-pooled-commodity  Train single pooled model for commodity ETFs
+    train-pooled-all        Train pooled models for ALL 8 ETF clusters
     train-short-horizon     Train 5-day horizon models alongside 10-day
+    read-research           Extract signals from daily research reports
+    weekly-etf-pipeline     Run the weekly ETF screening + training pipeline
 
   Examples:
     python main.py trade --group swing
@@ -327,6 +330,15 @@ def main() -> None:
         train_pooled_commodity_model(adapter=_adapter, fred_key=_fred,
                                      save_dir=SWING_MODEL_DIR, train_recent=True)
 
+    elif command == "train-pooled-all":
+        from swing_model import train_all_pooled_clusters
+        from signals_engine import build_adapter
+        _adapter = build_adapter("yahoo")
+        _fred = os.environ.get("FRED_API_KEY")
+        from utils import SWING_MODEL_DIR
+        train_all_pooled_clusters(adapter=_adapter, fred_key=_fred,
+                                   save_dir=SWING_MODEL_DIR, train_recent=True)
+
     elif command == "train-short-horizon":
         # Train 5-day horizon models for specified symbols
         from swing_model import train_short_horizon_model
@@ -348,6 +360,14 @@ def main() -> None:
         from equity_tracker import main as equity_main
         equity_main()
 
+    elif command == "read-research":
+        from research_reader import main as research_main
+        research_main()
+
+    elif command == "weekly-etf-pipeline":
+        import scripts.weekly_etf_pipeline as weekly_etf
+        weekly_etf.main()
+
     else:
         print(f"\n  Unknown command: {command!r}")
         print("  Available commands: signals, train, train-meta, train-intraday, train-swing, train-crypto,")
@@ -356,7 +376,8 @@ def main() -> None:
         print("                      lock-status, model-health, validate-risk, train-selector, train-selector-intraday,")
         print("                      rank-coins, rank-coins-intraday,")
         print("                      screen-universe, screen-etf-universe, select-features, batch-backtest, weekly-pipeline,")
-        print("                      paused-models, unpause, gold-scalper, gold-backtest")
+        print("                      paused-models, unpause, gold-scalper, gold-backtest,")
+        print("                      read-research, weekly-etf-pipeline")
         print("  Run `python main.py --help` for usage.\n")
         sys.exit(1)
 

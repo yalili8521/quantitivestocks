@@ -1,100 +1,82 @@
 {
   "symbol": "EWH",
-  "trained_at": "2026-03-18",
+  "trained_at": "2026-03-23",
   "feature_cols": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
-    "sector_breadth"
+    "sector_breadth",
+    "symbol_id"
   ],
   "importances": [
-    0.031109,
-    0.041078,
-    0.018508,
-    0.033221,
-    0.026505,
-    0.029406,
-    0.014265,
-    0.081057,
-    0.044256,
-    0.099556,
-    0.055443,
-    0.033681,
-    0.017638,
-    0.0,
-    0.041192,
-    0.063574,
-    0.03709,
-    0.030798,
-    0.055754,
-    0.073914,
-    0.092507,
-    0.022793,
-    0.027757,
-    0.020222,
-    0.008675
+    0.056238,
+    0.05671,
+    0.054675,
+    0.047524,
+    0.049977,
+    0.048718,
+    0.079874,
+    0.114085,
+    0.084358,
+    0.084204,
+    0.105033,
+    0.060174,
+    0.078462,
+    0.060084,
+    0.019884,
+    0.0
   ],
   "top_10": [
     [
       "real_yield_10y",
-      0.099556
+      0.114085
     ],
     [
-      "vix_regime",
-      0.092507
-    ],
-    [
-      "spy_trend_strength",
-      0.081057
-    ],
-    [
-      "beta_smb",
-      0.073914
-    ],
-    [
-      "correlation_regime",
-      0.063574
-    ],
-    [
-      "breakeven_inflation_5y",
-      0.055754
+      "cboe_skew",
+      0.105033
     ],
     [
       "risk_appetite_ratio",
-      0.055443
+      0.084358
     ],
     [
-      "fed_funds_rate",
-      0.044256
+      "beta_mkt",
+      0.084204
+    ],
+    [
+      "spy_trend_strength",
+      0.079874
+    ],
+    [
+      "vix_regime",
+      0.078462
     ],
     [
       "gold_silver_ratio",
-      0.041192
+      0.060174
+    ],
+    [
+      "credit_spread_zscore",
+      0.060084
     ],
     [
       "rel_momentum_vs_spy_252",
-      0.041078
+      0.05671
+    ],
+    [
+      "ret252",
+      0.056238
     ]
   ]
 }

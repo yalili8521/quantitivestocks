@@ -1,12 +1,12 @@
 {
   "symbol": "EWY",
   "model_type": "tft_swing",
-  "n_features": 25,
+  "n_features": 16,
   "seq_len": 20,
   "hidden": 32,
   "n_heads": 4,
-  "val_mse": 0.01000808,
-  "val_direction_accuracy": 0.7177,
-  "n_train": 494,
-  "n_val": 124
+  "val_mse": 8.88612366,
+  "val_direction_accuracy": 0.5405,
+  "n_train": 293,
+  "n_val": 74
 }

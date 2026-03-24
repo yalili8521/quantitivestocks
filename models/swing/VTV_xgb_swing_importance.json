@@ -1,100 +1,82 @@
 {
   "symbol": "VTV",
-  "trained_at": "2026-03-18",
+  "trained_at": "2026-03-23",
   "feature_cols": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
-    "sector_breadth"
+    "sector_breadth",
+    "symbol_id"
   ],
   "importances": [
-    0.035311,
-    0.043248,
-    0.018088,
-    0.041145,
-    0.033634,
-    0.044739,
-    0.02564,
-    0.035007,
+    0.081888,
+    0.06132,
+    0.053657,
+    0.118785,
+    0.047603,
+    0.086451,
+    0.055683,
+    0.073116,
+    0.057999,
+    0.073057,
+    0.068685,
+    0.073787,
+    0.088504,
+    0.059464,
     0.0,
-    0.034401,
-    0.041248,
-    0.069579,
-    0.056842,
-    0.026307,
-    0.046222,
-    0.084735,
-    0.057353,
-    0.025292,
-    0.042887,
-    0.052633,
-    0.020069,
-    0.028515,
-    0.025981,
-    0.075059,
-    0.036068
+    0.0
   ],
   "top_10": [
     [
-      "correlation_regime",
-      0.084735
+      "vol20",
+      0.118785
     ],
     [
-      "credit_spread_zscore",
-      0.075059
-    ],
-    [
-      "beta_mkt",
-      0.069579
-    ],
-    [
-      "beta_rmw",
-      0.057353
-    ],
-    [
-      "cboe_skew",
-      0.056842
-    ],
-    [
-      "beta_smb",
-      0.052633
-    ],
-    [
-      "gold_silver_ratio",
-      0.046222
+      "vix_regime",
+      0.088504
     ],
     [
       "macd_hist_norm",
-      0.044739
+      0.086451
+    ],
+    [
+      "ret252",
+      0.081888
+    ],
+    [
+      "gold_silver_ratio",
+      0.073787
+    ],
+    [
+      "real_yield_10y",
+      0.073116
+    ],
+    [
+      "beta_mkt",
+      0.073057
+    ],
+    [
+      "cboe_skew",
+      0.068685
     ],
     [
       "rel_momentum_vs_spy_252",
-      0.043248
+      0.06132
     ],
     [
-      "breakeven_inflation_5y",
-      0.042887
+      "credit_spread_zscore",
+      0.059464
     ]
   ]
 }

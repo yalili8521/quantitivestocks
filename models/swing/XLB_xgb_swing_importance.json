@@ -1,100 +1,82 @@
 {
   "symbol": "XLB",
-  "trained_at": "2026-03-18",
+  "trained_at": "2026-03-23",
   "feature_cols": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
-    "sector_breadth"
+    "sector_breadth",
+    "symbol_id"
   ],
   "importances": [
-    0.059438,
-    0.048086,
-    0.068244,
-    0.042821,
-    0.021168,
-    0.037009,
-    0.038392,
-    0.024465,
-    0.043987,
-    0.02824,
-    0.041659,
-    0.044096,
-    0.031746,
-    0.074515,
-    0.016756,
-    0.06355,
-    0.073074,
-    0.0143,
-    0.067002,
-    0.025404,
-    0.015414,
-    0.018124,
-    0.041258,
-    0.010593,
-    0.05066
+    0.118231,
+    0.116232,
+    0.065514,
+    0.058062,
+    0.047509,
+    0.056328,
+    0.047626,
+    0.063132,
+    0.069094,
+    0.05195,
+    0.079086,
+    0.067918,
+    0.051913,
+    0.071484,
+    0.035921,
+    0.0
   ],
   "top_10": [
     [
-      "t10y3m_slope",
-      0.074515
-    ],
-    [
-      "beta_rmw",
-      0.073074
-    ],
-    [
-      "bb_bandwidth",
-      0.068244
-    ],
-    [
-      "breakeven_inflation_5y",
-      0.067002
-    ],
-    [
-      "correlation_regime",
-      0.06355
-    ],
-    [
       "ret252",
-      0.059438
-    ],
-    [
-      "sector_breadth",
-      0.05066
+      0.118231
     ],
     [
       "rel_momentum_vs_spy_252",
-      0.048086
+      0.116232
     ],
     [
-      "beta_mkt",
-      0.044096
+      "cboe_skew",
+      0.079086
     ],
     [
-      "fed_funds_rate",
-      0.043987
+      "credit_spread_zscore",
+      0.071484
+    ],
+    [
+      "risk_appetite_ratio",
+      0.069094
+    ],
+    [
+      "gold_silver_ratio",
+      0.067918
+    ],
+    [
+      "ret63",
+      0.065514
+    ],
+    [
+      "real_yield_10y",
+      0.063132
+    ],
+    [
+      "vol20",
+      0.058062
+    ],
+    [
+      "macd_hist_norm",
+      0.056328
     ]
   ]
 }

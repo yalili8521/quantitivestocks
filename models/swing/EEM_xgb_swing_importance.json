@@ -1,100 +1,82 @@
 {
   "symbol": "EEM",
-  "trained_at": "2026-03-17",
+  "trained_at": "2026-03-23",
   "feature_cols": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
-    "sector_breadth"
+    "sector_breadth",
+    "symbol_id"
   ],
   "importances": [
-    0.047477,
-    0.031559,
-    0.039725,
-    0.034036,
-    0.011593,
-    0.016881,
-    0.024745,
-    0.043649,
-    0.095384,
-    0.026214,
-    0.136766,
-    0.044474,
-    0.01572,
-    0.006447,
-    0.087119,
-    0.042902,
-    0.024791,
-    0.020401,
-    0.019983,
-    0.027347,
-    0.018909,
-    0.073799,
-    0.034424,
-    0.039094,
-    0.036561
+    0.052559,
+    0.053154,
+    0.089097,
+    0.085978,
+    0.049146,
+    0.056484,
+    0.040804,
+    0.101459,
+    0.081965,
+    0.068086,
+    0.055764,
+    0.070505,
+    0.047199,
+    0.070415,
+    0.077385,
+    0.0
   ],
   "top_10": [
     [
-      "risk_appetite_ratio",
-      0.136766
+      "real_yield_10y",
+      0.101459
     ],
     [
-      "fed_funds_rate",
-      0.095384
+      "ret63",
+      0.089097
+    ],
+    [
+      "vol20",
+      0.085978
+    ],
+    [
+      "risk_appetite_ratio",
+      0.081965
+    ],
+    [
+      "sector_breadth",
+      0.077385
     ],
     [
       "gold_silver_ratio",
-      0.087119
-    ],
-    [
-      "ret21",
-      0.073799
-    ],
-    [
-      "ret252",
-      0.047477
-    ],
-    [
-      "beta_mkt",
-      0.044474
-    ],
-    [
-      "spy_trend_strength",
-      0.043649
-    ],
-    [
-      "correlation_regime",
-      0.042902
-    ],
-    [
-      "bb_bandwidth",
-      0.039725
+      0.070505
     ],
     [
       "credit_spread_zscore",
-      0.039094
+      0.070415
+    ],
+    [
+      "beta_mkt",
+      0.068086
+    ],
+    [
+      "macd_hist_norm",
+      0.056484
+    ],
+    [
+      "cboe_skew",
+      0.055764
     ]
   ]
 }

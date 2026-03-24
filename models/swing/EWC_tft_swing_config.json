@@ -1,12 +1,12 @@
 {
   "symbol": "EWC",
   "model_type": "tft_swing",
-  "n_features": 25,
+  "n_features": 16,
   "seq_len": 20,
   "hidden": 32,
   "n_heads": 4,
-  "val_mse": 0.00037288,
-  "val_direction_accuracy": 0.75,
-  "n_train": 494,
-  "n_val": 124
+  "val_mse": 10.25533581,
+  "val_direction_accuracy": 0.6351,
+  "n_train": 293,
+  "n_val": 74
 }

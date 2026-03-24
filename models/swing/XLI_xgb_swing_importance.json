@@ -1,100 +1,82 @@
 {
   "symbol": "XLI",
-  "trained_at": "2026-03-18",
+  "trained_at": "2026-03-23",
   "feature_cols": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
-    "sector_breadth"
+    "sector_breadth",
+    "symbol_id"
   ],
   "importances": [
-    0.105163,
-    0.052813,
-    0.025218,
-    0.023672,
-    0.032594,
-    0.028371,
-    0.020389,
-    0.04204,
-    0.0,
-    0.018658,
-    0.037548,
-    0.06074,
-    0.052782,
-    0.0,
-    0.031705,
-    0.087205,
-    0.068537,
-    0.008431,
-    0.070569,
-    0.059677,
-    0.054486,
-    0.021612,
-    0.026615,
-    0.039252,
-    0.031921
+    0.088641,
+    0.056789,
+    0.043307,
+    0.059299,
+    0.044506,
+    0.070236,
+    0.080176,
+    0.063813,
+    0.046291,
+    0.036061,
+    0.058199,
+    0.106607,
+    0.10992,
+    0.077659,
+    0.058496,
+    0.0
   ],
   "top_10": [
     [
-      "ret252",
-      0.105163
-    ],
-    [
-      "correlation_regime",
-      0.087205
-    ],
-    [
-      "breakeven_inflation_5y",
-      0.070569
-    ],
-    [
-      "beta_rmw",
-      0.068537
-    ],
-    [
-      "beta_mkt",
-      0.06074
-    ],
-    [
-      "beta_smb",
-      0.059677
-    ],
-    [
       "vix_regime",
-      0.054486
+      0.10992
     ],
     [
-      "rel_momentum_vs_spy_252",
-      0.052813
+      "gold_silver_ratio",
+      0.106607
     ],
     [
-      "cboe_skew",
-      0.052782
+      "ret252",
+      0.088641
     ],
     [
       "spy_trend_strength",
-      0.04204
+      0.080176
+    ],
+    [
+      "credit_spread_zscore",
+      0.077659
+    ],
+    [
+      "macd_hist_norm",
+      0.070236
+    ],
+    [
+      "real_yield_10y",
+      0.063813
+    ],
+    [
+      "vol20",
+      0.059299
+    ],
+    [
+      "sector_breadth",
+      0.058496
+    ],
+    [
+      "cboe_skew",
+      0.058199
     ]
   ]
 }

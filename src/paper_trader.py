@@ -88,15 +88,15 @@ log = logging.getLogger("paper_trader")
 # Account groups (3 separate Alpaca paper accounts by asset class)
 # ---------------------------------------------------------------------------
 SYMBOL_GROUPS: Dict[str, List[str]] = {
-    # Account 1 — Intraday LightGBM v3 (OOS backtest validated, Sharpe > 1.0 only)
-    # Kept: SMH (OOS Sharpe 2.33, IC 0.129, dir_acc 54.7%)
-    # Dropped: SOXX (OOS Sharpe -2.80, shorts fail), SLV (OOS -4.2%, pred_scale 50x)
-    # Previously dropped: QQQ (IC 0.006), IGV (dir_acc 49%), IWM (pred_scale 50x)
-    "intraday":  ["SMH"],
-    # Account 2 — Swing XGBoost+TFT (daily regression)
-    # OOS Sharpe (2024→): GLD 1.55, IBIT 2.20, SLV 1.11, SMH 0.72, QQQ 0.65, GDX 0.59, IGV 0.54
-    # XLK disabled (Sharpe 0.19, near-zero edge)
-    "swing":     ["GDX", "SLV", "IGV", "QQQ", "GLD", "SMH", "IBIT"],
+    # Account 1 — Intraday LGB+GRU v4 (multi-horizon, vol-norm, cost-adj)
+    # OOS Mar 4-23 2026: Sharpe > 1.0, PF > 1.0, profitable, ≥14 trades
+    # XLV(6.14) XLF(5.68) XLE(5.26) USO(4.03) SPY(3.29) PDBC(3.15) XLY(2.81)
+    "intraday":  ["XLV", "XLF", "XLE", "USO", "SPY", "PDBC", "XLY"],
+    # Account 2 — Swing XGBoost+TFT (daily, inv-vol sizing, signal override exit)
+    # OOS Jan 2025-Mar 2026: Top 10 by Sharpe (all >2.0), PF>3.0
+    # FBTC(2.78) EWH(2.58) SMH(2.45) IAU(2.45) IBIT(2.43) EWW(2.25)
+    # EWU(2.26) GDXJ(2.13) MCHI(2.16) SLV(2.10)
+    "swing":     ["FBTC", "EWH", "SMH", "IAU", "IBIT", "EWW", "EWU", "GDXJ", "MCHI", "SLV"],
     # Account 3 — Crypto (heavily pruned by OOS)
     # OOS Sharpe (2025→): CRV 1.07, AVAX 0.54, ADA 0.49, LINK 0.48
     # Disabled (negative Sharpe): BTC, ETH, SOL, DOGE, DOT, SUSHI, AAVE, RENDER
@@ -118,16 +118,25 @@ def _resolve_swing_symbols() -> List[str]:
     """Resolve swing group symbols dynamically.
 
     Fallback chain:
-      1. promoted_symbols.json (OOS-validated symbols from batch-backtest)
-         If > 15 promoted, run ETFSelector to pick top-10
-      2. etf_universe.json (full screened universe)
-      3. Hardcoded fallback (SYMBOL_GROUPS["swing"])
+      1. etf_candidates_ranked.json (pipeline-ranked, filtered to trained models, top-K)
+      2. promoted_symbols.json (OOS-validated symbols from batch-backtest)
+      3. etf_universe.json (full screened universe)
+      4. Hardcoded fallback (SYMBOL_GROUPS["swing"])
+
+    Only symbols with a trained swing model on disk are included.
     """
+    try:
+        ranked = _load_ranked_symbols("swing")
+        if ranked:
+            return ranked
+    except Exception as e:
+        log.warning("Ranked swing symbol load failed: %s", e)
+
+    # Legacy fallback chain
     try:
         from etf_screener import load_promoted_symbols, load_etf_universe
         promoted = load_promoted_symbols(SWING_MODEL_DIR)
         if promoted:
-            # If pool is large, apply Layer 1 selector to pick top-K
             if len(promoted) > 15:
                 try:
                     from etf_selector import ETFSelector
@@ -147,6 +156,96 @@ def _resolve_swing_symbols() -> List[str]:
     except Exception as e:
         log.warning("Dynamic swing symbol load failed: %s — using hardcoded", e)
     return SYMBOL_GROUPS["swing"]
+
+
+# Maximum symbols the trader will trade per group (safety cap)
+MAX_SWING_SYMBOLS = 10
+MAX_INTRADAY_SYMBOLS = 7
+
+
+def _load_ranked_symbols(group: str) -> List[str]:
+    """Load top-K symbols from pipeline-ranked JSON, gated on trained models.
+
+    For swing:  reads etf_candidates_ranked.json, checks *_xgb_swing.joblib
+    For intraday: reads etf_candidates_intraday_ranked.json, checks *_lgb_intraday_etf.joblib
+
+    Returns ranked list of symbols (best first), or empty list if no ranked file.
+    """
+    import glob as _glob
+
+    if group == "swing":
+        ranked_file = os.path.join(SWING_MODEL_DIR, "etf_candidates_ranked.json")
+        model_pattern = os.path.join(SWING_MODEL_DIR, "*_xgb_swing.joblib")
+        max_k = MAX_SWING_SYMBOLS
+        score_key = "final_score"
+    elif group == "intraday":
+        ranked_file = os.path.join(SWING_MODEL_DIR, "etf_candidates_intraday_ranked.json")
+        # Check both intraday model patterns (etf-specific and generic)
+        model_pattern_etf = os.path.join(INTRADAY_MODEL_DIR, "*_lgb_intraday_etf.joblib")
+        model_pattern_gen = os.path.join(INTRADAY_MODEL_DIR, "*_lgb_intraday.joblib")
+        max_k = MAX_INTRADAY_SYMBOLS
+        score_key = "intraday_rank_score"
+    else:
+        return []
+
+    if not os.path.exists(ranked_file):
+        return []
+
+    try:
+        with open(ranked_file) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, KeyError):
+        log.warning("Corrupt ranked file: %s", ranked_file)
+        return []
+
+    candidates = data.get("candidates", [])
+    if not candidates:
+        return []
+
+    # Build set of symbols that have trained models on disk
+    if group == "intraday":
+        model_files = set(_glob.glob(model_pattern_etf)) | set(_glob.glob(model_pattern_gen))
+    else:
+        model_files = set(_glob.glob(model_pattern))
+
+    trained: Set[str] = set()
+    for path in model_files:
+        fname = os.path.basename(path)
+        # Strip suffix to get symbol: SMH_xgb_swing.joblib → SMH
+        sym = fname.split("_")[0]
+        trained.add(sym)
+
+    # Filter to trained models, preserve ranking order
+    ranked_symbols = []
+    for c in candidates:
+        sym = c.get("symbol", "")
+        if sym in trained and sym not in ranked_symbols:
+            ranked_symbols.append(sym)
+        if len(ranked_symbols) >= max_k:
+            break
+
+    if ranked_symbols:
+        log.info("%s symbols from ranked pipeline (top-%d of %d with models): %s",
+                 group.capitalize(), len(ranked_symbols), len(trained), ranked_symbols)
+    return ranked_symbols
+
+
+def _resolve_intraday_symbols() -> List[str]:
+    """Resolve intraday group symbols dynamically.
+
+    Fallback chain:
+      1. etf_candidates_intraday_ranked.json (pipeline-ranked, top-K with models)
+      2. Hardcoded fallback (SYMBOL_GROUPS["intraday"])
+
+    Only symbols with a trained intraday model on disk are included.
+    """
+    try:
+        ranked = _load_ranked_symbols("intraday")
+        if ranked:
+            return ranked
+    except Exception as e:
+        log.warning("Ranked intraday symbol load failed: %s", e)
+    return SYMBOL_GROUPS["intraday"]
 
 
 def _is_option_symbol(symbol: str) -> bool:
@@ -648,7 +747,7 @@ class AlpacaPaperTrader:
             except Exception as exc:
                 log.warning("ETF selector init failed: %s — using static symbol list", exc)
         elif group == "intraday":
-            log.info("Intraday ETF rotation disabled — using static validated symbols: %s", symbols)
+            log.info("Intraday ETF symbols (pipeline-ranked or static): %s", symbols)
 
         # Kraken executor for crypto groups (supports long + short)
         # Paper mode doesn't need real API keys — uses public price API + local state
@@ -3746,6 +3845,8 @@ def main() -> None:
     elif group and group != "all":
         if group == "swing":
             symbols = _resolve_swing_symbols()
+        elif group == "intraday":
+            symbols = _resolve_intraday_symbols()
         else:
             symbols = SYMBOL_GROUPS[group]
         log.info("Account group '%s': trading %s", group, symbols)

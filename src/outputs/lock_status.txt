@@ -1,0 +1,12 @@
+
+  Paper trader lock status (group=crypto_intraday)
+  Lock file: C:\Users\yalil\AppData\Local\Temp\.paper_trader_crypto_intraday.lock
+  PID file:  C:\Users\yalil\AppData\Local\Temp\.paper_trader_crypto_intraday.pid
+
+  Trust this output (or outputs/lock_status.txt). Running this command starts a short-lived
+  python.exe, so Task Manager is not a reliable way to tell if the paper trader is running.
+
+  Status:  LOCK PRESENT - paper trader for this group is running.
+  You cannot start another instance until the lock is gone.
+  To stop: python main.py stop-paper-trader --group crypto_intraday
+  Or in Task Manager (Details tab): end the python.exe that stays running (not the brief one from this command).

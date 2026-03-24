@@ -1,0 +1,50 @@
+{
+  "model_type": "xgb_swing_pooled",
+  "cluster": "intl_emerging",
+  "symbols": [
+    "EEM",
+    "VWO",
+    "EWZ",
+    "EWW",
+    "EWT",
+    "MCHI",
+    "INDA"
+  ],
+  "symbol_ids": {
+    "EEM": 0,
+    "VWO": 1,
+    "EWZ": 2,
+    "EWW": 3,
+    "EWT": 4,
+    "MCHI": 5,
+    "INDA": 6
+  },
+  "horizon": "10d",
+  "forward_days": 10,
+  "val_rmse": 3.5495234,
+  "val_direction_accuracy": 0.6036,
+  "val_ic": 0.2845,
+  "n_train": 3344,
+  "n_val": 1115,
+  "n_features": 16,
+  "feature_names": [
+    "ret252",
+    "rel_momentum_vs_spy_252",
+    "ret63",
+    "vol20",
+    "rsi14",
+    "macd_hist_norm",
+    "spy_trend_strength",
+    "real_yield_10y",
+    "risk_appetite_ratio",
+    "beta_mkt",
+    "cboe_skew",
+    "gold_silver_ratio",
+    "vix_regime",
+    "credit_spread_zscore",
+    "sector_breadth",
+    "symbol_id"
+  ],
+  "label_mean_removed": 0.0,
+  "label_vol_normalized": true
+}

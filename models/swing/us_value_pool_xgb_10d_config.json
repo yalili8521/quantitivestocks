@@ -1,0 +1,52 @@
+{
+  "model_type": "xgb_swing_pooled",
+  "cluster": "us_value",
+  "symbols": [
+    "SPY",
+    "IWM",
+    "IWB",
+    "VTV",
+    "VBR",
+    "MTUM",
+    "QUAL",
+    "USMV"
+  ],
+  "symbol_ids": {
+    "SPY": 0,
+    "IWM": 1,
+    "IWB": 2,
+    "VTV": 3,
+    "VBR": 4,
+    "MTUM": 5,
+    "QUAL": 6,
+    "USMV": 7
+  },
+  "horizon": "10d",
+  "forward_days": 10,
+  "val_rmse": 1.97035927,
+  "val_direction_accuracy": 0.7925,
+  "val_ic": 0.7451,
+  "n_train": 3973,
+  "n_val": 1325,
+  "n_features": 16,
+  "feature_names": [
+    "ret252",
+    "rel_momentum_vs_spy_252",
+    "ret63",
+    "vol20",
+    "rsi14",
+    "macd_hist_norm",
+    "spy_trend_strength",
+    "real_yield_10y",
+    "risk_appetite_ratio",
+    "beta_mkt",
+    "cboe_skew",
+    "gold_silver_ratio",
+    "vix_regime",
+    "credit_spread_zscore",
+    "sector_breadth",
+    "symbol_id"
+  ],
+  "label_mean_removed": 0.0,
+  "label_vol_normalized": true
+}

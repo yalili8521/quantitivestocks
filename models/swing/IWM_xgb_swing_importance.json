@@ -1,100 +1,82 @@
 {
   "symbol": "IWM",
-  "trained_at": "2026-03-17",
+  "trained_at": "2026-03-23",
   "feature_cols": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
-    "sector_breadth"
+    "sector_breadth",
+    "symbol_id"
   ],
   "importances": [
-    0.050378,
-    0.084171,
-    0.090218,
-    0.013646,
-    0.031604,
-    0.029249,
-    0.010021,
-    0.075969,
-    0.093376,
-    0.092001,
-    0.023119,
-    0.045325,
-    0.023588,
-    0.020383,
-    0.021235,
-    0.021798,
-    0.037569,
-    0.036387,
-    0.016254,
-    0.022692,
-    0.072415,
-    0.005691,
-    0.047263,
-    0.035649,
+    0.065792,
+    0.047779,
+    0.040419,
+    0.082219,
+    0.038205,
+    0.072436,
+    0.102392,
+    0.077497,
+    0.057897,
+    0.10224,
+    0.034773,
+    0.047991,
+    0.091813,
+    0.054864,
+    0.083683,
     0.0
   ],
   "top_10": [
     [
-      "fed_funds_rate",
-      0.093376
-    ],
-    [
-      "real_yield_10y",
-      0.092001
-    ],
-    [
-      "bb_bandwidth",
-      0.090218
-    ],
-    [
-      "rel_momentum_vs_spy_252",
-      0.084171
-    ],
-    [
       "spy_trend_strength",
-      0.075969
-    ],
-    [
-      "vix_regime",
-      0.072415
-    ],
-    [
-      "ret252",
-      0.050378
-    ],
-    [
-      "ret63",
-      0.047263
+      0.102392
     ],
     [
       "beta_mkt",
-      0.045325
+      0.10224
     ],
     [
-      "beta_rmw",
-      0.037569
+      "vix_regime",
+      0.091813
+    ],
+    [
+      "sector_breadth",
+      0.083683
+    ],
+    [
+      "vol20",
+      0.082219
+    ],
+    [
+      "real_yield_10y",
+      0.077497
+    ],
+    [
+      "macd_hist_norm",
+      0.072436
+    ],
+    [
+      "ret252",
+      0.065792
+    ],
+    [
+      "risk_appetite_ratio",
+      0.057897
+    ],
+    [
+      "credit_spread_zscore",
+      0.054864
     ]
   ]
 }

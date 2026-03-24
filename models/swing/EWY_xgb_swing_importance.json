@@ -1,100 +1,82 @@
 {
   "symbol": "EWY",
-  "trained_at": "2026-03-18",
+  "trained_at": "2026-03-23",
   "feature_cols": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
-    "sector_breadth"
+    "sector_breadth",
+    "symbol_id"
   ],
   "importances": [
-    0.057531,
-    0.023546,
-    0.006055,
-    0.031416,
-    0.056609,
-    0.039802,
-    0.047007,
-    0.027593,
-    0.008102,
-    0.042338,
-    0.063073,
-    0.023272,
-    0.012277,
-    0.021486,
-    0.10011,
-    0.090903,
-    0.049072,
-    0.031122,
-    0.031544,
-    0.067004,
-    0.036429,
-    0.046484,
-    0.039456,
-    0.034684,
-    0.013085
+    0.074091,
+    0.044661,
+    0.059915,
+    0.116635,
+    0.057314,
+    0.050924,
+    0.032549,
+    0.090597,
+    0.053571,
+    0.114741,
+    0.052371,
+    0.053045,
+    0.053256,
+    0.049613,
+    0.096716,
+    0.0
   ],
   "top_10": [
     [
-      "gold_silver_ratio",
-      0.10011
+      "vol20",
+      0.116635
     ],
     [
-      "correlation_regime",
-      0.090903
+      "beta_mkt",
+      0.114741
     ],
     [
-      "beta_smb",
-      0.067004
-    ],
-    [
-      "risk_appetite_ratio",
-      0.063073
-    ],
-    [
-      "ret252",
-      0.057531
-    ],
-    [
-      "rsi14",
-      0.056609
-    ],
-    [
-      "beta_rmw",
-      0.049072
-    ],
-    [
-      "vpoc_distance",
-      0.047007
-    ],
-    [
-      "ret21",
-      0.046484
+      "sector_breadth",
+      0.096716
     ],
     [
       "real_yield_10y",
-      0.042338
+      0.090597
+    ],
+    [
+      "ret252",
+      0.074091
+    ],
+    [
+      "ret63",
+      0.059915
+    ],
+    [
+      "rsi14",
+      0.057314
+    ],
+    [
+      "risk_appetite_ratio",
+      0.053571
+    ],
+    [
+      "vix_regime",
+      0.053256
+    ],
+    [
+      "gold_silver_ratio",
+      0.053045
     ]
   ]
 }

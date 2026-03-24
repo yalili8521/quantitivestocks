@@ -1,0 +1,82 @@
+{
+  "symbol": "EWG",
+  "trained_at": "2026-03-23",
+  "feature_cols": [
+    "ret252",
+    "rel_momentum_vs_spy_252",
+    "ret63",
+    "vol20",
+    "rsi14",
+    "macd_hist_norm",
+    "spy_trend_strength",
+    "real_yield_10y",
+    "risk_appetite_ratio",
+    "beta_mkt",
+    "cboe_skew",
+    "gold_silver_ratio",
+    "vix_regime",
+    "credit_spread_zscore",
+    "sector_breadth",
+    "symbol_id"
+  ],
+  "importances": [
+    0.052849,
+    0.041221,
+    0.043403,
+    0.074156,
+    0.049834,
+    0.056694,
+    0.058772,
+    0.088109,
+    0.033838,
+    0.046132,
+    0.050207,
+    0.138222,
+    0.074485,
+    0.066626,
+    0.125451,
+    0.0
+  ],
+  "top_10": [
+    [
+      "gold_silver_ratio",
+      0.138222
+    ],
+    [
+      "sector_breadth",
+      0.125451
+    ],
+    [
+      "real_yield_10y",
+      0.088109
+    ],
+    [
+      "vix_regime",
+      0.074485
+    ],
+    [
+      "vol20",
+      0.074156
+    ],
+    [
+      "credit_spread_zscore",
+      0.066626
+    ],
+    [
+      "spy_trend_strength",
+      0.058772
+    ],
+    [
+      "macd_hist_norm",
+      0.056694
+    ],
+    [
+      "ret252",
+      0.052849
+    ],
+    [
+      "cboe_skew",
+      0.050207
+    ]
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "symbol": "FBTC",
+  "model_type": "tft_swing",
+  "n_features": 16,
+  "seq_len": 20,
+  "hidden": 32,
+  "n_heads": 4,
+  "val_mse": 4.991117,
+  "val_direction_accuracy": 0.7308,
+  "n_train": 104,
+  "n_val": 26
+}

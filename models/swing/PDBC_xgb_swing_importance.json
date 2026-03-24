@@ -1,100 +1,82 @@
 {
   "symbol": "PDBC",
-  "trained_at": "2026-03-18",
+  "trained_at": "2026-03-23",
   "feature_cols": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
-    "sector_breadth"
+    "sector_breadth",
+    "symbol_id"
   ],
   "importances": [
-    0.089301,
-    0.106598,
-    0.043534,
-    0.041065,
-    0.048293,
-    0.062948,
-    0.021658,
-    0.015704,
-    0.0,
-    0.018147,
-    0.031584,
-    0.033843,
-    0.013504,
-    0.017279,
-    0.075057,
-    0.027414,
-    0.039784,
-    0.054868,
-    0.031961,
-    0.042328,
-    0.028584,
-    0.01294,
-    0.047717,
-    0.064288,
-    0.031603
+    0.1057,
+    0.070092,
+    0.059668,
+    0.066404,
+    0.045086,
+    0.078662,
+    0.057243,
+    0.073148,
+    0.040984,
+    0.0901,
+    0.059476,
+    0.108254,
+    0.061334,
+    0.038354,
+    0.045495,
+    0.0
   ],
   "top_10": [
     [
-      "rel_momentum_vs_spy_252",
-      0.106598
+      "gold_silver_ratio",
+      0.108254
     ],
     [
       "ret252",
-      0.089301
+      0.1057
     ],
     [
-      "gold_silver_ratio",
-      0.075057
-    ],
-    [
-      "credit_spread_zscore",
-      0.064288
+      "beta_mkt",
+      0.0901
     ],
     [
       "macd_hist_norm",
-      0.062948
+      0.078662
     ],
     [
-      "month_cos",
-      0.054868
+      "real_yield_10y",
+      0.073148
     ],
     [
-      "rsi14",
-      0.048293
+      "rel_momentum_vs_spy_252",
+      0.070092
+    ],
+    [
+      "vol20",
+      0.066404
+    ],
+    [
+      "vix_regime",
+      0.061334
     ],
     [
       "ret63",
-      0.047717
+      0.059668
     ],
     [
-      "bb_bandwidth",
-      0.043534
-    ],
-    [
-      "beta_smb",
-      0.042328
+      "cboe_skew",
+      0.059476
     ]
   ]
 }

@@ -1,100 +1,82 @@
 {
   "symbol": "INDA",
-  "trained_at": "2026-03-18",
+  "trained_at": "2026-03-23",
   "feature_cols": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
-    "sector_breadth"
+    "sector_breadth",
+    "symbol_id"
   ],
   "importances": [
-    0.04514,
-    0.016948,
-    0.033063,
-    0.036501,
-    0.058209,
-    0.02219,
-    0.034661,
-    0.035856,
-    0.058002,
-    0.035223,
-    0.10573,
-    0.01065,
-    0.040017,
-    0.025528,
-    0.029443,
-    0.04874,
-    0.040359,
-    0.063821,
-    0.013864,
-    0.050539,
-    0.043649,
-    0.033203,
-    0.027314,
-    0.069069,
-    0.022284
+    0.075642,
+    0.036192,
+    0.056251,
+    0.090323,
+    0.076733,
+    0.051856,
+    0.085342,
+    0.085326,
+    0.07035,
+    0.049477,
+    0.043855,
+    0.046776,
+    0.095054,
+    0.067828,
+    0.068996,
+    0.0
   ],
   "top_10": [
     [
-      "risk_appetite_ratio",
-      0.10573
+      "vix_regime",
+      0.095054
     ],
     [
-      "credit_spread_zscore",
-      0.069069
+      "vol20",
+      0.090323
     ],
     [
-      "month_cos",
-      0.063821
+      "spy_trend_strength",
+      0.085342
+    ],
+    [
+      "real_yield_10y",
+      0.085326
     ],
     [
       "rsi14",
-      0.058209
-    ],
-    [
-      "fed_funds_rate",
-      0.058002
-    ],
-    [
-      "beta_smb",
-      0.050539
-    ],
-    [
-      "correlation_regime",
-      0.04874
+      0.076733
     ],
     [
       "ret252",
-      0.04514
+      0.075642
     ],
     [
-      "vix_regime",
-      0.043649
+      "risk_appetite_ratio",
+      0.07035
     ],
     [
-      "beta_rmw",
-      0.040359
+      "sector_breadth",
+      0.068996
+    ],
+    [
+      "credit_spread_zscore",
+      0.067828
+    ],
+    [
+      "ret63",
+      0.056251
     ]
   ]
 }

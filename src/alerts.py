@@ -194,6 +194,27 @@ class WebhookNotifier:
             log.warning("Webhook send failed: %s", exc)
             return False
 
+    def send_raw(self, content: str) -> bool:
+        """Send a plain-text message (used by gold scalper alerts)."""
+        if not self._url:
+            return False
+        is_slack = "hooks.slack.com" in self._url
+        if is_slack:
+            payload = {"text": content}
+        else:
+            payload = {"content": content[:2000]}
+        try:
+            resp = requests.post(
+                self._url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=10,
+            )
+            return resp.status_code in (200, 204)
+        except Exception as exc:
+            log.warning("Webhook send_raw failed: %s", exc)
+            return False
+
     def send_batch(self, alerts: List[Alert]) -> int:
         """Send multiple alerts. Returns count of successful sends."""
         sent = 0

@@ -1,100 +1,82 @@
 {
   "symbol": "EMB",
-  "trained_at": "2026-03-18",
+  "trained_at": "2026-03-23",
   "feature_cols": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
-    "sector_breadth"
+    "sector_breadth",
+    "symbol_id"
   ],
   "importances": [
-    0.030759,
-    0.0304,
-    0.021034,
-    0.060314,
-    0.026541,
-    0.022573,
-    0.026641,
-    0.051295,
-    0.009098,
-    0.110803,
-    0.055608,
-    0.043313,
-    0.020182,
-    0.042815,
-    0.05592,
-    0.065179,
-    0.031941,
-    0.040266,
-    0.028075,
-    0.036102,
-    0.033473,
-    0.032256,
-    0.041481,
-    0.035893,
-    0.048038
+    0.056634,
+    0.059366,
+    0.064898,
+    0.149819,
+    0.050798,
+    0.040972,
+    0.075315,
+    0.101542,
+    0.07043,
+    0.060157,
+    0.038658,
+    0.10039,
+    0.068654,
+    0.036778,
+    0.025589,
+    0.0
   ],
   "top_10": [
     [
-      "real_yield_10y",
-      0.110803
-    ],
-    [
-      "correlation_regime",
-      0.065179
-    ],
-    [
       "vol20",
-      0.060314
+      0.149819
+    ],
+    [
+      "real_yield_10y",
+      0.101542
     ],
     [
       "gold_silver_ratio",
-      0.05592
-    ],
-    [
-      "risk_appetite_ratio",
-      0.055608
+      0.10039
     ],
     [
       "spy_trend_strength",
-      0.051295
+      0.075315
     ],
     [
-      "sector_breadth",
-      0.048038
+      "risk_appetite_ratio",
+      0.07043
     ],
     [
-      "beta_mkt",
-      0.043313
-    ],
-    [
-      "t10y3m_slope",
-      0.042815
+      "vix_regime",
+      0.068654
     ],
     [
       "ret63",
-      0.041481
+      0.064898
+    ],
+    [
+      "beta_mkt",
+      0.060157
+    ],
+    [
+      "rel_momentum_vs_spy_252",
+      0.059366
+    ],
+    [
+      "ret252",
+      0.056634
     ]
   ]
 }

@@ -1,0 +1,82 @@
+{
+  "symbol": "VBR",
+  "trained_at": "2026-03-23",
+  "feature_cols": [
+    "ret252",
+    "rel_momentum_vs_spy_252",
+    "ret63",
+    "vol20",
+    "rsi14",
+    "macd_hist_norm",
+    "spy_trend_strength",
+    "real_yield_10y",
+    "risk_appetite_ratio",
+    "beta_mkt",
+    "cboe_skew",
+    "gold_silver_ratio",
+    "vix_regime",
+    "credit_spread_zscore",
+    "sector_breadth",
+    "symbol_id"
+  ],
+  "importances": [
+    0.076465,
+    0.069015,
+    0.039698,
+    0.079823,
+    0.035651,
+    0.063777,
+    0.078378,
+    0.089103,
+    0.07717,
+    0.074929,
+    0.056112,
+    0.074542,
+    0.076717,
+    0.063607,
+    0.045014,
+    0.0
+  ],
+  "top_10": [
+    [
+      "real_yield_10y",
+      0.089103
+    ],
+    [
+      "vol20",
+      0.079823
+    ],
+    [
+      "spy_trend_strength",
+      0.078378
+    ],
+    [
+      "risk_appetite_ratio",
+      0.07717
+    ],
+    [
+      "vix_regime",
+      0.076717
+    ],
+    [
+      "ret252",
+      0.076465
+    ],
+    [
+      "beta_mkt",
+      0.074929
+    ],
+    [
+      "gold_silver_ratio",
+      0.074542
+    ],
+    [
+      "rel_momentum_vs_spy_252",
+      0.069015
+    ],
+    [
+      "macd_hist_norm",
+      0.063777
+    ]
+  ]
+}

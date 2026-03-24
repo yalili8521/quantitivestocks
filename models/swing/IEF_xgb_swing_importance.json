@@ -1,100 +1,82 @@
 {
   "symbol": "IEF",
-  "trained_at": "2026-03-18",
+  "trained_at": "2026-03-23",
   "feature_cols": [
     "ret252",
     "rel_momentum_vs_spy_252",
-    "bb_bandwidth",
+    "ret63",
     "vol20",
     "rsi14",
     "macd_hist_norm",
-    "vpoc_distance",
     "spy_trend_strength",
-    "fed_funds_rate",
     "real_yield_10y",
     "risk_appetite_ratio",
     "beta_mkt",
     "cboe_skew",
-    "t10y3m_slope",
     "gold_silver_ratio",
-    "correlation_regime",
-    "beta_rmw",
-    "month_cos",
-    "breakeven_inflation_5y",
-    "beta_smb",
     "vix_regime",
-    "ret21",
-    "ret63",
     "credit_spread_zscore",
-    "sector_breadth"
+    "sector_breadth",
+    "symbol_id"
   ],
   "importances": [
-    0.037978,
-    0.040374,
-    0.025461,
-    0.075378,
-    0.012159,
-    0.026621,
-    0.012662,
-    0.02962,
-    0.08365,
-    0.082937,
-    0.030538,
-    0.03692,
-    0.017464,
-    0.057931,
-    0.033009,
-    0.029066,
-    0.02967,
-    0.112905,
-    0.047783,
-    0.039195,
-    0.030673,
-    0.018706,
-    0.048908,
-    0.019739,
-    0.020652
+    0.068329,
+    0.069961,
+    0.047081,
+    0.042974,
+    0.05259,
+    0.059064,
+    0.051203,
+    0.131111,
+    0.084671,
+    0.07984,
+    0.103093,
+    0.057838,
+    0.042472,
+    0.051712,
+    0.058062,
+    0.0
   ],
   "top_10": [
     [
-      "month_cos",
-      0.112905
-    ],
-    [
-      "fed_funds_rate",
-      0.08365
-    ],
-    [
       "real_yield_10y",
-      0.082937
+      0.131111
     ],
     [
-      "vol20",
-      0.075378
+      "cboe_skew",
+      0.103093
     ],
     [
-      "t10y3m_slope",
-      0.057931
+      "risk_appetite_ratio",
+      0.084671
     ],
     [
-      "ret63",
-      0.048908
-    ],
-    [
-      "breakeven_inflation_5y",
-      0.047783
+      "beta_mkt",
+      0.07984
     ],
     [
       "rel_momentum_vs_spy_252",
-      0.040374
-    ],
-    [
-      "beta_smb",
-      0.039195
+      0.069961
     ],
     [
       "ret252",
-      0.037978
+      0.068329
+    ],
+    [
+      "macd_hist_norm",
+      0.059064
+    ],
+    [
+      "sector_breadth",
+      0.058062
+    ],
+    [
+      "gold_silver_ratio",
+      0.057838
+    ],
+    [
+      "rsi14",
+      0.05259
     ]
   ]
 }
