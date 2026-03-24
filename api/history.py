@@ -209,14 +209,16 @@ def _recent_trades(trades: list, max_days: int = 3) -> list:
     return [t for t in recent if (t.get("closed_at") or "")[:10] in recent_days]
 
 
-def _build_equity_curve(trade_log: list, initial_balance: float) -> dict:
+def _build_equity_curve(
+    trade_log: list, initial_balance: float, fee_pct: float = 0.0,
+) -> dict:
     """Synthesize an equity curve from the trade log.
 
     Mirrors the Kraken paper executor's margin-based cash accounting:
       - LONG open (buy, intent=open):  cash -= qty * price + fee
-      - LONG close (sell, intent=close): cash += entry * qty + pnl
+      - LONG close (sell, intent=close): cash += entry * qty + pnl - fee
       - SHORT open (sell, intent=open): cash -= fee only (margin model)
-      - SHORT close (buy, intent=close): cash += pnl
+      - SHORT close (buy, intent=close): cash += pnl - fee
 
     Equity = cash + sum(market_value for LONGs) + sum(unrealized_pnl for SHORTs)
     """
@@ -244,36 +246,39 @@ def _build_equity_curve(trade_log: list, initial_balance: float) -> dict:
             continue
 
         last_prices[sym] = price
+        fee = qty * price * fee_pct
 
         if intent == "open":
             # If reopening a symbol that's already open, implicitly close
             # the old position first (executor overwrites without logging).
             if sym in open_positions:
                 old = open_positions[sym]
+                old_fee = price * old["qty"] * fee_pct
                 if old["side"] == "LONG":
-                    old_pnl = (price - old["entry_price"]) * old["qty"]
+                    old_pnl = (price - old["entry_price"]) * old["qty"] - old_fee
                     cash += old["entry_price"] * old["qty"] + old_pnl
                 else:
-                    old_pnl = (old["entry_price"] - price) * old["qty"]
+                    old_pnl = (old["entry_price"] - price) * old["qty"] - old_fee
                     cash += old_pnl
                 del open_positions[sym]
 
             if side == "buy":
-                # LONG open: debit full notional
-                cash -= qty * price
+                # LONG open: debit full notional + fee
+                cash -= qty * price + fee
                 open_positions[sym] = {"side": "LONG", "qty": qty, "entry_price": price}
             else:
                 # SHORT open: margin model — only fee deducted (no notional)
+                cash -= fee
                 open_positions[sym] = {"side": "SHORT", "qty": qty, "entry_price": price}
         elif intent == "close":
             if sym in open_positions:
                 pos = open_positions[sym]
                 close_qty = min(qty, pos["qty"])  # partial or full close
                 if pos["side"] == "LONG":
-                    pnl = (price - pos["entry_price"]) * close_qty
+                    pnl = (price - pos["entry_price"]) * close_qty - fee
                     cash += pos["entry_price"] * close_qty + pnl
                 else:
-                    pnl = (pos["entry_price"] - price) * close_qty
+                    pnl = (pos["entry_price"] - price) * close_qty - fee
                     cash += pnl
                 pos["qty"] -= close_qty
                 if pos["qty"] < 1e-10:
@@ -357,15 +362,21 @@ def _parse_kraken_history(
                 "intent":    t.get("intent", ""),
             })
 
-        portfolio = _build_equity_curve(trade_log, initial_balance)
+        portfolio = _build_equity_curve(trade_log, initial_balance, fee_pct=0.0026)
 
     except Exception:
         return {"portfolio": {}, "orders": [], "trades": []}
 
+    # Pair ALL orders (including implicit closes from overwrites), then
+    # filter to recent 3 days.  The equity curve also processes the full
+    # log with the same overwrite logic, so both views stay consistent.
+    all_paired = _pair_closed_trades(orders, fee_pct=0.0026)
+    recent_paired = _recent_trades(all_paired)
+
     return {
         "portfolio": portfolio,
         "orders": _recent_orders(orders),
-        "trades": _recent_trades(_pair_closed_trades(orders, fee_pct=0.0026)),
+        "trades": recent_paired,
     }
 
 
