@@ -329,7 +329,8 @@ def run_apply_research_bias(
         momentum_scores = compute_etf_momentum_scores(symbols)
 
         # --- OOS backtest metrics (from promoted_symbols.json) ---
-        oos_metrics = _load_oos_metrics(SWING_MODEL_DIR)
+        from oos_feedback import load_promoted_oos
+        oos_metrics = load_promoted_oos(SWING_MODEL_DIR)
         oos_available = bool(oos_metrics)
         if oos_available:
             log.info("Loaded OOS metrics for %d symbols", len(oos_metrics))
@@ -530,10 +531,14 @@ def run_rank_etfs_intraday() -> StepResult:
 
         # Load intraday model validation metrics
         from utils import INTRADAY_MODEL_DIR
+        from oos_feedback import load_promoted_oos
         intraday_metrics = _load_intraday_model_metrics(INTRADAY_MODEL_DIR, symbols)
-        model_perf_available = bool(intraday_metrics)
-        if model_perf_available:
-            log.info("Loaded intraday model metrics for %d symbols", len(intraday_metrics))
+        intraday_oos = load_promoted_oos(INTRADAY_MODEL_DIR)
+        model_perf_available = bool(intraday_metrics) or bool(intraday_oos)
+        if intraday_metrics:
+            log.info("Loaded intraday model config metrics for %d symbols", len(intraday_metrics))
+        if intraday_oos:
+            log.info("Loaded intraday OOS backtest metrics for %d symbols", len(intraday_oos))
 
         # Normalize swing_final_score to [0, 1] range for fair combination
         swing_scores_raw = [c.get("final_score", 0) for c in swing_candidates]
@@ -554,10 +559,19 @@ def run_rank_etfs_intraday() -> StepResult:
             # Normalize swing score to [0, 1]
             swing_norm = (sc.get("final_score", 0) - swing_min) / swing_range
 
-            # Model performance from intraday config (val_ic, val_dir_acc)
+            # Model performance: blend intraday config metrics + OOS Sharpe
             m = intraday_metrics.get(sym)
-            if m:
+            oos = intraday_oos.get(sym)
+            if m and oos:
+                config_score = _compute_intraday_model_perf_score(m)
+                oos_score = _compute_model_perf_score(oos)
+                model_perf = 0.5 * config_score + 0.5 * oos_score
+                sym_w_model = eff_w_model
+            elif m:
                 model_perf = _compute_intraday_model_perf_score(m)
+                sym_w_model = eff_w_model
+            elif oos:
+                model_perf = _compute_model_perf_score(oos)
                 sym_w_model = eff_w_model
             else:
                 model_perf = 0.0
@@ -765,6 +779,41 @@ def run_train_new_intraday() -> StepResult:
         return StepResult("train-intraday", False, time.time() - t0, error=str(exc))
 
 
+def run_retrain_etf_selector() -> StepResult:
+    """Step 6b: Retrain LambdaRank ETF selector if model >30d old."""
+    t0 = time.time()
+    try:
+        from utils import SWING_MODEL_DIR
+        from etf_selector import ETF_SELECTOR_CONFIG_FILE
+        config_path = os.path.join(SWING_MODEL_DIR, ETF_SELECTOR_CONFIG_FILE)
+
+        # Skip if model is fresh (< 30 days old)
+        if os.path.exists(config_path):
+            mtime = os.path.getmtime(config_path)
+            age_days = (time.time() - mtime) / 86400
+            if age_days < 30:
+                return StepResult("retrain-etf-selector", True, time.time() - t0,
+                                  details=f"Model is {age_days:.0f}d old (< 30d) — skipped")
+
+        result = _run_command(
+            [PYTHON, MAIN_PY, "train-etf-selector"],
+            timeout=1800,
+        )
+        elapsed = time.time() - t0
+        if result.returncode != 0:
+            return StepResult("retrain-etf-selector", False, elapsed,
+                              error=result.stderr[-500:] if result.stderr else "non-zero exit")
+
+        lines = result.stdout.splitlines() + result.stderr.splitlines()
+        ndcg_line = [l for l in lines if "NDCG" in l]
+        details = ndcg_line[-1].strip() if ndcg_line else "retrained"
+        return StepResult("retrain-etf-selector", True, elapsed, details=details)
+    except subprocess.TimeoutExpired:
+        return StepResult("retrain-etf-selector", False, time.time() - t0, error="timeout (30min)")
+    except Exception as exc:
+        return StepResult("retrain-etf-selector", False, time.time() - t0, error=str(exc))
+
+
 def run_model_health() -> StepResult:
     """Step 7: Check model health, report degraded models."""
     t0 = time.time()
@@ -924,6 +973,7 @@ def main() -> None:
         ("batch-backtest", run_batch_backtest),
         ("train-swing", run_train_new_swing),
         ("train-intraday", run_train_new_intraday),
+        ("retrain-etf-selector", run_retrain_etf_selector),
         ("model-health", run_model_health),
     ]
 

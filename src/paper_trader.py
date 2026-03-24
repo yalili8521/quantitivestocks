@@ -72,6 +72,10 @@ from risk_config import (
 )
 from cost_model import validate_cost_threshold
 from model_monitor import ModelMonitor
+from oos_feedback import (
+    load_promoted_oos, compute_composite_scores as _composite_scores_shared,
+    blended_sharpe as _blended_sharpe_shared,
+)
 from coin_selector import (CoinSelector, CRYPTO_UNIVERSE, fetch_universe_data,
                            fetch_universe_intraday_data, INTRADAY_LOOKBACK_DAYS)
 from universe_screener import load_universe, get_coin_cost_config
@@ -663,6 +667,16 @@ class AlpacaPaperTrader:
         # Opt #1/#2/#5: track max-loss exits per symbol (direction + time)
         self._max_loss_exits: Dict[str, dict] = {}
 
+        # Regime detector (Phase 4): HMM-based adaptive stops
+        self._regime_detector = None
+        self._regime_mult = 1.0  # current regime stop multiplier
+        try:
+            from regime_detector import RegimeDetector
+            self._regime_detector = RegimeDetector()
+            log.info("Regime detector initialized (will fit on first cycle)")
+        except ImportError:
+            log.info("Regime detector unavailable (hmmlearn not installed)")
+
         self._vix_cache: Optional[pd.DataFrame] = None
 
         # Crypto intraday data source (lazy init)
@@ -737,9 +751,11 @@ class AlpacaPaperTrader:
         if group == "swing":
             try:
                 from etf_screener import load_etf_universe
-                from etf_selector import ETFSelector
+                from etf_selector import ETFSelectorML
                 top_k = 10
-                self._etf_selector = ETFSelector(top_k=top_k, min_pool=0)
+                self._etf_selector = ETFSelectorML(
+                    model_dir=SWING_MODEL_DIR, top_k=top_k, min_pool=0,
+                )
                 self._etf_universe = load_etf_universe(SWING_MODEL_DIR)
                 if not self._etf_universe:
                     from etf_screener import ALL_SEED_SYMBOLS
@@ -1075,11 +1091,11 @@ class AlpacaPaperTrader:
                 if self.group == "crypto_intraday":
                     sharpe_reg = cfg.get("oos_sharpe_registry_intraday", {})
                     perf_reg = cfg.get("oos_performance_registry_intraday", {})
-                    # Fall back to swing registries if intraday ones are empty
+                    # No fallback to swing registries — horizon mismatch
+                    # (swing = 5-10d holds vs intraday = 1h holds).
+                    # Empty registries → cold-start weights (30/70) in composite scoring.
                     if not sharpe_reg:
-                        sharpe_reg = cfg.get("oos_sharpe_registry", {})
-                    if not perf_reg:
-                        perf_reg = cfg.get("oos_performance_registry", {})
+                        log.info("crypto_intraday: no intraday OOS registry — cold start weights apply")
                 else:
                     sharpe_reg = cfg.get("oos_sharpe_registry", {})
                     perf_reg = cfg.get("oos_performance_registry", {})
@@ -1152,113 +1168,25 @@ class AlpacaPaperTrader:
     ) -> Dict[str, float]:
         """Composite score = w1*selector + w2*blended_sharpe (rank-normalized).
 
-        Dynamic weighting (James-Stein shrinkage):
-        - Cold start (< 20 live trades):  30% selector / 70% OOS Sharpe
-        - Warming   (20-60 trades):       50% / 50%
-        - Live      (60+ trades):         70% selector / 30% OOS Sharpe
-
-        This lets the system pivot to new opportunities as live data
-        accumulates, instead of being locked into stale OOS priors.
-
-        BTC correlation penalty (crypto only): highly correlated alts get
-        reduced composite score.
-
-        Returns {symbol: composite_score} sorted descending.
+        Delegates to shared ``oos_feedback.compute_composite_scores()``
+        with a derisk_lookup closure that reads from self._derisk_states.
         """
-        # Determine dynamic weights based on median live trade count
-        n_trades_list = []
-        for sym, _ in rankings:
-            alpaca_sym = sym.replace("-", "/")
-            derisk = self._derisk_states.get(alpaca_sym) or self._derisk_states.get(sym)
-            if derisk is not None:
-                n_trades_list.append(len(derisk.returns))
-        median_trades = sorted(n_trades_list)[len(n_trades_list) // 2] if n_trades_list else 0
+        return _composite_scores_shared(
+            rankings=rankings,
+            oos_sharpe=oos_sharpe,
+            derisk_lookup=self._derisk_lookup,
+            btc_correlations=btc_correlations,
+        )
 
-        if median_trades < 20:
-            w_selector, w_sharpe = 0.30, 0.70  # cold start — trust OOS prior
-        elif median_trades < 60:
-            # Linear interpolation: 30%→70% selector as trades go 20→60
-            frac = (median_trades - 20) / 40.0
-            w_selector = 0.30 + 0.40 * frac
-            w_sharpe = 1.0 - w_selector
-        else:
-            w_selector, w_sharpe = 0.70, 0.30  # trust live selector
-
-        log.info("Composite weights: selector=%.0f%% sharpe=%.0f%% (median_trades=%d)",
-                 w_selector * 100, w_sharpe * 100, median_trades)
-
-        candidates = []
-        MIN_OOS_SHARPE = -0.20  # Hard floor: exclude symbols with deeply negative OOS Sharpe
-        for sym, sel_score in rankings:
-            oos_s = oos_sharpe.get(sym, 0.0)
-            if oos_s < MIN_OOS_SHARPE:
-                log.info("Composite: %s excluded (OOS Sharpe %.2f < %.2f)", sym, oos_s, MIN_OOS_SHARPE)
-                continue
-            blended = self._blended_sharpe(sym, oos_s)
-            candidates.append((sym, sel_score, blended))
-
-        if not candidates:
-            return {}
-
-        # Normalize each dimension to [0, 1] using rank-percentile (robust to outliers)
-        def _rank_normalize(values):
-            n = len(values)
-            if n <= 1:
-                return [1.0] * n
-            order = sorted(range(n), key=lambda i: values[i])
-            ranks = [0.0] * n
-            for rank_pos, idx in enumerate(order):
-                ranks[idx] = rank_pos / (n - 1)
-            return ranks
-
-        sel_scores = [c[1] for c in candidates]
-        sharpe_vals = [c[2] for c in candidates]
-
-        sel_norm = _rank_normalize(sel_scores)
-        sharpe_norm = _rank_normalize(sharpe_vals)
-
-        result = {}
-        for i, (sym, sel, blended) in enumerate(candidates):
-            composite = (w_selector * sel_norm[i]
-                         + w_sharpe * sharpe_norm[i])
-
-            # BTC correlation penalty: corr=0.9 → 45% score reduction
-            if btc_correlations and sym in btc_correlations:
-                btc_corr = btc_correlations[sym]
-                composite *= (1 - 0.5 * btc_corr)
-
-            result[sym] = round(composite, 4)
-
-        result = dict(sorted(result.items(), key=lambda x: -x[1]))
-        return result
-
-    def _blended_sharpe(self, symbol: str, oos_sharpe: float) -> float:
-        """Blend OOS Sharpe with live rolling Sharpe using exponential decay.
-
-        w_live = min(1 - 0.5^(n_trades/60), 0.70)
-        blended = (1 - w_live) * oos_sharpe + w_live * live_sharpe
-
-        After 60 trades, live gets 50% weight. Cap at 70% — never fully
-        abandon the OOS prior (Rob Carver's shrinkage principle).
-        Returns oos_sharpe if no live data available.
-        """
-        # Look up live rolling Sharpe from derisk state
+    def _derisk_lookup(self, symbol: str) -> Optional[tuple]:
+        """Return (n_trades, live_rolling_sharpe) for a symbol, or None."""
         alpaca_sym = symbol.replace("-", "/")
-        derisk = self._derisk_states.get(alpaca_sym)
+        derisk = self._derisk_states.get(alpaca_sym) or self._derisk_states.get(symbol)
         if derisk is None:
-            derisk = self._derisk_states.get(symbol)
-        if derisk is None:
-            return oos_sharpe
-
+            return None
         n_trades = len(derisk.returns)
         live_sharpe = derisk.rolling_sharpe(window=60)
-        if live_sharpe is None or n_trades < 10:
-            return oos_sharpe
-
-        # Exponential decay: approaches 0.70 as n_trades grows
-        w_live = min(1.0 - 0.5 ** (n_trades / 60.0), 0.70)
-        blended = (1.0 - w_live) * oos_sharpe + w_live * live_sharpe
-        return blended
+        return (n_trades, live_sharpe)
 
     # -- Coin ranker (Layer 1 → rank ALL, Layer 2 → ML decides) -----------
     def _run_coin_selector(self) -> List[str]:
@@ -1602,9 +1530,34 @@ class AlpacaPaperTrader:
                 return list(self.symbols)
 
             ranked_symbols = ranking["symbol"].tolist()
-            self._composite_scores = dict(
-                zip(ranking["symbol"], ranking["score"])
-            )
+
+            # Step 1b: Blend selector scores with OOS Sharpe (composite scoring)
+            # Load OOS metrics from promoted_symbols.json for this group
+            _group_model_dir = get_model_dir(group)
+            oos_metrics = load_promoted_oos(_group_model_dir)
+            oos_sharpe_map = {sym: d.get("sharpe_ratio", 0.0) for sym, d in oos_metrics.items()}
+
+            if oos_sharpe_map:
+                # Build (symbol, selector_score) tuples for composite scoring
+                sel_rankings = list(zip(ranking["symbol"], ranking["score"]))
+                self._composite_scores = _composite_scores_shared(
+                    rankings=sel_rankings,
+                    oos_sharpe=oos_sharpe_map,
+                    derisk_lookup=self._derisk_lookup,
+                )
+                # Re-sort by composite score
+                ranked_symbols = sorted(
+                    self._composite_scores.keys(),
+                    key=lambda s: -self._composite_scores[s],
+                )
+                log.info("ETF ranker: composite scoring applied (%d OOS symbols blended)",
+                         len(oos_sharpe_map))
+            else:
+                # No OOS data — use raw selector scores
+                self._composite_scores = dict(
+                    zip(ranking["symbol"], ranking["score"])
+                )
+                log.info("ETF ranker: no OOS data — using raw selector scores")
 
             # Step 2: Take top-N ranked symbols — only these are candidates
             max_active = self._risk_config.max_positions
@@ -2379,6 +2332,8 @@ class AlpacaPaperTrader:
                     return f"EXIT-DEFERRED  (stale auto-close, market closed)"
 
             # ===== LAYER 1: Hard safety (disaster stop) =====
+            # Regime-adaptive: widen stops in high-vol, tighten in low-vol
+            regime_mult = getattr(self, '_regime_mult', 1.0)
             if not use_legacy_stops:
                 if ep.use_atr:
                     entry_atr = self._entry_atrs.get(symbol, bar_atr)
@@ -2389,6 +2344,7 @@ class AlpacaPaperTrader:
                         disaster_stop_pct = ep.disaster_stop_pct
                 else:
                     disaster_stop_pct = ep.disaster_stop_pct
+                disaster_stop_pct *= regime_mult
 
                 if pnl_pct <= -disaster_stop_pct:
                     reason = f"disaster_stop ({pnl_pct:+.2%} <= -{disaster_stop_pct:.2%})"
@@ -2438,6 +2394,16 @@ class AlpacaPaperTrader:
                 else:
                     arm_pct = ep.profit_lock_arm_pct
                     trail_pct = ep.profit_lock_trail_pct
+
+                # Regime-adaptive trail width + time-decay tightening
+                trail_pct *= regime_mult
+                try:
+                    from regime_detector import time_decay_tightening
+                    _bars = self._bars_held.get(symbol, 0)
+                    _max = ep.max_hold_bars if hasattr(ep, 'max_hold_bars') else 100
+                    trail_pct *= time_decay_tightening(_bars, _max)
+                except ImportError:
+                    pass
 
                 # Arm profit-lock when PnL exceeds threshold
                 if pnl_pct >= arm_pct:
@@ -2700,10 +2666,14 @@ class AlpacaPaperTrader:
                     window=risk.kelly_window, min_trades=risk.kelly_min_trades
                 )
             if kelly_f is not None:
-                # Cross-group discount: scale Kelly for multi-strategy portfolio
-                # Apply discount only to kelly_f, not to cap (avoid double-discounting)
-                base_frac = min(kelly_f * risk.cross_group_kelly_discount, risk.kelly_cap)
-                size_source = f"kelly={kelly_f:.3f}×{risk.cross_group_kelly_discount:.2f}"
+                # Cross-group discount: data-driven overlay replaces static discount
+                from risk_overlay import load_scaling_factor
+                overlay_factor = load_scaling_factor(self.group or "swing")
+                effective_discount = min(risk.cross_group_kelly_discount, overlay_factor)
+                base_frac = min(kelly_f * effective_discount, risk.kelly_cap)
+                size_source = f"kelly={kelly_f:.3f}×{effective_discount:.2f}"
+                if overlay_factor < risk.cross_group_kelly_discount:
+                    size_source += f"[overlay={overlay_factor:.2f}]"
             else:
                 base_frac = risk.position_pct
                 size_source = "fixed"
@@ -3237,6 +3207,25 @@ class AlpacaPaperTrader:
                 account = self.get_account_summary()
                 positions = self.get_positions()
 
+                # Regime detection: refit daily, update stop multiplier
+                if self._regime_detector is not None:
+                    _today = datetime.now(timezone.utc).date()
+                    _last_fit = getattr(self, '_regime_last_fit_date', None)
+                    if _last_fit != _today:
+                        try:
+                            import yfinance as yf
+                            spy = yf.download("SPY", period="2y", progress=False, auto_adjust=True)
+                            if not spy.empty:
+                                spy_ret = spy["Close"].pct_change().dropna()
+                                if self._regime_detector.fit(spy_ret, window=252):
+                                    regime = self._regime_detector.predict_regime(spy_ret)
+                                    self._regime_mult = self._regime_detector.get_stop_multiplier(regime)
+                                    log.info("Regime: %s (mult=%.2f)",
+                                             "HIGH-VOL" if regime == 1 else "LOW-VOL", self._regime_mult)
+                                self._regime_last_fit_date = _today
+                        except Exception as exc:
+                            log.warning("Regime fit failed: %s", exc)
+
                 # Layer 1: dynamic symbol selection (date-change gate)
                 # Full refresh once per trading day AFTER bar settlement:
                 #   ETF: after 06:30 ET (previous day's daily bar confirmed)
@@ -3368,10 +3357,46 @@ class AlpacaPaperTrader:
                 if option_positions:
                     print(f"  [OPTIONS] {', '.join(option_positions)} -- legacy option positions, not managed by this process")
 
+                # HRP weight computation: correlation-aware allocation (Phase 3)
+                _hrp_weights: Dict[str, float] = {}
+                try:
+                    from hrp_sizer import HRPSizer
+                    if len(cycle_symbols) >= 2:
+                        _hrp_returns: Dict[str, pd.Series] = {}
+                        for _s in cycle_symbols:
+                            ctx = self._get_market_context(_s)
+                            _p = ctx.get("price", 0)
+                            if _p > 0:
+                                _hrp_returns[_s] = pd.Series(dtype=float)  # placeholder
+                        # Try to get actual returns from bars data
+                        import yfinance as yf
+                        _yf_syms = [s.replace("/", "-") for s in cycle_symbols[:20]]
+                        _bars = yf.download(_yf_syms, period="90d", progress=False, auto_adjust=True)
+                        if not _bars.empty and hasattr(_bars.columns, "get_level_values"):
+                            _close_df = _bars["Close"]
+                            for _s_orig, _s_yf in zip(cycle_symbols[:20], _yf_syms):
+                                if _s_yf in _close_df.columns:
+                                    _ret = _close_df[_s_yf].pct_change().dropna()
+                                    if len(_ret) >= 20:
+                                        _hrp_returns[_s_orig] = _ret
+                        if len(_hrp_returns) >= 2:
+                            _sizer = HRPSizer(lookback=60)
+                            _hrp_weights = _sizer.compute_weights(_hrp_returns)
+                except Exception as _hrp_exc:
+                    log.debug("HRP sizing skipped: %s", _hrp_exc)
+
                 # Check each symbol in this group (cycle_symbols for crypto with selector)
                 _entries_this_cycle = 0
                 for sym in cycle_symbols:
-                    sym_alloc = allocation_per_sym
+                    # HRP-adjusted allocation: scale by relative weight
+                    if _hrp_weights and sym in _hrp_weights:
+                        n_syms = len(cycle_symbols)
+                        # HRP weight relative to equal weight (1/n)
+                        hrp_scale = _hrp_weights[sym] * n_syms
+                        hrp_scale = max(0.3, min(2.0, hrp_scale))  # clamp
+                        sym_alloc = allocation_per_sym * hrp_scale
+                    else:
+                        sym_alloc = allocation_per_sym
                     # Cap allocation by per-coin max order size (liquidity-based)
                     if self.group == "crypto":
                         yf_sym = _crypto_to_yfinance(sym) if "/" in sym else sym

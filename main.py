@@ -57,6 +57,7 @@ def _help_text() -> str:
     check-positions     Check paper account positions
     stop-paper-trader   Stop a running paper trader group
     select-symbols      Screen candidate symbols and update config
+    train-etf-selector  Train the LambdaRank ETF selector
     train-selector      Train the cross-sectional coin selector
     train-selector-intraday  Train the intraday coin selector
     rank-coins          Rank coins using the trained selector
@@ -214,6 +215,15 @@ def main() -> None:
     elif command == "select-symbols":
         import scripts.select_symbols as sel_sym
         sel_sym.main()
+
+    elif command == "train-etf-selector":
+        # Train LambdaRank ETF selector (Layer 1 of ETF pipeline)
+        from etf_selector import train_etf_selector
+        train_end = "2025-01-01"
+        for i, a in enumerate(sys.argv):
+            if a == "--train-end" and i + 1 < len(sys.argv):
+                train_end = sys.argv[i + 1]
+        train_etf_selector(train_end=train_end)
 
     elif command == "train-selector":
         # Train cross-sectional coin selector (Layer 1 of crypto pipeline)

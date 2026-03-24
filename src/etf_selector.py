@@ -48,25 +48,65 @@ log = logging.getLogger("etf_selector")
 DEFAULT_TOP_K = 10
 MIN_POOL_SIZE = 15   # only activate selector when pool > this; else trade all
 
-# Feature weights for composite score
+# Feature weights for composite score (rules-based fallback)
 WEIGHTS = {
-    "momentum_63d":     0.25,   # 3-month momentum (z-scored)
-    "momentum_21d":     0.15,   # 1-month momentum (z-scored)
-    "rel_strength_spy": 0.20,   # relative strength vs SPY (z-scored)
-    "vol_regime":       0.15,   # inverse volatility (prefer lower vol, z-scored)
-    "trend_strength":   0.15,   # distance from 200-SMA (z-scored)
-    "volume_surge":     0.10,   # recent volume surge (z-scored)
+    "momentum_63d":     0.20,   # 3-month momentum (z-scored)
+    "momentum_21d":     0.10,   # 1-month momentum (z-scored)
+    "rel_strength_spy": 0.15,   # relative strength vs SPY (z-scored)
+    "vol_regime":       0.10,   # inverse volatility (prefer lower vol, z-scored)
+    "trend_strength":   0.10,   # distance from 200-SMA (z-scored)
+    "volume_surge":     0.05,   # recent volume surge (z-scored)
+    "reversal_5d":      0.10,   # 5-day mean reversion signal (z-scored)
+    "credit_spread_z":  0.05,   # HY credit spread z-score (macro risk)
+    "xs_momentum_rank": 0.10,   # cross-sectional momentum rank (percentile)
+    "sector_dispersion":0.05,   # sector return dispersion (opportunity)
 }
+
+# All features used by the ML selector (superset — rules-based uses same set)
+ML_FEATURES = list(WEIGHTS.keys())
 
 
 # ---------------------------------------------------------------------------
 # Feature computation
 # ---------------------------------------------------------------------------
+def _fetch_credit_spread_z() -> float:
+    """Fetch ICE BofA HY OAS from FRED, return z-score over 1yr.
+
+    Returns 0.0 if FRED key is missing or fetch fails. Higher z-score means
+    wider spreads (risk-off environment) — the ML model can learn how to use it.
+    """
+    fred_key = os.environ.get("FRED_API_KEY", "").strip()
+    if not fred_key:
+        return 0.0
+    try:
+        import requests
+        url = (
+            "https://api.stlouisfed.org/fred/series/observations"
+            f"?series_id=BAMLH0A0HYM2&api_key={fred_key}"
+            "&sort_order=desc&limit=260&file_type=json"
+        )
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        obs = resp.json().get("observations", [])
+        vals = [float(o["value"]) for o in obs if o["value"] != "."]
+        if len(vals) < 20:
+            return 0.0
+        current = vals[0]
+        mean = np.mean(vals)
+        std = np.std(vals)
+        return float((current - mean) / std) if std > 0 else 0.0
+    except Exception:
+        return 0.0
+
+
 def _compute_features(
     closes: Dict[str, pd.Series],
     volumes: Optional[Dict[str, pd.Series]] = None,
 ) -> pd.DataFrame:
     """Compute cross-sectional features for all symbols.
+
+    10 features: 6 original + 4 new (reversal_5d, credit_spread_z,
+    xs_momentum_rank, sector_dispersion).
 
     Args:
         closes: dict of symbol → pd.Series of daily close prices (DatetimeIndex)
@@ -79,6 +119,12 @@ def _compute_features(
     if volumes is None:
         volumes = {}
 
+    # Pre-compute macro features (shared across all symbols)
+    credit_z = _fetch_credit_spread_z()
+
+    # Collect raw momentum for cross-sectional ranking
+    raw_mom_63: Dict[str, float] = {}
+
     rows = []
     for sym, close in closes.items():
         if len(close) < 63:
@@ -89,6 +135,7 @@ def _compute_features(
         # Momentum
         row["momentum_63d"] = close.iloc[-1] / close.iloc[-63] - 1 if len(close) >= 63 else 0
         row["momentum_21d"] = close.iloc[-1] / close.iloc[-21] - 1 if len(close) >= 21 else 0
+        raw_mom_63[sym] = row["momentum_63d"]
 
         # Relative strength vs SPY
         if spy_close is not None and len(spy_close) >= 63:
@@ -119,12 +166,38 @@ def _compute_features(
         else:
             row["volume_surge"] = 0
 
+        # --- NEW: reversal_5d (5-day mean reversion) ---
+        if len(close) >= 10:
+            ret_5d = close.iloc[-1] / close.iloc[-6] - 1 if close.iloc[-6] > 0 else 0
+            row["reversal_5d"] = -ret_5d  # negative = reversal signal (winners revert)
+        else:
+            row["reversal_5d"] = 0
+
+        # --- NEW: credit_spread_z (macro, same for all symbols) ---
+        row["credit_spread_z"] = -credit_z  # negative = prefer tighter spreads (risk-on)
+
         rows.append(row)
 
     if not rows:
         return pd.DataFrame()
 
     df = pd.DataFrame(rows).set_index("symbol")
+
+    # --- NEW: xs_momentum_rank (cross-sectional percentile) ---
+    n_symbols = len(df)
+    if n_symbols > 1:
+        mom_rank = df["momentum_63d"].rank(pct=True)
+        df["xs_momentum_rank"] = mom_rank
+    else:
+        df["xs_momentum_rank"] = 0.5
+
+    # --- NEW: sector_dispersion (std of sector-level returns) ---
+    # Approximate by std of all 63d returns — higher dispersion = more alpha opportunity
+    if n_symbols > 2:
+        dispersion = float(df["momentum_63d"].std())
+        df["sector_dispersion"] = dispersion  # same for all — ML learns the level
+    else:
+        df["sector_dispersion"] = 0.0
 
     # Z-score each feature cross-sectionally
     for col in WEIGHTS.keys():
@@ -587,6 +660,380 @@ class ETFIntradaySelector:
             return symbols
 
         return ranking.head(self.top_k)["symbol"].tolist()
+
+
+# ---------------------------------------------------------------------------
+# LambdaMART ETF Selector (Phase 1 — ML-based)
+# ---------------------------------------------------------------------------
+
+ETF_SELECTOR_MODEL_FILE = "etf_selector_lgb.txt"
+ETF_SELECTOR_CONFIG_FILE = "etf_selector_config.json"
+
+
+class ETFSelectorML:
+    """ML-based ETF selector using LightGBM LambdaRank.
+
+    Fallback chain: ML model → rules-based ETFSelector → return all.
+    """
+
+    def __init__(
+        self,
+        model_dir: Optional[str] = None,
+        top_k: int = DEFAULT_TOP_K,
+        min_pool: int = MIN_POOL_SIZE,
+    ):
+        self.top_k = top_k
+        self.min_pool = min_pool
+        self._model = None
+        self._feature_names: List[str] = ML_FEATURES
+        self._rules_fallback = ETFSelector(top_k=top_k, min_pool=min_pool)
+
+        model_dir = model_dir or SWING_MODEL_DIR
+        model_path = os.path.join(model_dir, ETF_SELECTOR_MODEL_FILE)
+        config_path = os.path.join(model_dir, ETF_SELECTOR_CONFIG_FILE)
+
+        if os.path.exists(model_path):
+            try:
+                import lightgbm as lgb
+                self._model = lgb.Booster(model_file=model_path)
+                if os.path.exists(config_path):
+                    import json
+                    with open(config_path, encoding="utf-8") as f:
+                        cfg = json.load(f)
+                    self._feature_names = cfg.get("feature_names", ML_FEATURES)
+                log.info("ETFSelectorML: loaded LambdaRank model from %s", model_path)
+            except Exception as exc:
+                log.warning("ETFSelectorML: failed to load model: %s — using rules", exc)
+                self._model = None
+        else:
+            log.info("ETFSelectorML: no model at %s — using rules fallback", model_path)
+
+    def rank(
+        self,
+        symbols: List[str],
+        closes: Optional[Dict[str, pd.Series]] = None,
+    ) -> pd.DataFrame:
+        """Rank symbols using ML model, falling back to rules if unavailable."""
+        if self._model is None:
+            return self._rules_fallback.rank(symbols, closes)
+
+        # Compute features (same as rules-based)
+        volumes: Optional[Dict[str, pd.Series]] = None
+        if closes is None:
+            closes, volumes = ETFSelector._fetch_closes(symbols)
+
+        features = _compute_features(closes, volumes)
+        if features.empty:
+            return self._rules_fallback.rank(symbols, closes)
+
+        # Ensure feature alignment
+        for col in self._feature_names:
+            if col not in features.columns:
+                features[col] = 0.0
+
+        X = features[self._feature_names].values
+        scores = self._model.predict(X)
+        features["score"] = scores
+        features = features.sort_values("score", ascending=False)
+        features["rank"] = range(1, len(features) + 1)
+
+        return features.reset_index()
+
+    def select(
+        self,
+        symbols: List[str],
+        closes: Optional[Dict[str, pd.Series]] = None,
+    ) -> List[str]:
+        """Select top-K symbols by ML score."""
+        if len(symbols) <= self.min_pool:
+            return symbols
+        ranking = self.rank(symbols, closes)
+        if ranking.empty:
+            return symbols
+        return ranking.head(self.top_k)["symbol"].tolist()
+
+
+# ---------------------------------------------------------------------------
+# Training pipeline for LambdaMART ETF selector
+# ---------------------------------------------------------------------------
+
+def _build_etf_panel(
+    symbols: List[str],
+    lookback_days: int = 756,
+) -> pd.DataFrame:
+    """Build cross-sectional panel: (date, symbol, features, label).
+
+    Label = 10-day forward risk-adjusted return, discretized to 5 bins.
+    """
+    import yfinance as yf
+
+    log.info("Fetching %dd of daily data for %d ETFs + SPY...", lookback_days, len(symbols))
+    fetch_syms = list(set(symbols + ["SPY"]))
+    data = yf.download(
+        fetch_syms,
+        period=f"{lookback_days}d",
+        progress=False,
+        auto_adjust=True,
+    )
+    if data.empty:
+        raise RuntimeError("No data from yfinance")
+
+    multi = hasattr(data.columns, "get_level_values")
+    if multi:
+        close_df = data["Close"]
+        vol_df = data["Volume"]
+    else:
+        close_df = data[["Close"]]
+        vol_df = data[["Volume"]]
+
+    # Build feature snapshots for each trading day
+    rows = []
+    dates = close_df.index[252:]  # need 252d history for features
+
+    for dt in dates:
+        # Slice closes up to this date
+        closes_dict: Dict[str, pd.Series] = {}
+        volumes_dict: Dict[str, pd.Series] = {}
+        for sym in fetch_syms:
+            if sym not in close_df.columns:
+                continue
+            c = close_df[sym].loc[:dt].dropna()
+            if len(c) >= 63:
+                closes_dict[sym] = c
+            v = vol_df[sym].loc[:dt].dropna() if sym in vol_df.columns else None
+            if v is not None and len(v) >= 60:
+                volumes_dict[sym] = v
+
+        if len(closes_dict) < 5:
+            continue
+
+        features = _compute_features(closes_dict, volumes_dict)
+        if features.empty:
+            continue
+
+        # Forward 10-day return (label)
+        future_idx = close_df.index.get_loc(dt)
+        if future_idx + 10 >= len(close_df.index):
+            continue
+
+        for sym in features.index:
+            if sym not in close_df.columns or sym == "SPY":
+                continue
+            try:
+                price_now = close_df[sym].iloc[future_idx]
+                price_fwd = close_df[sym].iloc[future_idx + 10]
+                if pd.isna(price_now) or pd.isna(price_fwd) or price_now <= 0:
+                    continue
+                fwd_ret = float(price_fwd / price_now - 1)
+                # Risk-adjust by 20d vol
+                daily_ret = close_df[sym].pct_change().iloc[future_idx - 20:future_idx]
+                vol = float(daily_ret.std())
+                vol = max(vol, 0.001)
+                risk_adj_ret = fwd_ret / vol
+            except (IndexError, KeyError):
+                continue
+
+            row = {"date": dt, "symbol": sym, "label": risk_adj_ret}
+            for col in ML_FEATURES:
+                row[col] = float(features.loc[sym, col]) if col in features.columns else 0.0
+            rows.append(row)
+
+    panel = pd.DataFrame(rows)
+    log.info("Panel: %d rows, %d dates, %d symbols",
+             len(panel), panel["date"].nunique(), panel["symbol"].nunique())
+    return panel
+
+
+def _compute_ndcg_by_group(
+    pred: np.ndarray, labels: np.ndarray, groups: np.ndarray, k: int
+) -> List[float]:
+    """Compute NDCG@k for each query group."""
+    ndcg_scores = []
+    offset = 0
+    for g_size in groups:
+        g_pred = pred[offset:offset + g_size]
+        g_labels = labels[offset:offset + g_size]
+        offset += g_size
+        if len(g_pred) < 2:
+            continue
+        order = np.argsort(-g_pred)
+        sorted_labels = g_labels[order]
+        dcg = sum((2 ** sorted_labels[i] - 1) / np.log2(i + 2)
+                  for i in range(min(k, len(sorted_labels))))
+        ideal_order = np.argsort(-g_labels)
+        ideal_labels = g_labels[ideal_order]
+        idcg = sum((2 ** ideal_labels[i] - 1) / np.log2(i + 2)
+                   for i in range(min(k, len(ideal_labels))))
+        ndcg_scores.append(dcg / idcg if idcg > 0 else 0.0)
+    return ndcg_scores
+
+
+def train_etf_selector(
+    universe: Optional[List[str]] = None,
+    train_end: str = "2025-01-01",
+    save_dir: Optional[str] = None,
+    lookback_days: int = 756,
+) -> dict:
+    """Train LightGBM LambdaRank ETF selector.
+
+    Mirrors coin_selector.train_selector() pattern:
+    - Panel: 3yr daily data x ETF universe, features z-scored per date
+    - Labels: 10d forward risk-adjusted return, discretized to 5 bins
+    - Model: LambdaRank, NDCG@[3,6], 10-day embargo between train/val
+
+    Returns dict with training metrics.
+    """
+    import json
+    import lightgbm as lgb
+
+    if save_dir is None:
+        save_dir = SWING_MODEL_DIR
+    os.makedirs(save_dir, exist_ok=True)
+
+    if universe is None:
+        from etf_screener import load_promoted_symbols, load_etf_universe
+        universe = load_promoted_symbols(save_dir)
+        if not universe:
+            universe = load_etf_universe(save_dir)
+        if not universe:
+            raise RuntimeError("No ETF universe available. Run screen-etf-universe first.")
+
+    # Build panel
+    panel = _build_etf_panel(universe, lookback_days=lookback_days)
+    if len(panel) < 200:
+        raise RuntimeError(f"Panel too small: {len(panel)} rows (need ≥200)")
+
+    # Train/val split with 10-day embargo
+    train_end_dt = pd.Timestamp(train_end)
+    embargo = pd.Timedelta(days=10)
+    train_df = panel[panel["date"] < train_end_dt].copy()
+    val_df = panel[panel["date"] >= train_end_dt + embargo].copy()
+
+    if len(train_df) < 150:
+        raise RuntimeError(f"Training set too small: {len(train_df)} rows")
+    if len(val_df) < 50:
+        log.warning("Validation set small: %d rows", len(val_df))
+
+    log.info("Train: %d rows (%s → %s), Val: %d rows (%s → %s)",
+             len(train_df), train_df["date"].min().date(), train_df["date"].max().date(),
+             len(val_df), val_df["date"].min().date(), val_df["date"].max().date())
+
+    # Discretize labels into 0-4 grades per date
+    def _discretize(df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        df["label_int"] = 0
+        for _, grp in df.groupby("date"):
+            vals = grp["label"].values
+            if len(vals) < 5:
+                ranks = pd.Series(vals).rank(method="min").astype(int) - 1
+                ranks = (ranks * 4 / max(ranks.max(), 1)).astype(int).clip(0, 4)
+                df.loc[grp.index, "label_int"] = ranks.values
+            else:
+                pcts = pd.Series(vals).rank(pct=True)
+                grades = (pcts * 5).clip(0, 4.999).astype(int)
+                df.loc[grp.index, "label_int"] = grades.values
+        return df
+
+    train_df = _discretize(train_df)
+    val_df = _discretize(val_df)
+
+    def build_lgb_data(df: pd.DataFrame):
+        X = df[ML_FEATURES].values
+        y = df["label_int"].values.astype(int)
+        groups = df.groupby("date").size().values
+        return X, y, groups
+
+    X_train, y_train, groups_train = build_lgb_data(train_df)
+    X_val, y_val, groups_val = build_lgb_data(val_df)
+
+    train_set = lgb.Dataset(X_train, label=y_train, group=groups_train,
+                            feature_name=ML_FEATURES, free_raw_data=False)
+    val_set = lgb.Dataset(X_val, label=y_val, group=groups_val,
+                          reference=train_set, free_raw_data=False)
+
+    params = {
+        "objective": "lambdarank",
+        "metric": "ndcg",
+        "ndcg_eval_at": [3, 6],
+        "label_gain": [0, 1, 3, 7, 15],
+        "num_leaves": 31,
+        "learning_rate": 0.05,
+        "feature_fraction": 0.7,
+        "min_data_in_leaf": 20,
+        "verbose": -1,
+        "seed": 42,
+    }
+
+    log.info("Training LambdaRank ETF selector...")
+    callbacks = [
+        lgb.early_stopping(stopping_rounds=30),
+        lgb.log_evaluation(period=50),
+    ]
+    model = lgb.train(
+        params,
+        train_set,
+        num_boost_round=300,
+        valid_sets=[val_set],
+        valid_names=["val"],
+        callbacks=callbacks,
+    )
+
+    # Evaluate
+    val_pred = model.predict(X_val)
+    ndcg_scores = _compute_ndcg_by_group(val_pred, y_val, groups_val, k=6)
+    mean_ndcg = float(np.mean(ndcg_scores)) if ndcg_scores else 0.0
+
+    importance = dict(zip(ML_FEATURES, model.feature_importance(importance_type="gain").tolist()))
+    sorted_imp = sorted(importance.items(), key=lambda x: -x[1])
+
+    # NDCG comparison gate
+    config_path = os.path.join(save_dir, ETF_SELECTOR_CONFIG_FILE)
+    model_path = os.path.join(save_dir, ETF_SELECTOR_MODEL_FILE)
+    deploy = True
+    try:
+        if os.path.exists(config_path):
+            with open(config_path, encoding="utf-8") as f:
+                old = json.load(f)
+            old_ndcg = old.get("mean_ndcg", 0.0)
+            if mean_ndcg < old_ndcg - 0.02:
+                log.warning("ETF selector retrain REJECTED: NDCG %.4f < %.4f − 0.02",
+                            mean_ndcg, old_ndcg)
+                deploy = False
+    except Exception:
+        pass
+
+    from datetime import datetime, timezone
+    metrics = {
+        "feature_names": ML_FEATURES,
+        "train_rows": len(train_df),
+        "val_rows": len(val_df),
+        "train_range": f"{train_df['date'].min().date()} → {train_df['date'].max().date()}",
+        "val_range": f"{val_df['date'].min().date()} → {val_df['date'].max().date()}",
+        "symbols": sorted(panel["symbol"].unique().tolist()),
+        "n_symbols": int(panel["symbol"].nunique()),
+        "mean_ndcg": round(mean_ndcg, 4),
+        "best_iteration": model.best_iteration,
+        "feature_importance": dict(sorted_imp),
+        "deployed": deploy,
+        "trained_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    if deploy:
+        model.save_model(model_path)
+        log.info("Saved ETF selector model to %s", model_path)
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(metrics, f, indent=2)
+        log.info("Saved ETF selector config to %s", config_path)
+
+    log.info("=== ETF Selector Training Results ===")
+    log.info("  NDCG@6 (val): %.4f%s", mean_ndcg,
+             "" if deploy else " [REJECTED]")
+    log.info("  Best iteration: %d", model.best_iteration)
+    log.info("  Feature importance:")
+    for feat, imp in sorted_imp[:5]:
+        log.info("    %s: %.1f", feat, imp)
+
+    return metrics
 
 
 # ---------------------------------------------------------------------------
