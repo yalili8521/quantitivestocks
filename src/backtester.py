@@ -2008,6 +2008,77 @@ def generate_charts(result: BacktestResult) -> Optional[str]:
 # ===================================================================
 # Report
 # ===================================================================
+def _upsert_promoted_symbols(result: BacktestResult, summary: dict) -> None:
+    """Upsert backtest result into promoted_symbols.json for the ETF selector.
+
+    Every backtest updates the selector's knowledge of model performance.
+    The promoted file uses a merge strategy: newer results overwrite older ones
+    for the same (symbol, mode) pair.
+    """
+    # Determine target model dir based on model type / mode
+    mode = getattr(result, "mode", "daily")
+    if mode == "intraday":
+        target_dir = INTRADAY_MODEL_DIR
+    else:
+        # Swing/daily models: check if it's a crypto symbol
+        sym = result.symbol
+        if "/" in sym or sym.endswith("-USD"):
+            target_dir = CRYPTO_MODEL_DIR
+        else:
+            target_dir = SWING_MODEL_DIR
+
+    promoted_path = os.path.join(target_dir, "promoted_symbols.json")
+
+    # Extract the fields the selector needs
+    entry = {
+        "symbol": result.symbol,
+        "start_date": result.start_date,
+        "end_date": result.end_date,
+        "total_return_pct": round(float(result.total_return_pct), 2),
+        "annualized_return_pct": round(float(result.annualized_return_pct), 2),
+        "sharpe_ratio": round(float(result.sharpe_ratio), 3),
+        "max_drawdown_pct": round(float(result.max_drawdown_pct), 2),
+        "total_trades": int(result.total_trades),
+        "win_rate": round(float(result.win_rate), 3),
+        "profit_factor": round(float(result.profit_factor), 3)
+                         if result.profit_factor != float("inf") else 999.0,
+        "avg_trade_duration_days": round(float(result.avg_trade_duration_days), 1),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # Load existing promoted file
+    existing = {"details": [], "symbols": [], "count": 0}
+    if os.path.exists(promoted_path):
+        try:
+            with open(promoted_path) as f:
+                existing = json.load(f)
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    # Merge: replace existing entry for same symbol, or append
+    details = existing.get("details", [])
+    replaced = False
+    for i, d in enumerate(details):
+        if d.get("symbol") == result.symbol:
+            details[i] = entry
+            replaced = True
+            break
+    if not replaced:
+        details.append(entry)
+
+    # Re-sort by Sharpe descending
+    details.sort(key=lambda x: -x.get("sharpe_ratio", 0))
+
+    existing["details"] = details
+    existing["symbols"] = [d["symbol"] for d in details]
+    existing["count"] = len(details)
+    existing["last_updated"] = datetime.now(timezone.utc).isoformat()
+
+    os.makedirs(target_dir, exist_ok=True)
+    with open(promoted_path, "w") as f:
+        json.dump(existing, f, indent=2)
+
+
 def print_report(result: BacktestResult) -> None:
     print("\n" + "=" * 60)
     print("  BACKTEST REPORT")
@@ -2103,6 +2174,9 @@ def print_report(result: BacktestResult) -> None:
         json.dump(summary, f, indent=2)
     with open(summary_path_compat, "w") as f:
         json.dump(summary, f, indent=2)
+
+    # Upsert into promoted_symbols.json so the ETF selector always has fresh metrics
+    _upsert_promoted_symbols(result, summary)
 
     # Save trade history
     if result.trades:
