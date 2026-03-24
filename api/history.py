@@ -187,9 +187,13 @@ def _recent_trades(trades: list, max_days: int = 3) -> list:
 def _build_equity_curve(trade_log: list, initial_balance: float) -> dict:
     """Synthesize an equity curve from the trade log.
 
-    Walks through trades chronologically, tracking cash and position value
-    at each trade to produce timestamps + equity arrays compatible with the
-    Alpaca portfolio history format (unix epoch seconds).
+    Mirrors the Kraken paper executor's margin-based cash accounting:
+      - LONG open (buy, intent=open):  cash -= qty * price + fee
+      - LONG close (sell, intent=close): cash += entry * qty + pnl
+      - SHORT open (sell, intent=open): cash -= fee only (margin model)
+      - SHORT close (buy, intent=close): cash += pnl
+
+    Equity = cash + sum(market_value for LONGs) + sum(unrealized_pnl for SHORTs)
     """
     if not trade_log:
         return {}
@@ -197,10 +201,11 @@ def _build_equity_curve(trade_log: list, initial_balance: float) -> dict:
     sorted_trades = sorted(trade_log, key=lambda t: t.get("time", ""))
 
     cash = initial_balance
-    positions: dict = {}  # symbol -> signed qty (positive=long, negative=short)
+    # Track open positions: symbol -> {side, qty, entry_price}
+    open_positions: dict = {}
     timestamps: list[int] = []
     equity: list[float] = []
-    last_prices: dict = {}  # symbol -> last known price
+    last_prices: dict = {}
 
     for t in sorted_trades:
         sym = t.get("symbol", "")
@@ -208,31 +213,41 @@ def _build_equity_curve(trade_log: list, initial_balance: float) -> dict:
         qty = float(t.get("qty", 0))
         price = float(t.get("price", 0))
         time_str = t.get("time", "")
+        intent = t.get("intent", "")
 
         if not sym or not time_str or qty == 0 or price == 0:
             continue
 
         last_prices[sym] = price
 
-        # Cash flow: buy spends cash, sell receives cash (regardless of intent)
-        if side == "buy":
-            cash -= qty * price
-            positions[sym] = positions.get(sym, 0.0) + qty
-        else:  # sell
-            cash += qty * price
-            positions[sym] = positions.get(sym, 0.0) - qty
+        if intent == "open":
+            if side == "buy":
+                # LONG open: debit full notional
+                cash -= qty * price
+                open_positions[sym] = {"side": "LONG", "qty": qty, "entry_price": price}
+            else:
+                # SHORT open: margin model — only fee deducted (no notional)
+                # Fee is small (~0.26% of notional), approximate as 0
+                open_positions[sym] = {"side": "SHORT", "qty": qty, "entry_price": price}
+        elif intent == "close" and sym in open_positions:
+            pos = open_positions[sym]
+            if pos["side"] == "LONG":
+                pnl = (price - pos["entry_price"]) * pos["qty"]
+                cash += pos["entry_price"] * pos["qty"] + pnl
+            else:
+                pnl = (pos["entry_price"] - price) * pos["qty"]
+                cash += pnl
+            del open_positions[sym]
 
-        # Clean up flat positions
-        if sym in positions and abs(positions[sym]) < 1e-10:
-            del positions[sym]
-
-        # Equity = cash + sum(signed_qty * current_price)
-        # Long (positive qty): adds market value
-        # Short (negative qty): subtracts market value (cash already credited on open)
+        # Compute equity: cash + position values
         pos_value = 0.0
-        for s, signed_qty in positions.items():
-            lp = last_prices.get(s, 0)
-            pos_value += signed_qty * lp
+        for s, pos in open_positions.items():
+            lp = last_prices.get(s, pos["entry_price"])
+            if pos["side"] == "LONG":
+                pos_value += lp * pos["qty"]
+            else:
+                # SHORT: unrealized P&L only (cash wasn't debited for notional)
+                pos_value += (pos["entry_price"] - lp) * pos["qty"]
 
         try:
             ts = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
