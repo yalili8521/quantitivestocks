@@ -2458,13 +2458,17 @@ document.addEventListener('DOMContentLoaded', function() {
       el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-dim);font-size:12px">No portfolio history available</div>';
       return;
     }
-    // Extend curve to "now" with live equity so the Total P&L above matches the curve end (fixes wrong Pfixes wrong P&L above curve for expansion/othersL above curve for options/others)
+    // Extend curve to "now" with live equity so the chart reaches current time.
+    // Only append if the gap is < 10% of last equity — larger gaps indicate
+    // incomplete trade-log replay (e.g. Kraken position overwrites) and would
+    // create misleading spikes/drops on the chart.
     var liveEq = typeof currentEquity === 'number' && currentEquity > 0;
     if (liveEq) {
       var lastTs = dates[dates.length - 1].getTime();
       var nowTs  = Date.now();
       var lastEq = eq[eq.length - 1];
-      if (nowTs - lastTs > 60 * 60 * 1000 || Math.abs(lastEq - currentEquity) > 0.01) {
+      var gapPct = Math.abs(lastEq - currentEquity) / lastEq;
+      if (gapPct < 0.10 && (nowTs - lastTs > 60 * 60 * 1000 || Math.abs(lastEq - currentEquity) > 0.01)) {
         dates.push(new Date(nowTs));
         eq.push(currentEquity);
       }
