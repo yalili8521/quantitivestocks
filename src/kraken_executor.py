@@ -439,6 +439,13 @@ class KrakenExecutor:
             del self._paper_positions[symbol]
 
         elif not is_close:
+            # Reject duplicate: already holding this symbol
+            if symbol in self._paper_positions:
+                pos = self._paper_positions[symbol]
+                log.warning("PAPER SKIP %s %s — already holding %s x%.6f @ $%.4f",
+                            side, symbol, pos.side, pos.qty, pos.entry_price)
+                return None
+
             # Opening new position
             notional = fill_price * qty
             if side == "buy":
