@@ -221,23 +221,38 @@ def _build_equity_curve(trade_log: list, initial_balance: float) -> dict:
         last_prices[sym] = price
 
         if intent == "open":
+            # If reopening a symbol that's already open, implicitly close
+            # the old position first (executor overwrites without logging).
+            if sym in open_positions:
+                old = open_positions[sym]
+                if old["side"] == "LONG":
+                    old_pnl = (price - old["entry_price"]) * old["qty"]
+                    cash += old["entry_price"] * old["qty"] + old_pnl
+                else:
+                    old_pnl = (old["entry_price"] - price) * old["qty"]
+                    cash += old_pnl
+                del open_positions[sym]
+
             if side == "buy":
                 # LONG open: debit full notional
                 cash -= qty * price
                 open_positions[sym] = {"side": "LONG", "qty": qty, "entry_price": price}
             else:
                 # SHORT open: margin model — only fee deducted (no notional)
-                # Fee is small (~0.26% of notional), approximate as 0
                 open_positions[sym] = {"side": "SHORT", "qty": qty, "entry_price": price}
-        elif intent == "close" and sym in open_positions:
-            pos = open_positions[sym]
-            if pos["side"] == "LONG":
-                pnl = (price - pos["entry_price"]) * pos["qty"]
-                cash += pos["entry_price"] * pos["qty"] + pnl
-            else:
-                pnl = (pos["entry_price"] - price) * pos["qty"]
-                cash += pnl
-            del open_positions[sym]
+        elif intent == "close":
+            if sym in open_positions:
+                pos = open_positions[sym]
+                close_qty = min(qty, pos["qty"])  # partial or full close
+                if pos["side"] == "LONG":
+                    pnl = (price - pos["entry_price"]) * close_qty
+                    cash += pos["entry_price"] * close_qty + pnl
+                else:
+                    pnl = (pos["entry_price"] - price) * close_qty
+                    cash += pnl
+                pos["qty"] -= close_qty
+                if pos["qty"] < 1e-10:
+                    del open_positions[sym]
 
         # Compute equity: cash + position values
         pos_value = 0.0
