@@ -602,6 +602,7 @@ class AlpacaPaperTrader:
         group: Optional[str] = None,
         blocked_windows: Optional[List[str]] = None,
         half_size_windows: Optional[List[str]] = None,
+        target_vol: float = 0.20,
     ):
         # Alpaca client is optional when using Kraken for crypto-only group
         if api_key and api_secret:
@@ -622,7 +623,7 @@ class AlpacaPaperTrader:
         self.trend_sma_period = trend_sma_period
         self.cost_threshold = cost_threshold
         self.target_return = target_return
-        self.target_vol = kwargs.get("target_vol", 0.20)
+        self.target_vol = target_vol
         self.disaster_stop_atr_mult = disaster_stop_atr_mult
         self.disaster_stop_max_pct = disaster_stop_max_pct
         self.profit_lock_atr_mult = profit_lock_atr_mult
