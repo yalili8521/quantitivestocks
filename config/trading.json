@@ -43,6 +43,7 @@
         "kelly_cap": 0.2,
         "cross_group_kelly_discount": 0.5,
         "kelly_floor": 0.05,
+        "target_vol": 0.20,
         "blocked_windows": [
             "11:30-13:00"
         ],
@@ -80,7 +81,8 @@
         "max_positions": 5,
         "kelly_cap": 0.25,
         "cross_group_kelly_discount": 0.5,
-        "kelly_floor": 0.05
+        "kelly_floor": 0.05,
+        "target_vol": 0.15
     },
     "crypto": {
         "mode": "daily",
@@ -112,6 +114,7 @@
         "kelly_cap": 0.1,
         "cross_group_kelly_discount": 0.5,
         "kelly_floor": 0.02,
+        "target_vol": 0.30,
         "min_signal_threshold": 0.0,
         "use_ic_weighting": true,
         "use_correlation": true,
@@ -154,6 +157,7 @@
         "kelly_cap": 0.1,
         "cross_group_kelly_discount": 0.5,
         "kelly_floor": 0.02,
+        "target_vol": 0.35,
         "selector": {
             "_comment": "Reuse swing coin selector for universe filtering",
             "enabled": true,

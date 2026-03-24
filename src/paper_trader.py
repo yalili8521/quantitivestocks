@@ -622,6 +622,7 @@ class AlpacaPaperTrader:
         self.trend_sma_period = trend_sma_period
         self.cost_threshold = cost_threshold
         self.target_return = target_return
+        self.target_vol = kwargs.get("target_vol", 0.20)
         self.disaster_stop_atr_mult = disaster_stop_atr_mult
         self.disaster_stop_max_pct = disaster_stop_max_pct
         self.profit_lock_atr_mult = profit_lock_atr_mult
@@ -2011,6 +2012,22 @@ class AlpacaPaperTrader:
             log.warning("VIX fetch failed, using cached value: %s", exc)
             return self._vix_cache if self._vix_cache is not None else pd.DataFrame()
 
+    def _get_current_vix(self) -> Optional[float]:
+        """Get latest VIX value from cache."""
+        vix_df = self._vix_cache if self._vix_cache is not None else self._get_vix_df()
+        if vix_df is None or vix_df.empty:
+            return None
+        try:
+            if vix_df.shape[1] == 1:
+                return float(vix_df.iloc[-1].iloc[0])
+            # Try common column names
+            for col in ("vix_close", "vix", "Close"):
+                if col in vix_df.columns:
+                    return float(vix_df[col].iloc[-1])
+            return float(vix_df.iloc[-1].iloc[0])
+        except Exception:
+            return None
+
     def get_prediction(self, symbol: str) -> dict:
         """Get ML prediction for a symbol."""
         predictor = self.predictors.get(symbol)
@@ -2691,7 +2708,42 @@ class AlpacaPaperTrader:
                 size_source = "fixed"
 
             sizing_pct = base_frac * signal_pct
-            sizing_pct = min(sizing_pct, risk.max_position_pct)
+
+            # --- Vol-targeting layer: normalize size by inverse volatility ---
+            # Ensures each position contributes ~target_vol risk regardless of
+            # the asset's own volatility. High-vol assets get smaller dollar size.
+            rv_30d = ctx.get("rv_30d", 0.0)
+            size_note_parts = []
+            if rv_30d > 0.01:
+                target_vol = getattr(self, 'target_vol', 0.20)
+                vol_scalar = min(2.0, max(0.25, target_vol / rv_30d))
+                sizing_pct *= vol_scalar
+                if abs(vol_scalar - 1.0) > 0.05:
+                    size_note_parts.append(f"vol={vol_scalar:.2f}")
+
+            # --- VIX-based continuous regime scaling ---
+            # Smoothly reduces size as VIX rises: at VIX=40 size is halved.
+            # Intraday skips this (VIX is already a model feature).
+            if self.mode != "intraday":
+                vix_now = self._get_current_vix()
+                if vix_now is not None and vix_now > 0:
+                    vix_scalar = min(1.0, 20.0 / vix_now)
+                    sizing_pct *= vix_scalar
+                    if vix_scalar < 0.95:
+                        size_note_parts.append(f"vix={vix_scalar:.2f}")
+
+            # --- Vol-adjusted position cap ---
+            # Tighter cap for high-vol assets, looser for low-vol (up to 1.5x base)
+            if rv_30d > 0.01:
+                target_vol = getattr(self, 'target_vol', 0.20)
+                vol_adj_cap = min(
+                    risk.max_position_pct * 1.5,
+                    risk.max_position_pct * (target_vol / rv_30d)
+                )
+                vol_adj_cap = max(0.03, vol_adj_cap)
+            else:
+                vol_adj_cap = risk.max_position_pct
+            sizing_pct = min(sizing_pct, vol_adj_cap)
 
             if is_crypto:
                 log.debug("Crypto sizing %s: base=%.3f signal=%.3f max_pos=%.2f "
@@ -2726,6 +2778,8 @@ class AlpacaPaperTrader:
 
             # --- Auto de-risking check (rolling performance gate) ---
             size_note = f" [{size_source}]"
+            if size_note_parts:
+                size_note += f" [{', '.join(size_note_parts)}]"
             if derisk_state is not None:
                 derisk_action, derisk_reason = evaluate_derisk(
                     derisk_state,
@@ -3802,6 +3856,7 @@ def main() -> None:
     args.post_loss_size_mult = _resolve(args.post_loss_size_mult, "post_loss_size_mult", 0.5)
     args.post_loss_size_hours = _resolve(args.post_loss_size_hours, "post_loss_size_hours", 4.0)
     args.same_dir_confidence_mult = _resolve(args.same_dir_confidence_mult, "same_dir_confidence_mult", 1.5)
+    args.target_vol = cfg.get("target_vol", 0.20)
 
     # Resolve API keys: group-specific keys take priority over generic ALPACA_API_KEY
     group = args.group  # e.g. "intraday", "swing", "crypto", "all", or None
@@ -3891,6 +3946,7 @@ def main() -> None:
         post_loss_size_mult=args.post_loss_size_mult,
         post_loss_size_hours=args.post_loss_size_hours,
         same_dir_confidence_mult=args.same_dir_confidence_mult,
+        target_vol=args.target_vol,
         legacy_stricter_exit=legacy_stricter,
         legacy_no_new_entries=legacy_no_new,
         group=group,

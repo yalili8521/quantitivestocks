@@ -106,7 +106,7 @@ if (-not $env:ALPACA_INTRADAY_KEY -and (-not $env:ALPACA_API_KEY -or -not $env:A
 # Only --group, --mode, --interval are passed here; all tuning params come from config
 $Groups = @(
     @{ Name = 'intraday';  EnvPrefix = 'ALPACA_INTRADAY_';  Mode = 'intraday'; Interval = '5min';
-       ExtraArgs = @(); Command = 'trade'; AlwaysOn = $false },
+       ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true },
     @{ Name = 'swing';     EnvPrefix = 'ALPACA_SWING_';     Mode = 'daily';    Interval = '5min';
        ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true },
     @{ Name = 'crypto';    EnvPrefix = 'KRAKEN_';            Mode = 'daily';    Interval = '5min';
