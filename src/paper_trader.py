@@ -225,7 +225,7 @@ def _load_ranked_symbols(group: str) -> List[str]:
             break
 
     if ranked_symbols:
-        log.info("%s symbols from ranked pipeline (top-%d of %d with models): %s",
+        log.info("%s fallback symbols from ranked file (top-%d of %d with models): %s",
                  group.capitalize(), len(ranked_symbols), len(trained), ranked_symbols)
     return ranked_symbols
 
@@ -3905,7 +3905,7 @@ def main() -> None:
             symbols = _resolve_intraday_symbols()
         else:
             symbols = SYMBOL_GROUPS[group]
-        log.info("Account group '%s': trading %s", group, symbols)
+        log.info("Account group '%s': initial/fallback symbols %s (dynamic ranker overrides each cycle)", group, symbols)
     else:
         symbols = DEFAULT_UNIVERSE
 
