@@ -830,6 +830,7 @@ class AlpacaPaperTrader:
         self._monitor.log_pause_summary()
         self._entry_predictions: Dict[str, float] = {}  # symbol → predicted return at entry
         self._derisk_states: Dict[str, DeRiskState] = {}  # symbol → rolling perf tracker
+        self._rebuild_derisk_states()
         self._pending_reconcile: Dict[str, dict] = {}  # symbols that failed to close during reconciliation
         self._crypto_reconciled: bool = False  # True after first post-selector reconciliation
         self._etf_reconciled: bool = False     # True after first ETF selector reconciliation
@@ -848,6 +849,48 @@ class AlpacaPaperTrader:
         self._ci_bars_held: Dict[str, int] = {}  # crypto_intraday: 5-min bars since entry
         self._ci_last_bar_ts: Dict[str, datetime] = {}  # last bar timestamp per symbol (for dedup)
         self._classify_vol_tiers()
+
+    # -- Derisk state persistence -----------------------------------------
+
+    def _rebuild_derisk_states(self) -> None:
+        """Rebuild derisk states from CSV trade logs so Kelly survives restarts."""
+        import csv, glob
+        group = self.group or "default"
+        pattern = os.path.join(TRADES_DIR, "daily_trades_*.csv")
+        csv_files = sorted(glob.glob(pattern))
+        if not csv_files:
+            return
+        count = 0
+        for csv_path in csv_files:
+            try:
+                with open(csv_path, "r", encoding="utf-8") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        if row.get("group") != group:
+                            continue
+                        reason = row.get("reason", "")
+                        pnl_str = row.get("pnl_pct", "+0.0000")
+                        pnl = float(pnl_str)
+                        # Skip entries (pnl == 0 and reason contains "entry")
+                        if "entry" in reason.lower() and abs(pnl) < 1e-8:
+                            continue
+                        sym = row.get("symbol", "")
+                        if not sym:
+                            continue
+                        derisk_key = sym.replace("/", "-")
+                        if derisk_key not in self._derisk_states:
+                            self._derisk_states[derisk_key] = DeRiskState()
+                        self._derisk_states[derisk_key].record_trade(pnl)
+                        count += 1
+            except Exception as exc:
+                log.debug("Skipping %s in derisk rebuild: %s", csv_path, exc)
+        if count:
+            kelly_ready = [k for k, v in self._derisk_states.items()
+                           if v.half_kelly() is not None]
+            log.info("Rebuilt derisk states from %d closed trades across %d symbols; "
+                     "%d symbols have Kelly: %s",
+                     count, len(self._derisk_states),
+                     len(kelly_ready), kelly_ready or "none")
 
     # -- Volatility tier classification -----------------------------------
 
