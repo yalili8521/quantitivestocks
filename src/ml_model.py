@@ -41,6 +41,7 @@ from signals_engine import (
     compute_bollinger_bands,
     compute_adx,
     compute_momentum_quality,
+    compute_hurst_series,
     RSI_PERIOD,
     DAILY_LOOKBACK,
     PROJECT_ROOT,
@@ -84,6 +85,7 @@ FEATURE_COLS = [
 FEATURE_COLS_DAILY = [
     "bb_bandwidth", "vol20", "ret5", "bb_pct_b", "wk_ret", "dv_accel",
     "rsi14", "ret10", "adx", "macd_hist_norm", "vwap_ratio", "vol_regime",
+    "hurst",
 ]
 # Intraday mode: trend + liquidity + macro context dominate
 FEATURE_COLS_INTRADAY = [
@@ -339,6 +341,8 @@ class FeatureEngine:
         vol_short = close.pct_change().rolling(10).std() * annualize
         vol_long = close.pct_change().rolling(30).std() * annualize
         df["vol_regime"] = vol_short / vol_long.replace(0, np.nan)
+
+        df["hurst"] = compute_hurst_series(close, window=252, step=5)
 
         ema_fast = close.ewm(span=10, adjust=False).mean()
         ema_slow = close.ewm(span=30, adjust=False).mean()

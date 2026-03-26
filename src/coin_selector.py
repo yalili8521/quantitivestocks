@@ -897,6 +897,20 @@ class CoinSelector:
         latest = latest.copy()
         latest["score"] = scores
 
+        # Fee-aware ranking: penalize score by estimated round-trip cost.
+        # Coins with higher execution costs need proportionally more alpha.
+        try:
+            from cost_model import get_symbol_costs
+            fee_penalties = []
+            for _, row in latest.iterrows():
+                sym = row["symbol"]
+                costs = get_symbol_costs(sym)
+                fee_penalties.append(costs.round_trip_pct)
+            latest["fee_penalty"] = fee_penalties
+            latest["score"] = latest["score"] - latest["fee_penalty"]
+        except Exception:
+            pass  # fall back to raw scores if cost_model unavailable
+
         # Sort by score descending — return ALL coins ranked
         latest = latest.sort_values("score", ascending=False)
         rankings = [(row["symbol"], float(row["score"]))

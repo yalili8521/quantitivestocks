@@ -474,6 +474,17 @@ class Backtester:
                 cfg.get("cost_threshold", CRYPTO_INTRADAY_CT),
                 self.cost_threshold,  # respect auto-adjusted safety threshold
             )
+            # Per-symbol cost floor: threshold >= 1.5x actual RT costs
+            try:
+                from cost_model import get_symbol_costs as _gsc
+                _sym_costs = _gsc(self.symbol)
+                _cost_floor = _sym_costs.round_trip_pct * 1.5
+                if _cost_floor > crypto_ct:
+                    log.info("Cost floor raised crypto_ct for %s: %.4f → %.4f (RT=%.1fbps)",
+                             self.symbol, crypto_ct, _cost_floor, _sym_costs.round_trip_bps)
+                    crypto_ct = _cost_floor
+            except Exception:
+                pass
             crypto_tr = cfg.get("target_return", CRYPTO_INTRADAY_TR)
             crypto_pred_scale = cfg.get("pred_scale", 1.0)
             gru_active = cfg.get("gru_active", False)
@@ -1181,6 +1192,16 @@ class Backtester:
                             pooled_feature_names = json.load(_pcf).get("feature_names")
                     log.info("Loaded pooled %s model for ensemble.", pool_name)
 
+            # Load quantile regression models for confidence-gated entry
+            xgb_q25 = None
+            xgb_q75 = None
+            q25_path = os.path.join(self.model_dir, f"{self.symbol}_xgb_swing_q25.joblib")
+            q75_path = os.path.join(self.model_dir, f"{self.symbol}_xgb_swing_q75.joblib")
+            if os.path.exists(q25_path) and os.path.exists(q75_path):
+                xgb_q25 = joblib.load(q25_path)
+                xgb_q75 = joblib.load(q75_path)
+                log.info("Loaded q25/q75 quantile models for confidence gating.")
+
         else:  # "lstm" (default)
             engine = FeatureEngine()
             suffix = "" if self.mode == "daily" else f"_{self.intraday_interval}"
@@ -1300,6 +1321,9 @@ class Backtester:
                         ret_5d = float(xgb_5d_model.predict(x_row)[0])
                         if np.sign(ret_5d) == np.sign(expected_return):
                             expected_return = 0.60 * expected_return + 0.40 * ret_5d
+                        else:
+                            # Horizons disagree → dampen signal (low conviction)
+                            expected_return *= 0.3
                     except Exception:
                         pass
                 # Blend with pooled cluster model (70/30)
@@ -1486,10 +1510,32 @@ class Backtester:
                         swing_cooldown_until = None
 
                 enter_dir = None
-                if expected_return > self.cost_threshold:
-                    enter_dir = "LONG"
-                elif expected_return < -self.cost_threshold:
-                    enter_dir = "SHORT"
+                # Confidence-gated entry: use quantile bounds when available
+                if xgb_q25 is not None and xgb_q75 is not None:
+                    try:
+                        lb = float(xgb_q25.predict(x_row)[0])
+                        ub = float(xgb_q75.predict(x_row)[0])
+                        if swing_vol_normalized:
+                            vol_floor_q = 0.005 / np.sqrt(252)
+                            cur_vol_q = close_s.pct_change().rolling(20).std().iloc[feat_idx]
+                            cur_vol_q = max(cur_vol_q if not np.isnan(cur_vol_q) else vol_floor_q, vol_floor_q)
+                            lb *= cur_vol_q
+                            ub *= cur_vol_q
+                        if lb > self.cost_threshold:
+                            enter_dir = "LONG"
+                        elif ub < -self.cost_threshold:
+                            enter_dir = "SHORT"
+                    except Exception:
+                        # Fallback to raw expected_return
+                        if expected_return > self.cost_threshold:
+                            enter_dir = "LONG"
+                        elif expected_return < -self.cost_threshold:
+                            enter_dir = "SHORT"
+                else:
+                    if expected_return > self.cost_threshold:
+                        enter_dir = "LONG"
+                    elif expected_return < -self.cost_threshold:
+                        enter_dir = "SHORT"
 
                 if enter_dir is not None:
                     self._open_position(

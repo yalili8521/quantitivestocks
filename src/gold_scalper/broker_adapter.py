@@ -143,13 +143,30 @@ class PaperGoldBroker(GoldBrokerAdapter):
         return self._data_adapter
 
     def get_current_price(self, symbol: str) -> float:
-        """Get latest price from Yahoo Finance."""
+        """Get latest price from Yahoo Finance (with 15s subprocess timeout)."""
+        import subprocess
+
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))))
+        python_exe = os.path.join(project_root, ".venv", "Scripts", "python.exe")
+
+        script = (
+            "import yfinance as yf\n"
+            f"t = yf.Ticker('{symbol}')\n"
+            "d = t.history(period='1d', interval='1m')\n"
+            "if not d.empty:\n"
+            "    print(float(d['Close'].iloc[-1]))\n"
+        )
         try:
-            import yfinance as yf
-            ticker = yf.Ticker(symbol)
-            data = ticker.history(period="1d", interval="1m")
-            if not data.empty:
-                return float(data["Close"].iloc[-1])
+            result = subprocess.run(
+                [python_exe, "-c", script],
+                cwd=project_root,
+                capture_output=True, text=True, timeout=15,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return float(result.stdout.strip())
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Timeout getting price for {symbol} (15s)")
         except Exception as e:
             logger.warning(f"Failed to get price for {symbol}: {e}")
 
@@ -259,47 +276,123 @@ class PaperGoldBroker(GoldBrokerAdapter):
         return self._equity
 
     def fetch_bars(
-        self, symbol: str, timeframe: str, lookback: int
+        self, symbol: str, timeframe: str, lookback: int,
+        _max_retries: int = 3,
+        _timeout: int = 30,
     ) -> pd.DataFrame:
-        """Fetch OHLCV bars via data adapter.
+        """Fetch OHLCV bars via data adapter with retry on transient failures.
 
-        获取K线数据：
+        获取K线数据（带重试+超时）：
         - 日线(1d): 通过fetch_daily获取
         - 其他周期: 通过fetch_intraday获取
         - 4H: 获取1H数据后重采样
+        - yfinance uses curl_cffi (C extension) which holds the GIL during TLS.
+          Thread-based timeouts cannot interrupt it. We use subprocess instead:
+          spawn a child process for the fetch, kill it if it exceeds _timeout.
+        - Retry up to 3 times with 2s backoff for transient issues.
         """
+        import time as _time
+
         adapter = self._get_data_adapter()
+        last_exc = None
+
+        for attempt in range(_max_retries):
+            try:
+                df = self._fetch_with_timeout(
+                    adapter, symbol, timeframe, lookback, _timeout
+                )
+
+                if df is not None and not df.empty:
+                    if len(df) > lookback:
+                        df = df.tail(lookback).reset_index(drop=True)
+                    return df
+
+                # Empty result — retry
+                last_exc = None
+            except TimeoutError as e:
+                last_exc = e
+                logger.warning("Timeout fetching %s bars for %s (attempt %d/%d)",
+                               timeframe, symbol, attempt + 1, _max_retries)
+                if attempt < _max_retries - 1:
+                    _time.sleep(2 * (attempt + 1))
+            except Exception as e:
+                last_exc = e
+                if attempt < _max_retries - 1:
+                    _time.sleep(2 * (attempt + 1))
+                    continue
+
+        if last_exc:
+            logger.error(
+                "Failed to fetch %s bars for %s after %d attempts: %s",
+                timeframe, symbol, _max_retries, last_exc,
+            )
+        else:
+            logger.warning("Empty %s bars for %s after %d attempts", timeframe, symbol, _max_retries)
+        return pd.DataFrame()
+
+    def _fetch_with_timeout(
+        self, adapter, symbol: str, timeframe: str, lookback: int, timeout: int,
+    ) -> Optional[pd.DataFrame]:
+        """Fetch bars with a hard process-level timeout.
+
+        curl_cffi holds the GIL during TLS, so thread timeouts don't work.
+        We use subprocess: spawn a child that writes CSV to stdout, parse it.
+        """
+        import subprocess
+        import io
+
+        # Build a minimal Python script that does the fetch and prints CSV
+        if timeframe == "1d":
+            fetch_code = f"df = adapter.fetch_daily('{symbol}', lookback={lookback})"
+        elif timeframe == "4h":
+            fetch_code = (
+                f"df_1h = adapter.fetch_intraday('{symbol}', interval='1h', "
+                f"lookback_days={max(5, lookback // 6)})\n"
+                f"from src.gold_scalper.bias_stack import BiasStack\n"
+                f"df = BiasStack.resample_to_4h(df_1h)"
+            )
+        else:
+            interval_map = {"4h": "4h", "1h": "1h", "15m": "15m",
+                            "5m": "5min", "5min": "5min"}
+            interval = interval_map.get(timeframe, timeframe)
+            days = max(2, lookback // (390 // _tf_minutes(timeframe)))
+            fetch_code = (
+                f"df = adapter.fetch_intraday('{symbol}', "
+                f"interval='{interval}', lookback_days={days})"
+            )
+
+        script = (
+            "import sys, os\n"
+            "os.environ['PYTHONDONTWRITEBYTECODE'] = '1'\n"
+            "from src.signals_engine import YahooFinanceAdapter\n"
+            "adapter = YahooFinanceAdapter()\n"
+            f"{fetch_code}\n"
+            "if df is not None and not df.empty:\n"
+            "    df.to_csv(sys.stdout, index=False)\n"
+            "else:\n"
+            "    sys.exit(1)\n"
+        )
+
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))))
+        python_exe = os.path.join(project_root, ".venv", "Scripts", "python.exe")
 
         try:
-            if timeframe == "1d":
-                df = adapter.fetch_daily(symbol, lookback=lookback)
-            elif timeframe == "4h":
-                # Fetch 1H bars and resample
-                from src.gold_scalper.bias_stack import BiasStack
-                df_1h = adapter.fetch_intraday(
-                    symbol, interval="1h",
-                    lookback_days=max(5, lookback // 6)
-                )
-                df = BiasStack.resample_to_4h(df_1h)
-            else:
-                # Map timeframe to yfinance interval format
-                interval_map = {
-                    "4h": "4h", "1h": "1h", "15m": "15m", "5m": "5min", "5min": "5min"
-                }
-                interval = interval_map.get(timeframe, timeframe)
-                days = max(2, lookback // (390 // _tf_minutes(timeframe)))
-                df = adapter.fetch_intraday(
-                    symbol, interval=interval, lookback_days=days
-                )
-        except Exception as e:
-            logger.error(f"Failed to fetch {timeframe} bars for {symbol}: {e}")
-            return pd.DataFrame()
-
-        # Ensure we have enough bars
-        if len(df) > lookback:
-            df = df.tail(lookback).reset_index(drop=True)
-
-        return df
+            result = subprocess.run(
+                [python_exe, "-c", script],
+                cwd=project_root,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return pd.read_csv(io.StringIO(result.stdout))
+            return None
+        except subprocess.TimeoutExpired:
+            raise TimeoutError(
+                f"fetch_bars({timeframe}) subprocess timed out after {timeout}s"
+            )
 
     def _save_state(self) -> None:
         """Persist state to JSON and sync to Gist for dashboard."""

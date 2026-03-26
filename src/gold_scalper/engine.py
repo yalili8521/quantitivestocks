@@ -78,6 +78,7 @@ class GoldScalperEngine:
         self.daily_losses: int = 0
         self._last_day: Optional[int] = None
         self._circuit_breaker_fired: bool = False
+        self._cooldown_until: Optional[datetime] = None  # no new entries until this time
 
         # Restore position from broker state (survives process restarts)
         self._restore_position()
@@ -102,7 +103,11 @@ class GoldScalperEngine:
         # Rebuild a minimal GoldPosition — we don't know which TPs were
         # already hit, so treat it as a fresh position with the remaining
         # contracts.  The hard stop defaults to the config value from entry.
-        sizer = self.sizer.compute(direction, self.broker.get_account_equity())
+        sizer = self.sizer.compute(
+            self.cumulative_pnl,
+            equity=self.broker.get_account_equity(),
+            direction=direction,
+        )
         tp_splits = [0, 0, 0, 0]  # TPs already taken, so zero
         runner_qty = contracts     # treat all remaining as runner
 
@@ -144,14 +149,7 @@ class GoldScalperEngine:
                 self._reset_daily_if_needed(now)
 
                 if not self.session.can_trade(now):
-                    mins = self.session.minutes_to_session_end(now)
-                    if mins <= 0:
-                        # After session — sleep until tomorrow
-                        logger.debug("Outside trading session, sleeping 60s...")
-                        time.sleep(60)
-                    else:
-                        # Before session — check more frequently
-                        time.sleep(30)
+                    time.sleep(60 if self.session.minutes_to_session_end(now) <= 0 else 30)
                     continue
 
                 self._tick(now)
@@ -202,6 +200,10 @@ class GoldScalperEngine:
             return  # Don't enter while in position
 
         # ── ENTRY CHECK (if flat) ──
+
+        # Post-trade cooldown — prevents immediate re-entry after a loss/BE
+        if self._cooldown_until and now < self._cooldown_until:
+            return
 
         # Circuit breaker
         if self._circuit_breaker_fired:
@@ -415,6 +417,18 @@ class GoldScalperEngine:
             f"Duration: {duration:.0f}min"
         )
 
+        # Cooldown after losing / breakeven trades to prevent immediate re-entry
+        # into the same (now-invalidated) signal.  Winners get a shorter cooldown.
+        from datetime import timedelta
+        if total_pnl <= 0:
+            # Loss or breakeven: 10-minute cooldown
+            self._cooldown_until = now + timedelta(minutes=10)
+            logger.info("Cooldown: 10 min after loss/BE (until %s)",
+                        self._cooldown_until.strftime("%H:%M:%S"))
+        else:
+            # Winner: 2-minute cooldown (avoid chasing the same move)
+            self._cooldown_until = now + timedelta(minutes=2)
+
         # Clear position
         self.position = None
 
@@ -445,9 +459,9 @@ class GoldScalperEngine:
                 if df is not None and not df.empty:
                     bars[tf] = df
                 else:
-                    logger.warning(f"Empty bars for {tf}")
+                    logger.warning("Empty bars for %s", tf)
             except Exception as e:
-                logger.error(f"Failed to fetch {tf} bars: {e}")
+                logger.error("Failed to fetch %s bars: %s", tf, e)
 
         return bars
 

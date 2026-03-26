@@ -892,20 +892,20 @@ EXIT_PARAMS: Dict[str, Dict[VolTier, ExitParams]] = {
         # prevents intraday noise from killing multi-day swing positions.
         VolTier.MEDIUM: ExitParams(
             disaster_stop_pct=0.04, profit_lock_arm_pct=0.02,
-            profit_lock_trail_pct=0.015, breakeven_ratchet_pct=0.015,
+            profit_lock_trail_pct=0.025, breakeven_ratchet_pct=0.03,
             max_underwater_days=90, use_atr=True,
             disaster_atr_mult=3.0, arm_atr_mult=2.0, trail_atr_mult=1.5,
             signal_flip_consecutive=2, min_hold_bars=36,
         ),
         VolTier.HIGH: ExitParams(
             disaster_stop_pct=0.07, profit_lock_arm_pct=0.04,
-            profit_lock_trail_pct=0.025, breakeven_ratchet_pct=0.02,
+            profit_lock_trail_pct=0.03, breakeven_ratchet_pct=0.035,
             max_underwater_days=60, signal_flip_consecutive=2,
             min_hold_bars=36,
         ),
         VolTier.ULTRA: ExitParams(
             disaster_stop_pct=0.06, profit_lock_arm_pct=0.03,
-            profit_lock_trail_pct=0.015, breakeven_ratchet_pct=0.015,
+            profit_lock_trail_pct=0.025, breakeven_ratchet_pct=0.03,
             max_underwater_days=45, signal_flip_consecutive=2,
             min_hold_bars=36,
         ),

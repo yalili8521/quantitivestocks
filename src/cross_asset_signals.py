@@ -103,15 +103,24 @@ CROSS_ASSET_MAP: Dict[str, List[str]] = {
     "URNM": ["treasury_slope"],
 }
 
-# All possible cross-asset feature names (union of all values)
+# Universal macro features available for all symbols (financial stress/conditions)
+_UNIVERSAL_MACRO_FEATURES = ["fred_stress_idx", "fred_fin_conditions"]
+
+# All possible cross-asset feature names (union of all values + universal)
 ALL_CROSS_ASSET_FEATURES = sorted(set(
-    feat for feats in CROSS_ASSET_MAP.values() for feat in feats
+    [feat for feats in CROSS_ASSET_MAP.values() for feat in feats]
+    + _UNIVERSAL_MACRO_FEATURES
 ))
 
 
 def get_cross_asset_features(symbol: str) -> List[str]:
     """Return list of cross-asset feature names for a given symbol."""
-    return list(CROSS_ASSET_MAP.get(symbol, ["treasury_slope"]))
+    base = list(CROSS_ASSET_MAP.get(symbol, ["treasury_slope"]))
+    # Universal macro features available for every symbol
+    for f in _UNIVERSAL_MACRO_FEATURES:
+        if f not in base:
+            base.append(f)
+    return base
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +142,8 @@ class FREDMacroFetcher:
         "T10Y2Y": "t10y2y",        # 10Y-2Y Treasury spread (yield curve slope)
         "T10Y3M": "t10y3m",        # 10Y-3M Treasury spread (short-end slope)
         "BAMLH0A0HYM2": "bamlh0a0hym2",  # ICE BofA US High Yield OAS
+        "STLFSI2": "stlfsi2",      # St. Louis Fed Financial Stress Index (weekly)
+        "NFCI":    "nfci",         # Chicago Fed National Financial Conditions (weekly)
     }
 
     def __init__(self, api_key: Optional[str] = None):
@@ -415,6 +426,14 @@ class CrossAssetFeatureBuilder:
             copper = self._align_series(copper_df, bar_dates, "close")
             df["copper_ret5"] = copper.pct_change(5)
 
+        # --- Universal macro: financial stress / conditions (weekly, ffill to daily) ---
+        if "fred_stress_idx" in feature_list:
+            stlfsi = self._macro_data.get("STLFSI2", pd.DataFrame())
+            df["fred_stress_idx"] = self._align_series(stlfsi, bar_dates)
+        if "fred_fin_conditions" in feature_list:
+            nfci = self._macro_data.get("NFCI", pd.DataFrame())
+            df["fred_fin_conditions"] = self._align_series(nfci, bar_dates)
+
         return df[feature_list]
 
     def build_all_features(self, bars_df: pd.DataFrame,
@@ -488,5 +507,11 @@ class CrossAssetFeatureBuilder:
         copper_df = self._cross_data.get("copper", pd.DataFrame())
         copper = self._align_series(copper_df, bar_dates, "close")
         df["copper_ret5"] = copper.pct_change(5)
+
+        # Financial stress / conditions (weekly FRED, forward-filled to daily)
+        stlfsi = self._macro_data.get("STLFSI2", pd.DataFrame())
+        df["fred_stress_idx"] = self._align_series(stlfsi, bar_dates)
+        nfci = self._macro_data.get("NFCI", pd.DataFrame())
+        df["fred_fin_conditions"] = self._align_series(nfci, bar_dates)
 
         return df[ALL_CROSS_ASSET_FEATURES]

@@ -46,11 +46,14 @@ import xgboost as xgb
 from signals_engine import (
     PROJECT_ROOT, build_adapter,
     compute_rsi, compute_atr, compute_macd, compute_bollinger_bands,
-    compute_adx, compute_momentum_quality, RSI_PERIOD,
+    compute_adx, compute_momentum_quality, compute_hurst_series, RSI_PERIOD,
 )
 from utils import _fetch_vix_for_training, DEFAULT_MODEL_DIR, SWING_MODEL_DIR, CRYPTO_MODEL_DIR, COST_THRESHOLD, TARGET_RETURN
 from cross_asset_signals import CrossAssetFeatureBuilder, get_cross_asset_features
-OPTIONS_FLOW_FEATURES = ["pc_volume_ratio", "pc_oi_ratio", "vix_term_ratio", "vix_term_inverted"]
+# Options flow features removed — CBOE does not publish P/C ratio as
+# downloadable CSV and FRED does not carry it.  VIX term structure is
+# already captured by cboe_vix_term_ratio in CBOE_FEATURES.
+OPTIONS_FLOW_FEATURES: list[str] = []
 from alpha_signals import AlphaFeatureBuilder, get_alpha_features
 from factor_signals import FactorFeatureBuilder, get_factor_features
 from market_signals import MarketSignalBuilder, get_market_features
@@ -85,6 +88,7 @@ SWING_BASE_FEATURES = [
     "vol_regime",
     "vix_pctrank",
     "dv_accel",
+    "hurst",
 ]
 
 # Regime context features — baked into model so it learns regime-dependent behavior
@@ -425,6 +429,8 @@ class SwingFeatureEngine:
         vol_long  = close.pct_change().rolling(30).std() * annualize
         df["vol_regime"] = vol_short / vol_long.replace(0, np.nan)
 
+        df["hurst"] = compute_hurst_series(close, window=252, step=5)
+
         # --- Volume ---
         dv = close * volume
         dv_ma5 = dv.rolling(5).mean()
@@ -522,10 +528,7 @@ class SwingFeatureEngine:
                 if col not in df.columns:
                     df[col] = np.nan
 
-        # --- Options flow features (stubbed — options_flow module removed) ---
-        for col in OPTIONS_FLOW_FEATURES:
-            if col not in df.columns:
-                df[col] = np.nan
+        # --- Options flow features (removed — data sources unavailable) ---
 
         # --- Alpha features ---
         if symbol:
@@ -849,7 +852,23 @@ def _prepare_tabular_regression(
     if vol_normalize:
         log.info("Labels vol-normalized (mean_vol=%.4f, cost_adj=%.1fbps)", vol_mean, cost_adjust_bps)
 
-    return np.array(X_list, dtype=np.float32), y_arr, vol_mean
+    # Sample uniqueness weighting: each forward_days label overlaps with
+    # up to (2 * forward_days - 1) neighbors. Weight inversely by overlap count.
+    n_samples = len(y_arr)
+    sample_weights = np.ones(n_samples, dtype=np.float32)
+    if n_samples > forward_days:
+        for i in range(n_samples):
+            # Count how many neighbors share overlapping forward windows
+            lo = max(0, i - forward_days + 1)
+            hi = min(n_samples, i + forward_days)
+            overlap = hi - lo  # includes self
+            sample_weights[i] = 1.0 / overlap
+        # Normalize so mean weight = 1.0 (preserves effective sample size)
+        sample_weights *= n_samples / sample_weights.sum()
+        log.info("Sample uniqueness weights: min=%.3f, max=%.3f (fwd=%dd)",
+                 sample_weights.min(), sample_weights.max(), forward_days)
+
+    return np.array(X_list, dtype=np.float32), y_arr, vol_mean, sample_weights
 
 
 # ---------------------------------------------------------------------------
@@ -1292,7 +1311,7 @@ def train_swing_model(
         rt_cost_bps = get_symbol_costs(symbol).round_trip_bps
     except Exception:
         rt_cost_bps = 7.0  # default mid-tier ETF cost
-    X_all, y_all, vol_mean = _prepare_tabular_regression(
+    X_all, y_all, vol_mean, w_all = _prepare_tabular_regression(
         full_norm, bars, forward_days=FORWARD_DAYS,
         vol_normalize=True, cost_adjust_bps=rt_cost_bps,
     )
@@ -1303,6 +1322,7 @@ def train_swing_model(
     split = int(len(X_all) * 0.8)
     X_train, y_train = X_all[:split], y_all[:split]
     X_val,   y_val   = X_all[split:], y_all[split:]
+    w_train = w_all[:split]
     log.info("Train: %d, Val: %d.", len(X_train), len(X_val))
 
     if len(X_val) < 10:
@@ -1340,9 +1360,10 @@ def train_swing_model(
              xgb_params["learning_rate"], xgb_params["max_depth"], xgb_params["n_estimators"], n_train)
     model = xgb.XGBRegressor(**xgb_params)
     if xgb_params.get("early_stopping_rounds"):
-        model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+        model.fit(X_train, y_train, sample_weight=w_train,
+                  eval_set=[(X_val, y_val)], verbose=False)
     else:
-        model.fit(X_train, y_train, verbose=False)
+        model.fit(X_train, y_train, sample_weight=w_train, verbose=False)
 
     # 7. Evaluate
     val_preds    = model.predict(X_val)
@@ -1438,6 +1459,25 @@ def train_swing_model(
     else:
         log.info("Pause state retained for %s: XGBoost dir_acc=%.3f < 0.52", symbol, direction_acc)
 
+    # Train quantile regression models for confidence bounds
+    for qtag, qalpha in [("q25", 0.25), ("q75", 0.75)]:
+        try:
+            q_params = dict(xgb_params)
+            q_params["objective"] = "reg:quantile"
+            q_params["quantile_alpha"] = qalpha
+            q_params.pop("eval_metric", None)
+            q_model = xgb.XGBRegressor(**q_params)
+            if q_params.get("early_stopping_rounds"):
+                q_model.fit(X_train, y_train, sample_weight=w_train,
+                            eval_set=[(X_val, y_val)], verbose=False)
+            else:
+                q_model.fit(X_train, y_train, sample_weight=w_train, verbose=False)
+            q_path = os.path.join(save_dir, f"{symbol}_xgb_swing_{qtag}.joblib")
+            joblib.dump(q_model, q_path)
+            log.info("Saved %s quantile model → %s", qtag, q_path)
+        except Exception as exc:
+            log.warning("Quantile %s model failed for %s: %s", qtag, symbol, exc)
+
     # Train TFT ensemble component (60% weight in final blend)
     try:
         train_tft_swing_model(
@@ -1532,7 +1572,7 @@ def train_pooled_cluster_model(
                 rt_cost = get_symbol_costs(sym).round_trip_bps
             except Exception:
                 rt_cost = 7.0
-            X, y, _ = _prepare_tabular_regression(
+            X, y, _, _w = _prepare_tabular_regression(
                 full_norm, bars, forward_days=forward_days,
                 vol_normalize=True, cost_adjust_bps=rt_cost,
             )
@@ -1839,6 +1879,18 @@ class SwingPredictor:
                 except Exception as exc:
                     log.debug("Could not load pooled model for %s: %s", self.symbol, exc)
 
+        # --- Optional: Quantile regression models (confidence bounds) ---
+        self._xgb_q25: Optional[xgb.XGBRegressor] = None
+        self._xgb_q75: Optional[xgb.XGBRegressor] = None
+        for qtag, attr in [("q25", "_xgb_q25"), ("q75", "_xgb_q75")]:
+            qpath = os.path.join(self.model_dir, f"{self.symbol}_xgb_swing_{qtag}.joblib")
+            if os.path.exists(qpath):
+                try:
+                    setattr(self, attr, joblib.load(qpath))
+                    log.info("Loaded %s quantile model for %s.", qtag, self.symbol)
+                except Exception as exc:
+                    log.debug("Could not load %s model for %s: %s", qtag, self.symbol, exc)
+
         # --- Optional: Calibration map ---
         cal_path = os.path.join(self.model_dir, f"{self.symbol}_calibration.json")
         if os.path.exists(cal_path):
@@ -1992,10 +2044,12 @@ class SwingPredictor:
                 else:
                     x5 = x  # same features
                 xgb_5d_ret = float(self._xgb_5d.predict(x5)[0])
-                # Blend when horizons agree on direction
+                # Blend when horizons agree on direction; dampen when they disagree
                 if np.sign(xgb_5d_ret) == np.sign(expected_return):
                     expected_return = 0.60 * expected_return + 0.40 * xgb_5d_ret
-                # else: keep 10d only (horizons disagree → lower conviction)
+                else:
+                    # Horizons disagree → dampen signal (low conviction)
+                    expected_return *= 0.3
             except Exception:
                 pass
 
@@ -2044,6 +2098,20 @@ class SwingPredictor:
                 # but use lower confidence
                 calibrated_return = np.sign(expected_return) * abs(calibrated_return)
 
+        # Quantile bounds (confidence interval from q25/q75 models)
+        lower_bound = None
+        upper_bound = None
+        if self._xgb_q25 is not None and self._xgb_q75 is not None:
+            try:
+                lower_bound = float(self._xgb_q25.predict(x)[0])
+                upper_bound = float(self._xgb_q75.predict(x)[0])
+                if self._vol_normalized:
+                    lower_bound *= current_vol
+                    upper_bound *= current_vol
+            except Exception as exc:
+                log.debug("Quantile prediction failed for %s: %s", self.symbol, exc)
+                lower_bound = upper_bound = None
+
         if expected_return > COST_THRESHOLD:
             direction = "UP"
         elif expected_return < -COST_THRESHOLD:
@@ -2067,6 +2135,8 @@ class SwingPredictor:
             "xgb_return":      round(xgb_ret, 6),
             "tft_return":      round(tft_ret, 6) if tft_ret is not None else None,
             "tft_weight":      round(self._tft_weight, 4),
+            "lower_bound":     round(lower_bound, 6) if lower_bound is not None else None,
+            "upper_bound":     round(upper_bound, 6) if upper_bound is not None else None,
         }
 
 

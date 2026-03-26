@@ -12,6 +12,13 @@ try {
 
 $ErrorActionPreference = 'Stop'
 
+# Global error trap — log unhandled errors to file for S4U debugging
+trap {
+    $errLog = Join-Path $env:TEMP 'QuantStocks-PaperTrader-crash.log'
+    "[$(Get-Date -Format s)] CRASH: $_`n$($_.ScriptStackTrace)" | Out-File -Append -FilePath $errLog -Encoding utf8
+    Write-Host "[$(Get-Date -Format s)] CRASH: $_"
+}
+
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $PythonExe = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
 
@@ -122,22 +129,40 @@ $CommonArgs = @('-u', 'main.py')
 # ---------------------------------------------------------------------------
 # Layer 0: refresh crypto universe (CoinGecko x Kraken, runs once at startup)
 # ---------------------------------------------------------------------------
-Write-Host "`n  [Layer 0] Refreshing crypto universe..."
+Write-Host "`n  [Layer 0] Refreshing crypto universe (background, 120s timeout)..."
 $screenLog = Join-Path $LogDir "universe_screen_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 try {
-    & $PythonExe -u main.py screen-universe --top-n 250 2>&1 | Out-File -FilePath $screenLog -Encoding utf8
-    Write-Host "  [Layer 0] Universe screen complete (see $screenLog)"
+    $screenProc = Start-Process -FilePath $PythonExe `
+        -ArgumentList "-u main.py screen-universe --top-n 250" `
+        -WorkingDirectory $ProjectRoot `
+        -RedirectStandardOutput $screenLog `
+        -RedirectStandardError ($screenLog -replace '\.log$', '_err.log') `
+        -WindowStyle Hidden -PassThru
+    $exited = $screenProc.WaitForExit(120000)  # 120s timeout
+    if ($exited) {
+        Write-Host "  [Layer 0] Universe screen complete (see $screenLog)"
+    } else {
+        Stop-Process -Id $screenProc.Id -Force -ErrorAction SilentlyContinue
+        Write-Host "  [Layer 0] Universe screen timed out after 120s — using cached universe"
+    }
 } catch {
-    Write-Warning "  [Layer 0] Universe screen failed: $_"
+    Write-Warning "  [Layer 0] Universe screen failed: $_ — using cached universe"
 }
 
-# Stop any existing trader processes (LSTM + range)
-$existingTraders = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -match 'main\.py (trade|range-trade)' }
-foreach ($proc in $existingTraders) {
-    try { Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop } catch {}
+# Kill ALL orphaned python/cmd processes from previous runs.
+# This runs inside the S4U session so it can kill S4U-owned processes.
+# Safe because the watchdog hasn't launched any new groups yet.
+# Old zombie processes hold yfinance's SQLite cookie DB lock, blocking new traders.
+try { cmd.exe /c "taskkill /F /IM python.exe >nul 2>&1" } catch {}
+try { cmd.exe /c "taskkill /F /IM cmd.exe /FI ""WINDOWTITLE ne Administrator*"" >nul 2>&1" } catch {}
+Start-Sleep -Seconds 2  # let processes fully terminate
+
+# Also clean up PID file from previous run
+$pidFile = Join-Path $env:TEMP 'QuantStocks-PaperTrader.pids'
+if (Test-Path -LiteralPath $pidFile) {
+    Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
 }
-if ($existingTraders) { Write-Host "Stopped $($existingTraders.Count) existing trader process(es)." }
+Write-Host "  Cleaned up previous processes."
 
 # ---------------------------------------------------------------------------
 # Function: launch one group process, return the Process object
@@ -167,17 +192,33 @@ function Start-TraderGroup {
         return $null
     }
 
+    # Use cmd /c with shell redirection instead of PowerShell's -Redirect*
+    # which buffers indefinitely for long-running processes under S4U sessions.
+    # NOTE: cmd.exe /c strips the outermost pair of quotes when multiple quoted
+    # strings appear. Wrapping the entire command in an extra pair of quotes
+    # preserves correct quoting for paths that contain spaces (e.g. OneDrive).
+    $innerCmd = "`"$PythonExe`" $ArgLine > `"$groupLog`" 2> `"$groupErrLog`""
     $proc = Start-Process `
-        -FilePath         $PythonExe `
-        -ArgumentList     $ArgLine `
+        -FilePath         "cmd.exe" `
+        -ArgumentList     "/c `"$innerCmd`"" `
         -WorkingDirectory $ProjectRoot `
-        -RedirectStandardOutput $groupLog `
-        -RedirectStandardError  $groupErrLog `
         -WindowStyle      Hidden `
         -PassThru
 
     Write-Host "  [$($grp.Name)] PID $($proc.Id)  log: $groupLog"
     return $proc
+}
+
+function Save-PidFile {
+    # Persist all active cmd.exe wrapper PIDs so the next run can kill them
+    $pids = @()
+    foreach ($name in $GroupProcs.Keys) {
+        $p = $GroupProcs[$name]
+        if ($p) { $pids += $p.Id.ToString() }
+    }
+    if ($pids.Count -gt 0) {
+        $pids | Out-File -FilePath $pidFile -Encoding utf8 -Force
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -189,11 +230,18 @@ foreach ($c in $EnvCandidates) { if (Test-Path -LiteralPath $c) { Write-Host "En
 
 $GroupProcs = @{}
 $inMarketNow = Test-MarketHours
+$groupIdx = 0
 foreach ($grp in $Groups) {
     # Skip equity groups at startup if outside market hours
     if (-not $grp.AlwaysOn -and -not $inMarketNow) {
         Write-Host "  [$($grp.Name)] Skipped (outside market hours) - watchdog will start at 6:20 AM ET"
         continue
+    }
+    # Stagger launches by 60s to avoid LightGBM DLL deadlock on Windows.
+    # All groups import lightgbm; concurrent DLL init causes hangs.
+    if ($groupIdx -gt 0) {
+        Write-Host "  Waiting 60s before next group launch (LightGBM DLL stagger)..."
+        Start-Sleep -Seconds 60
     }
     try {
         $proc = Start-TraderGroup $grp
@@ -201,8 +249,10 @@ foreach ($grp in $Groups) {
     } catch {
         Write-Host "  [$($grp.Name)] FAILED to start: $_"
     }
+    $groupIdx++
 }
 
+Save-PidFile
 Write-Host "[$(Get-Date -Format s)] All groups started. Watchdog active."
 
 # ---------------------------------------------------------------------------
@@ -246,12 +296,32 @@ while ($true) {
             }
         }
 
-        # Restart dead processes (AlwaysOn groups + equity groups during market hours)
+        # Restart dead OR hung processes (AlwaysOn groups + equity groups during market hours)
         $proc = $GroupProcs[$grp.Name]
         if (-not $proc) { continue }
         $alive = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
+        $needsRestart = $false
+        $reason = ''
         if (-not $alive) {
-            Write-Host "[$(Get-Date -Format s)] [$($grp.Name)] Process $($proc.Id) died - restarting..."
+            $needsRestart = $true
+            $reason = "died"
+        } else {
+            # Check if the process is hung: no log file (stdout OR stderr) updated in 10 minutes
+            $logPattern = Join-Path $LogDir ("paper_trader_$($grp.Name)_*.log")
+            $latestLog = Get-ChildItem -Path $logPattern -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($latestLog) {
+                $staleMins = ((Get-Date) - $latestLog.LastWriteTime).TotalMinutes
+                if ($staleMins -gt 10) {
+                    $needsRestart = $true
+                    $reason = "hung (log stale $([int]$staleMins)min)"
+                    # Tree-kill the hung process
+                    try { cmd.exe /c "taskkill /F /PID $($proc.Id) /T >nul 2>&1" } catch {}
+                }
+            }
+        }
+        if ($needsRestart) {
+            Write-Host "[$(Get-Date -Format s)] [$($grp.Name)] Process $($proc.Id) $reason - restarting..."
             try {
                 $newProc = Start-TraderGroup $grp
                 $GroupProcs[$grp.Name] = $newProc
@@ -260,6 +330,9 @@ while ($true) {
             }
         }
     }
+
+    # Update PID file after any restarts
+    Save-PidFile
 
     # Log once when equity market closes
     if ($afterClose -and -not $equityDone) {

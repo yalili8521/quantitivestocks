@@ -684,7 +684,7 @@ class AlpacaPaperTrader:
 
         # Regime filter state
         from collections import deque
-        self._recent_trade_wins: deque = deque(maxlen=20)
+        self._recent_trade_wins: deque = deque(maxlen=50)
         self._regime_cooldown_until: Optional[datetime] = None
 
         # Alert engine for microstructure alerts
@@ -720,22 +720,9 @@ class AlpacaPaperTrader:
         self._btc_correlations: Dict[str, float] = {}  # cached BTC correlations for sizing
         self._selector_mode = "intraday" if group == "crypto_intraday" else "swing"
         if group in ("crypto", "crypto_intraday"):
-            try:
-                self._coin_selector = CoinSelector(
-                    model_dir=self._crypto_model_dir, mode=self._selector_mode)
-                log.info("Coin selector loaded (mode=%s) from %s",
-                         self._selector_mode, self._crypto_model_dir)
-            except FileNotFoundError:
-                if self._crypto_model_dir != CRYPTO_MODEL_DIR:
-                    try:
-                        self._coin_selector = CoinSelector(
-                            model_dir=CRYPTO_MODEL_DIR, mode=self._selector_mode)
-                        log.info("Coin selector loaded (mode=%s) from shared %s",
-                                 self._selector_mode, CRYPTO_MODEL_DIR)
-                    except FileNotFoundError:
-                        log.info("No trained coin selector — using static symbol list")
-                else:
-                    log.info("No trained coin selector — using static symbol list")
+            # Defer selector loading to first cycle — loading at init hangs when
+            # all 5 groups launch simultaneously under memory pressure.
+            log.info("Coin selector deferred — will load on first trading cycle")
 
         # Layer 1 ETF selector (swing + intraday groups)
         self._etf_selector = None
@@ -831,6 +818,11 @@ class AlpacaPaperTrader:
         self._entry_predictions: Dict[str, float] = {}  # symbol → predicted return at entry
         self._derisk_states: Dict[str, DeRiskState] = {}  # symbol → rolling perf tracker
         self._rebuild_derisk_states()
+        # Crypto swing guardrails: concentration limiter + win-rate auto-pause
+        self._symbol_pnl_tracker: Dict[str, float] = {}  # symbol → cumulative P&L over recent trades
+        self._symbol_pnl_count: int = 0  # trades tracked in current window
+        self._crypto_wr_pause_until: Optional[datetime] = None  # win-rate auto-pause expiry
+
         self._pending_reconcile: Dict[str, dict] = {}  # symbols that failed to close during reconciliation
         self._crypto_reconciled: bool = False  # True after first post-selector reconciliation
         self._etf_reconciled: bool = False     # True after first ETF selector reconciliation
@@ -849,6 +841,52 @@ class AlpacaPaperTrader:
         self._ci_bars_held: Dict[str, int] = {}  # crypto_intraday: 5-min bars since entry
         self._ci_last_bar_ts: Dict[str, datetime] = {}  # last bar timestamp per symbol (for dedup)
         self._classify_vol_tiers()
+
+    # -- Lazy coin selector loading ----------------------------------------
+
+    def _try_load_coin_selector(self) -> Optional["CoinSelector"]:
+        """Load CoinSelector with timeout to avoid hanging under memory pressure.
+
+        When all 5 groups launch simultaneously the LightGBM Booster can hang
+        or OOM.  Runs the load in a thread with a 30s timeout.
+        """
+        import concurrent.futures
+
+        dirs_to_try = [self._crypto_model_dir]
+        if self._crypto_model_dir != CRYPTO_MODEL_DIR:
+            dirs_to_try.append(CRYPTO_MODEL_DIR)
+
+        def _load(d: str) -> "CoinSelector":
+            return CoinSelector(model_dir=d, mode=self._selector_mode)
+
+        for d in dirs_to_try:
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(_load, d)
+                    sel = future.result(timeout=30)
+                log.info("Coin selector loaded (mode=%s) from %s",
+                         self._selector_mode, d)
+                return sel
+            except FileNotFoundError:
+                continue
+            except concurrent.futures.TimeoutError:
+                log.warning("Coin selector load timed out (30s) — will retry next cycle")
+                return None
+            except Exception as exc:
+                log.warning("Coin selector load failed (%s) — will retry next cycle: %s",
+                            type(exc).__name__, exc)
+                return None
+        log.info("No trained coin selector — using static symbol list")
+        return None
+
+    def _ensure_coin_selector(self) -> Optional["CoinSelector"]:
+        """Lazy retry: if selector is None, try loading once more."""
+        if self._coin_selector is not None:
+            return self._coin_selector
+        if self.group not in ("crypto", "crypto_intraday"):
+            return None
+        self._coin_selector = self._try_load_coin_selector()
+        return self._coin_selector
 
     # -- Derisk state persistence -----------------------------------------
 
@@ -891,6 +929,66 @@ class AlpacaPaperTrader:
                      "%d symbols have Kelly: %s",
                      count, len(self._derisk_states),
                      len(kelly_ready), kelly_ready or "none")
+
+    # -- Crypto swing guardrails ------------------------------------------
+
+    def _check_symbol_concentration(self, symbol: str) -> Optional[str]:
+        """Block entry if a single symbol dominates recent P&L (>50% of group total).
+
+        Returns reason string if blocked, None if OK.
+        Only applies to crypto/crypto_intraday groups.
+        """
+        if self.group not in ("crypto", "crypto_intraday"):
+            return None
+        if self._symbol_pnl_count < 20:
+            return None  # need 20+ trades for meaningful concentration check
+        total_abs = sum(abs(v) for v in self._symbol_pnl_tracker.values())
+        if total_abs < 1e-8:
+            return None
+        sym_key = symbol.replace("/", "-")
+        sym_pnl = abs(self._symbol_pnl_tracker.get(sym_key, 0.0))
+        concentration = sym_pnl / total_abs
+        if concentration > 0.50:
+            return (f"concentration={concentration:.0%} for {symbol} "
+                    f"(>{50}% of group P&L over last {self._symbol_pnl_count} trades)")
+        return None
+
+    def _check_crypto_winrate_pause(self) -> Optional[str]:
+        """Block entries if crypto win rate has dropped below 52% over last 50 trades.
+
+        Returns reason string if paused, None if OK.
+        """
+        if self.group not in ("crypto", "crypto_intraday"):
+            return None
+        if self._crypto_wr_pause_until is not None:
+            if datetime.now(timezone.utc) < self._crypto_wr_pause_until:
+                remaining_h = (self._crypto_wr_pause_until - datetime.now(timezone.utc)).total_seconds() / 3600
+                return f"win-rate auto-pause ({remaining_h:.1f}h remaining)"
+            else:
+                self._crypto_wr_pause_until = None
+        return None
+
+    def _update_crypto_guardrails(self, symbol: str, pnl_pct: float) -> None:
+        """Update concentration tracker and win-rate pause after a crypto trade closes."""
+        if self.group not in ("crypto", "crypto_intraday"):
+            return
+        sym_key = symbol.replace("/", "-")
+        self._symbol_pnl_tracker[sym_key] = self._symbol_pnl_tracker.get(sym_key, 0.0) + pnl_pct
+        self._symbol_pnl_count += 1
+        # Decay: reset window after 50 trades
+        if self._symbol_pnl_count >= 50:
+            self._symbol_pnl_tracker.clear()
+            self._symbol_pnl_count = 0
+
+        # Win-rate check over last 50 trades using _recent_trade_wins deque
+        if len(self._recent_trade_wins) >= 50:
+            recent_50 = list(self._recent_trade_wins)[-50:]
+            wr = sum(recent_50) / 50
+            if wr < 0.52 and self._crypto_wr_pause_until is None:
+                self._crypto_wr_pause_until = datetime.now(timezone.utc) + timedelta(hours=48)
+                log.warning("Crypto win rate %.1f%% < 52%% over last 50 trades → "
+                            "auto-pausing entries for 48h (until %s)",
+                            wr * 100, self._crypto_wr_pause_until)
 
     # -- Volatility tier classification -----------------------------------
 
@@ -1243,6 +1341,8 @@ class AlpacaPaperTrader:
 
         Falls back to static self.symbols if ranker unavailable or fails.
         """
+        if self._coin_selector is None:
+            self._ensure_coin_selector()
         if self._coin_selector is None:
             return list(self.symbols)
 
@@ -2624,6 +2724,14 @@ class AlpacaPaperTrader:
             self._alert_engine.notify_model_paused(symbol, pause_reason, group=self.group or "")
             return f"MODEL-PAUSED  ({pause_reason})  ML: {direction} E[r]={expected_return:+.4f}"
 
+        # Crypto guardrails: concentration limiter + win-rate auto-pause
+        conc_block = self._check_symbol_concentration(symbol)
+        if conc_block:
+            return f"CONC-BLOCK  ({conc_block})  ML: {direction} E[r]={expected_return:+.4f}"
+        wr_block = self._check_crypto_winrate_pause()
+        if wr_block:
+            return f"WR-PAUSE  ({wr_block})  ML: {direction} E[r]={expected_return:+.4f}"
+
         # Determine entry direction.
         # Respect the model's own quality gate; cost threshold is the entry gate.
         # For crypto, use per-symbol cost threshold from universe.json if higher
@@ -2635,15 +2743,43 @@ class AlpacaPaperTrader:
             per_sym_threshold = coin_cfg.get("cost_threshold", 0.0)
             if per_sym_threshold > effective_cost_threshold:
                 effective_cost_threshold = per_sym_threshold
+            # Per-symbol cost floor: threshold must be >= 1.5x actual RT costs
+            try:
+                from cost_model import get_symbol_costs
+                sym_costs = get_symbol_costs(symbol)
+                cost_floor = sym_costs.round_trip_pct * 1.5
+                if cost_floor > effective_cost_threshold:
+                    log.debug("Cost floor raised threshold for %s: %.4f → %.4f (RT=%.1fbps)",
+                              symbol, effective_cost_threshold, cost_floor,
+                              sym_costs.round_trip_bps)
+                    effective_cost_threshold = cost_floor
+            except Exception:
+                pass  # fall back to config threshold
 
         enter_dir = None
         if not pred.get("tradeable", True):
             return (f"SKIP  (model gate: not tradeable)  ML: {direction} "
                     f"E[r]={expected_return:+.4f}")
-        if expected_return > effective_cost_threshold:
-            enter_dir = "LONG"
-        elif expected_return < -effective_cost_threshold:
-            enter_dir = "SHORT"
+
+        # Confidence-gated entry: use quantile bounds when available.
+        # LONG only if pessimistic (q25) scenario still clears cost threshold.
+        # SHORT only if optimistic (q75) scenario still below -cost_threshold.
+        lower_bound = pred.get("lower_bound")
+        upper_bound = pred.get("upper_bound")
+        if lower_bound is not None and upper_bound is not None:
+            if lower_bound > effective_cost_threshold:
+                enter_dir = "LONG"
+            elif upper_bound < -effective_cost_threshold:
+                enter_dir = "SHORT"
+            elif expected_return > effective_cost_threshold or expected_return < -effective_cost_threshold:
+                log.info("Quantile gate filtered %s: E[r]=%.4f but bounds=[%.4f, %.4f] vs threshold=%.4f",
+                         symbol, expected_return, lower_bound, upper_bound, effective_cost_threshold)
+        else:
+            # Fallback: no quantile models, use raw expected return
+            if expected_return > effective_cost_threshold:
+                enter_dir = "LONG"
+            elif expected_return < -effective_cost_threshold:
+                enter_dir = "SHORT"
 
         if enter_dir is not None:
             # Pending order check: skip entry if there are unfilled orders for this symbol
@@ -2923,14 +3059,17 @@ class AlpacaPaperTrader:
             if derisk_key not in self._derisk_states:
                 self._derisk_states[derisk_key] = DeRiskState()
             self._derisk_states[derisk_key].record_trade(pnl_pct)
+            # Update crypto concentration + win-rate guardrails
+            self._update_crypto_guardrails(symbol, pnl_pct)
         if pnl_pct <= 0:
             self._consecutive_losses += 1
         else:
             self._consecutive_losses = 0
         # Rolling 20-trade win rate cooldown
         self._recent_trade_wins.append(1 if pnl_pct > 0 else 0)
-        if len(self._recent_trade_wins) == 20 and self._regime_cooldown_until is None:
-            wr = sum(self._recent_trade_wins) / 20
+        if len(self._recent_trade_wins) >= 20 and self._regime_cooldown_until is None:
+            recent_20 = list(self._recent_trade_wins)[-20:]
+            wr = sum(recent_20) / 20
             if wr < 0.5:
                 import datetime as _dt
                 self._regime_cooldown_until = (
@@ -3229,26 +3368,16 @@ class AlpacaPaperTrader:
 
             # Session check — intraday: only trade during market/open hours; crypto & swing: run 24/7
             # Crypto and swing run 24/7 (orders fill when Alpaca allows; swing/crypto can use extended hours).
+            # All groups run 24/7; session label is informational only
+            session = _get_session()
             if self.group == "crypto":
-                session = "regular"
                 session_label = "24/7 CRYPTO"
             elif self.group == "crypto_intraday":
-                session = "regular"
                 session_label = "24/7 CRYPTO INTRADAY"
             elif self.group == "swing":
-                session = _get_session()
                 session_label = f"SWING ({session.upper()})"
             else:
-                # Intraday: sleep when market closed, trade only during 04:00–20:00 ET weekdays
-                session = _get_session()
-                if session == "closed":
-                    next_session = _time_until_next_session()
-                    print(f"\n  [{datetime.now().strftime('%H:%M:%S')}] "
-                          f"Market closed (overnight/weekend). "
-                          f"Next session (pre-market) in {next_session}.")
-                    self._sleep(self.check_interval)
-                    continue
-                session_label = "REGULAR" if session == "regular" else "EXTENDED HOURS"
+                session_label = f"INTRADAY ({session.upper()})"
 
             try:
                 # Retry any stale positions that failed to close during startup reconciliation

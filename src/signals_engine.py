@@ -536,6 +536,22 @@ def compute_momentum_quality(close: pd.Series, window: int = 20) -> pd.Series:
     return up_days.rolling(window).mean()
 
 
+def compute_hurst_series(close: pd.Series, window: int = 252, step: int = 5) -> pd.Series:
+    """Compute rolling Hurst exponent efficiently by sampling every *step* bars.
+
+    Returns a Series aligned to *close* with forward-filled values between
+    sample points.  Uses the existing scalar ``compute_hurst_exponent`` as the
+    kernel, called only every *step* bars to keep runtime manageable.
+    """
+    hurst = pd.Series(np.nan, index=close.index)
+    for i in range(window, len(close), step):
+        hurst.iloc[i] = compute_hurst_exponent(close.iloc[i - window: i])
+    hurst = hurst.ffill()
+    # Fill early bars (before first calculation) with neutral 0.5
+    hurst = hurst.fillna(0.5)
+    return hurst
+
+
 def compute_hurst_exponent(series: pd.Series, min_window: int = 8) -> float:
     """Estimate Hurst exponent via Rescaled Range (R/S) analysis.
 
