@@ -92,23 +92,36 @@ log = logging.getLogger("paper_trader")
 # Account groups (3 separate Alpaca paper accounts by asset class)
 # ---------------------------------------------------------------------------
 SYMBOL_GROUPS: Dict[str, List[str]] = {
-    # Account 1 — Intraday LGB+GRU v4 (multi-horizon, vol-norm, cost-adj)
-    # OOS Mar 4-23 2026: Sharpe > 1.0, PF > 1.0, profitable, ≥14 trades
-    # XLV(6.14) XLF(5.68) XLE(5.26) USO(4.03) SPY(3.29) PDBC(3.15) XLY(2.81)
-    "intraday":  ["XLV", "XLF", "XLE", "USO", "SPY", "PDBC", "XLY"],
-    # Account 2 — Swing XGBoost+TFT (daily, inv-vol sizing, signal override exit)
-    # OOS Jan 2025-Mar 2026: Top 10 by Sharpe (all >2.0), PF>3.0
-    # FBTC(2.78) EWH(2.58) SMH(2.45) IAU(2.45) IBIT(2.43) EWW(2.25)
-    # EWU(2.26) GDXJ(2.13) MCHI(2.16) SLV(2.10)
-    "swing":     ["FBTC", "EWH", "SMH", "IAU", "IBIT", "EWW", "EWU", "GDXJ", "MCHI", "SLV"],
-    # Account 3 — Crypto (heavily pruned by OOS)
-    # OOS Sharpe (2025→): CRV 1.07, AVAX 0.54, ADA 0.49, LINK 0.48
-    # Disabled (negative Sharpe): BTC, ETH, SOL, DOGE, DOT, SUSHI, AAVE, RENDER
-    "crypto": ["CRV/USD", "AVAX/USD", "ADA/USD", "LINK/USD"],
+    # Fallback pools — dynamic selectors pick top-K each cycle from these.
+    # All symbols with trained models are included; the selector's composite
+    # scoring (James-Stein shrinkage + OOS Sharpe + SPY/BTC penalty + fee-aware)
+    # decides which actually get capital. Symbols with negative OOS Sharpe
+    # naturally rank low and receive minimal/zero allocation.
+    #
+    # Account 1 — Intraday LGB+GRU (5-min bars, 1-hour horizon)
+    # Selector picks top-8 from 59 trained models each cycle
+    "intraday": [
+        "XLV", "XLF", "XLE", "USO", "SPY", "PDBC", "XLY",  # OOS-validated core
+        "SMH", "QQQ", "IWM", "SOXX", "IGV", "XLK", "XLP",   # tech/factor
+        "GLD", "SLV", "IAU", "GDX",                          # commodities
+        "EEM", "EWT", "MCHI", "VWO",                          # EM
+    ],
+    # Account 2 — Swing XGBoost+TFT (daily, 10-day horizon)
+    # Selector picks top-10 from 59 trained models each cycle
+    "swing": [
+        "SMH", "FBTC", "IBIT", "EWU", "IAU", "MCHI", "EWW",  # OOS Sharpe > 0
+        "EWH", "SLV", "GDXJ",                                  # OOS Sharpe < 0 (low rank)
+        "QQQ", "SPY", "IWM", "GLD", "XLE", "XLF", "XLV",      # broad universe
+        "EEM", "EWT", "VGK", "INDA", "TLT", "HYG",
+    ],
+    # Account 3 — Crypto swing (daily, 10-day horizon)
+    # Coin selector ranks full 73-coin universe; these are fallback if selector fails
+    "crypto": ["CRV/USD", "AVAX/USD", "ADA/USD", "LINK/USD",
+               "BTC/USD", "ETH/USD", "SOL/USD", "DOT/USD", "ATOM/USD"],
     # Account 4 — Crypto Intraday LGB+GRU (5-min bars, 1-hour horizon)
-    # OOS backtest 2026-02-05→03-22: top by Sharpe+PF
-    # Uses coin selector (ranks full universe) + CryptoIntradayPredictor
-    "crypto_intraday": ["ATOM/USD", "AXS/USD", "LPT/USD", "WLD/USD", "FIL/USD", "ICP/USD", "MANA/USD"],
+    # Coin selector ranks full universe; these are fallback
+    "crypto_intraday": ["ATOM/USD", "AXS/USD", "LPT/USD", "WLD/USD",
+                        "FIL/USD", "ICP/USD", "MANA/USD"],
 }
 
 # Legacy / wrong-algorithm positions: opened by a previous buggy model. Manage them
@@ -692,6 +705,7 @@ class AlpacaPaperTrader:
         self._consecutive_losses: int = 0
         self._warned_shared_crypto: bool = False  # one-time warn if intraday account has crypto positions
         self._peak_equity: float = 0.0  # high-water mark for drawdown throttle (set below after account init)
+        self.initial_capital: float = 100_000.0  # fallback if account fetch fails on first cycle
 
         # Load group-specific risk config for portfolio constraints
         self._risk_config = get_risk_config(group)
@@ -732,6 +746,13 @@ class AlpacaPaperTrader:
         self._etf_universe: List[str] = []
         self._etf_train_failures: Dict[str, datetime] = {}  # symbol → last failure time
         self._etf_train_cooldown_hours = 24  # retry failed training after 24h
+        # Background subprocess auto-training (Phase 4: non-blocking)
+        self._bg_train_procs: Dict[str, "subprocess.Popen"] = {}  # symbol → Popen
+        self._bg_train_started: Dict[str, datetime] = {}  # symbol → start time
+        _BG_TRAIN_TIMEOUT = 300  # 5 min max per background train
+        _BG_MAX_CONCURRENT = 5
+        self._bg_train_timeout = _BG_TRAIN_TIMEOUT
+        self._bg_max_concurrent = _BG_MAX_CONCURRENT
         # ETF selector rotation: enabled for swing only.
         # Intraday rotation disabled — trades only OOS-validated symbols (IC > 0.05).
         # Rotating to untested symbols is out-of-distribution inference with no proven edge.
@@ -752,7 +773,21 @@ class AlpacaPaperTrader:
             except Exception as exc:
                 log.warning("ETF selector init failed: %s — using static symbol list", exc)
         elif group == "intraday":
-            log.info("Intraday ETF symbols (pipeline-ranked or static): %s", symbols)
+            try:
+                from etf_screener import load_etf_universe, ALL_SEED_SYMBOLS
+                from etf_selector import ETFIntradaySelectorML
+                top_k = 8
+                self._etf_selector = ETFIntradaySelectorML(
+                    model_dir=INTRADAY_MODEL_DIR, top_k=top_k, min_pool=0,
+                )
+                self._etf_universe = load_etf_universe(SWING_MODEL_DIR)
+                if not self._etf_universe:
+                    self._etf_universe = list(ALL_SEED_SYMBOLS)
+                log.info("ETF intraday selector loaded — %d universe symbols, top_k=%d",
+                         len(self._etf_universe), top_k)
+            except Exception as exc:
+                log.warning("Intraday ETF selector init failed: %s — using static list", exc)
+                log.info("Intraday ETF symbols (static): %s", symbols)
 
         # Kraken executor for crypto groups (supports long + short)
         # Paper mode doesn't need real API keys — uses public price API + local state
@@ -1274,6 +1309,68 @@ class AlpacaPaperTrader:
                 correlations[sym] = 0.5
         return correlations
 
+    def _compute_spy_correlations(self, symbols: List[str]) -> Dict[str, float]:
+        """Compute 30-day rolling correlation of each ETF's returns with SPY.
+
+        Returns {symbol: correlation} where correlation is in [0, 1].
+        SPY itself returns 0.0 (no self-penalty).
+        """
+        import yfinance as yf
+
+        try:
+            fetch_syms = list(set(symbols + ["SPY"]))
+            data = yf.download(fetch_syms, period="60d", progress=False, auto_adjust=True)
+            if data.empty:
+                return {}
+
+            multi = hasattr(data.columns, "get_level_values")
+            if multi:
+                close_df = data["Close"]
+            else:
+                close_df = data[["Close"]]
+
+            spy_ret = close_df["SPY"].pct_change().dropna() if "SPY" in close_df.columns else None
+            if spy_ret is None or len(spy_ret) < 35:
+                return {}
+
+            correlations: Dict[str, float] = {}
+            for sym in symbols:
+                if sym == "SPY":
+                    correlations[sym] = 0.0
+                    continue
+                try:
+                    sym_close = close_df[sym] if sym in close_df.columns else None
+                    if sym_close is None:
+                        correlations[sym] = 0.5
+                        continue
+                    sym_ret = sym_close.pct_change().dropna()
+                    aligned = pd.concat([spy_ret.rename("spy"), sym_ret.rename("sym")],
+                                        axis=1, join="inner")
+                    if len(aligned) < 30:
+                        correlations[sym] = 0.5
+                        continue
+                    corr = aligned.iloc[-30:]["spy"].corr(aligned.iloc[-30:]["sym"])
+                    correlations[sym] = max(0.0, corr) if not np.isnan(corr) else 0.5
+                except Exception:
+                    correlations[sym] = 0.5
+            return correlations
+        except Exception as exc:
+            log.warning("SPY correlation computation failed: %s", exc)
+            return {}
+
+    @staticmethod
+    def _compute_etf_fee_costs(symbols: List[str]) -> Dict[str, float]:
+        """Get round-trip cost (as fraction) for each ETF from cost_model."""
+        from cost_model import get_symbol_costs
+        costs: Dict[str, float] = {}
+        for sym in symbols:
+            try:
+                sc = get_symbol_costs(sym, session="regular")
+                costs[sym] = sc.round_trip_pct
+            except Exception:
+                costs[sym] = 0.001  # conservative default
+        return costs
+
     @staticmethod
     def _compute_quick_scores(data: Dict[str, pd.DataFrame]) -> Dict[str, float]:
         """Vol-adjusted momentum × liquidity score for pre-screening / training priority.
@@ -1621,13 +1718,111 @@ class AlpacaPaperTrader:
             self._etf_train_failures[symbol] = datetime.now(timezone.utc)
             return False
 
+    def _spawn_background_train(self, symbol: str, group: str) -> bool:
+        """Spawn a background subprocess to train a model. Non-blocking.
+
+        Returns True if subprocess was spawned (or already running).
+        The symbol becomes available on the NEXT selector cycle after
+        the subprocess completes and writes model files to disk.
+        """
+        import subprocess as _sp
+
+        # Already running?
+        if symbol in self._bg_train_procs:
+            proc = self._bg_train_procs[symbol]
+            if proc.poll() is None:
+                return True  # still running
+            # Completed — reap it
+            self._bg_train_procs.pop(symbol)
+            self._bg_train_started.pop(symbol, None)
+
+        # Check cooldown
+        last_fail = self._etf_train_failures.get(symbol)
+        if last_fail:
+            elapsed_h = (datetime.now(timezone.utc) - last_fail).total_seconds() / 3600
+            if elapsed_h < self._etf_train_cooldown_hours:
+                return False
+
+        # Concurrent limit
+        active = sum(1 for p in self._bg_train_procs.values() if p.poll() is None)
+        if active >= self._bg_max_concurrent:
+            log.info("Background train cap reached (%d running) — deferring %s",
+                     active, symbol)
+            return False
+
+        # Build command
+        python_exe = os.path.join(PROJECT_ROOT, ".venv", "Scripts", "python.exe")
+        main_py = os.path.join(PROJECT_ROOT, "main.py")
+        if group == "swing":
+            cmd = [python_exe, main_py, "train-swing", "--symbols", symbol,
+                   "--provider", "yahoo"]
+        elif group == "intraday":
+            cmd = [python_exe, main_py, "train-intraday", "--symbols", symbol,
+                   "--provider", "yahoo"]
+        elif group == "crypto":
+            cmd = [python_exe, main_py, "train-swing", "--symbols", symbol,
+                   "--provider", "yahoo", "--save-dir", CRYPTO_MODEL_DIR]
+        elif group == "crypto_intraday":
+            cmd = [python_exe, main_py, "train-intraday", "--symbols", symbol,
+                   "--provider", "yahoo", "--save-dir", CRYPTO_MODEL_DIR]
+        else:
+            return False
+
+        log.info("Spawning background train for %s (%s): PID pending...", symbol, group)
+        try:
+            proc = _sp.Popen(
+                cmd,
+                stdout=_sp.DEVNULL,
+                stderr=_sp.DEVNULL,
+                cwd=PROJECT_ROOT,
+            )
+            self._bg_train_procs[symbol] = proc
+            self._bg_train_started[symbol] = datetime.now(timezone.utc)
+            log.info("Background train for %s started (PID %d)", symbol, proc.pid)
+            return True
+        except Exception as exc:
+            log.error("Failed to spawn background train for %s: %s", symbol, exc)
+            self._etf_train_failures[symbol] = datetime.now(timezone.utc)
+            return False
+
+    def _reap_background_trains(self) -> set:
+        """Check all background training subprocesses. Return newly trained symbols."""
+        newly_trained: set = set()
+        for symbol in list(self._bg_train_procs.keys()):
+            proc = self._bg_train_procs[symbol]
+            if proc.poll() is None:
+                # Check timeout
+                started = self._bg_train_started.get(symbol)
+                if (started and
+                        (datetime.now(timezone.utc) - started).total_seconds()
+                        > self._bg_train_timeout):
+                    log.warning("Background train for %s timed out — killing PID %d",
+                                symbol, proc.pid)
+                    proc.kill()
+                    self._bg_train_procs.pop(symbol)
+                    self._bg_train_started.pop(symbol, None)
+                    self._etf_train_failures[symbol] = datetime.now(timezone.utc)
+                continue
+            # Process finished
+            if proc.returncode == 0:
+                log.info("Background train for %s completed (PID %d)", symbol, proc.pid)
+                newly_trained.add(symbol)
+                self._etf_train_failures.pop(symbol, None)
+            else:
+                log.warning("Background train for %s failed (PID %d, rc=%d)",
+                            symbol, proc.pid, proc.returncode)
+                self._etf_train_failures[symbol] = datetime.now(timezone.utc)
+            self._bg_train_procs.pop(symbol)
+            self._bg_train_started.pop(symbol, None)
+        return newly_trained
+
     def _run_etf_selector(self) -> List[str]:
         """Rank-first ETF selection: ranking decides who trades, not model existence.
 
         Pipeline:
           1. Rank the full universe → determines priority
           2. Take top-N ranked symbols (N = max_positions)
-          3. If top-N symbols lack trained models, train them on-the-fly
+          3. If top-N symbols lack trained models, spawn background training
           4. Return only top-N that have models (pre-trained or just-trained)
           5. check_and_trade() + risk limits decide which actually open
 
@@ -1683,17 +1878,31 @@ class AlpacaPaperTrader:
             if oos_sharpe_map:
                 # Build (symbol, selector_score) tuples for composite scoring
                 sel_rankings = list(zip(ranking["symbol"], ranking["score"]))
+
+                # SPY correlation penalty (matches BTC penalty for crypto)
+                _top30 = [s for s, _ in sel_rankings[:30]]
+                spy_correlations = self._compute_spy_correlations(_top30)
+                if spy_correlations:
+                    _top_corr = sorted(spy_correlations.items(), key=lambda x: -x[1])[:5]
+                    log.info("SPY correlations (top-5): %s",
+                             ", ".join(f"{s}={c:.2f}" for s, c in _top_corr))
+
+                # Fee-aware cost adjustment
+                fee_costs = self._compute_etf_fee_costs(_top30)
+
                 self._composite_scores = _composite_scores_shared(
                     rankings=sel_rankings,
                     oos_sharpe=oos_sharpe_map,
                     derisk_lookup=self._derisk_lookup,
+                    btc_correlations=spy_correlations,
+                    fee_costs=fee_costs,
                 )
                 # Re-sort by composite score
                 ranked_symbols = sorted(
                     self._composite_scores.keys(),
                     key=lambda s: -self._composite_scores[s],
                 )
-                log.info("ETF ranker: composite scoring applied (%d OOS symbols blended)",
+                log.info("ETF ranker: composite scoring applied (%d OOS, SPY penalty, fee-aware)",
                          len(oos_sharpe_map))
             else:
                 # No OOS data — use raw selector scores
@@ -1707,24 +1916,20 @@ class AlpacaPaperTrader:
             top_n = ranked_symbols[:max_active]
             log.info("ETF ranker: top-%d ranked: %s", max_active, ", ".join(top_n))
 
-            # Step 3: Check which top-N have models; train those that don't
+            # Step 3: Reap completed background trains, then spawn new ones
+            newly_trained = self._reap_background_trains()
             model_universe = self._get_etf_model_universe(group)
+            if newly_trained:
+                log.info("ETF ranker: %d symbols trained in background: %s",
+                         len(newly_trained), ", ".join(newly_trained))
             log.info("ETF ranker: %d trained models on disk", len(model_universe))
 
             untrained_top = [s for s in top_n if s not in model_universe]
             if untrained_top:
                 log.info("ETF ranker: %d top-ranked symbols need training: %s",
                          len(untrained_top), ", ".join(untrained_top))
-                train_count = 0
-                max_train_per_cycle = 3
                 for sym in untrained_top:
-                    if train_count >= max_train_per_cycle:
-                        log.info("ETF ranker: hit train cap (%d) — remaining untrained deferred",
-                                 max_train_per_cycle)
-                        break
-                    if self._train_on_the_fly(sym):
-                        model_universe.add(sym)
-                        train_count += 1
+                    self._spawn_background_train(sym, group)
 
             # Step 4: Build final list — only top-N that have models
             group_model_dir = get_model_dir(group)
@@ -2101,7 +2306,8 @@ class AlpacaPaperTrader:
         """Fetch VIX data once per cycle; cache and fall back to last good value on failure."""
         vix_days = 10 if self.mode == "intraday" else 400
         try:
-            vix_df = _fetch_vix_for_training(self.fred_key, lookback_days=vix_days)
+            vix_df = _fetch_vix_for_training(self.fred_key, lookback_days=vix_days,
+                                                include_live=False)
             if len(vix_df) >= 2:
                 self._vix_cache = vix_df   # update cache on success
             return vix_df
@@ -2962,6 +3168,15 @@ class AlpacaPaperTrader:
                 sizing_pct *= dd_mult
                 size_note += f" [dd-throttle {dd_mult:.0%}]"
 
+            # --- Post-loss size reduction (Opt #5) ---
+            # After a disaster-stop / max-loss exit, reduce size for N hours
+            if last_loss:
+                loss_age_h = (datetime.now(timezone.utc) - last_loss["time"]).total_seconds() / 3600
+                if loss_age_h < self.post_loss_size_hours:
+                    sizing_pct *= self.post_loss_size_mult
+                    size_note += (f" [post-loss {self.post_loss_size_mult:.0%} "
+                                  f"for {self.post_loss_size_hours - loss_age_h:.1f}h more]")
+
             # --- Minimum size floor ---
             # Below ~1% of equity, round-trip costs eat most expected return.
             # Skip rather than open a position that can't cover its costs.
@@ -2993,9 +3208,15 @@ class AlpacaPaperTrader:
                 if not allowed:
                     return (f"CONSTRAINT-BLOCK  ({constraint_reason})  "
                             f"ML: {direction} E[r]={expected_return:+.4f}")
-                # Theme cap check
+                # Theme cap check (includes cross-group positions)
+                try:
+                    from risk_overlay import get_all_group_positions
+                    _cross = get_all_group_positions(exclude_group=self.group)
+                    _all_positions = {**positions, **_cross}
+                except Exception:
+                    _all_positions = positions
                 theme_ok, theme_reason = check_theme_cap(
-                    symbol, invest, equity, positions
+                    symbol, invest, equity, _all_positions
                 )
                 if not theme_ok:
                     return (f"THEME-CAP  ({theme_reason})  "
@@ -3334,7 +3555,9 @@ class AlpacaPaperTrader:
                     try:
                         entry_dt = datetime.fromisoformat(entry_str)
                         elapsed = (datetime.now(timezone.utc) - entry_dt).total_seconds()
-                        bars = max(0, int(elapsed / 300))  # 5-min check intervals
+                        # Use actual check interval for bar estimation (60s for crypto_intraday, 300s otherwise)
+                        bar_secs = 60 if self.group == "crypto_intraday" else 300
+                        bars = max(0, int(elapsed / bar_secs))
                     except (ValueError, TypeError):
                         bars = 36  # safe default: past min hold
                 else:
@@ -3385,9 +3608,29 @@ class AlpacaPaperTrader:
                 # Check if Layer 0 updated the universe (every 30min)
                 self._maybe_reload_universe()
 
+                # Cross-group risk overlay refresh (every 30 min)
+                _overlay_now = datetime.now(timezone.utc)
+                if (not hasattr(self, '_overlay_last_refresh')
+                        or self._overlay_last_refresh is None
+                        or (_overlay_now - self._overlay_last_refresh).total_seconds() >= 1800):
+                    try:
+                        from risk_overlay import update_overlay
+                        _factors = update_overlay()
+                        log.info("Risk overlay refreshed: %s", _factors)
+                        self._overlay_last_refresh = _overlay_now
+                    except Exception as _oe:
+                        log.debug("Risk overlay refresh failed: %s", _oe)
+
                 # Get account + positions
                 account = self.get_account_summary()
                 positions = self.get_positions()
+
+                # Publish positions for cross-group exposure checks
+                try:
+                    from risk_overlay import publish_positions
+                    publish_positions(self.group or "default", positions)
+                except Exception as _pe:
+                    log.debug("Failed to publish positions: %s", _pe)
 
                 # Regime detection: refit daily, update stop multiplier
                 if self._regime_detector is not None:
@@ -4066,8 +4309,20 @@ def main() -> None:
     args.same_dir_confidence_mult = _resolve(args.same_dir_confidence_mult, "same_dir_confidence_mult", 1.5)
     args.target_vol = cfg.get("target_vol", 0.20)
 
-    # Resolve API keys: group-specific keys take priority over generic ALPACA_API_KEY
+    # --- Log rotation: RotatingFileHandler (10 MB, 5 backups) per group ---
+    from logging.handlers import RotatingFileHandler
     group = args.group  # e.g. "intraday", "swing", "crypto", "all", or None
+    _log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
+    os.makedirs(_log_dir, exist_ok=True)
+    _log_file = os.path.join(_log_dir, f"paper_trader_{group or 'default'}.log")
+    _rfh = RotatingFileHandler(_log_file, maxBytes=10 * 1024 * 1024, backupCount=5,
+                               encoding="utf-8")
+    _rfh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
+                                        datefmt="%Y-%m-%d %H:%M:%S"))
+    logging.getLogger().addHandler(_rfh)
+    log.info("Log rotation enabled: %s (10MB x 5 backups)", _log_file)
+
+    # Resolve API keys: group-specific keys take priority over generic ALPACA_API_KEY
     if group and group != "all":
         env_prefix = f"ALPACA_{group.upper()}_"
         api_key    = os.environ.get(f"{env_prefix}KEY",    os.environ.get("ALPACA_API_KEY", ""))

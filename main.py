@@ -57,7 +57,8 @@ def _help_text() -> str:
     check-positions     Check paper account positions
     stop-paper-trader   Stop a running paper trader group
     select-symbols      Screen candidate symbols and update config
-    train-etf-selector  Train the LambdaRank ETF selector
+    train-etf-selector  Train the LambdaRank ETF selector (swing)
+    train-intraday-etf-selector  Train the LambdaRank intraday ETF selector
     train-selector      Train the cross-sectional coin selector
     train-selector-intraday  Train the intraday coin selector
     rank-coins          Rank coins using the trained selector
@@ -294,6 +295,10 @@ def main() -> None:
         # Layer 0: discover tradeable ETFs from the broad market
         from etf_screener import main as etf_screener_main
         etf_screener_main()
+
+    elif command == "train-intraday-etf-selector":
+        from etf_selector import train_intraday_etf_selector
+        train_intraday_etf_selector()
 
     elif command == "select-features":
         # IC-based feature selection pipeline

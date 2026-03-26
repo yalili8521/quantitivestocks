@@ -118,13 +118,19 @@ class SessionFilter:
         # Friday close (before weekly shutdown)
         if dow == 4:
             close_t = self.friday_close
-            if close_t <= t <= time(close_t.hour, close_t.minute + 4):
+            close_end_min = close_t.minute + 4
+            close_end_hour = close_t.hour + close_end_min // 60
+            close_end_min = close_end_min % 60
+            if close_t <= t <= time(close_end_hour, close_end_min):
                 return True, f"Friday Weekly Close ({self.friday_close.strftime('%H:%M')} PT)"
 
         # Mon-Thu close (before daily maintenance halt)
         if 0 <= dow <= 3:
             close_t = self.daily_close
-            if close_t <= t <= time(close_t.hour, close_t.minute + 4):
+            close_end_min = close_t.minute + 4
+            close_end_hour = close_t.hour + close_end_min // 60
+            close_end_min = close_end_min % 60
+            if close_t <= t <= time(close_end_hour, close_end_min):
                 return True, f"Daily Maintenance Close ({self.daily_close.strftime('%H:%M')} PT)"
 
         return False, ""
@@ -144,7 +150,10 @@ class SessionFilter:
             buffer_min += 60
         buffer_time = time(buffer_hour, buffer_min)
 
-        if t >= buffer_time and t <= time(close_t.hour, close_t.minute + 4):
+        avoid_end_min = close_t.minute + 4
+        avoid_end_hour = close_t.hour + avoid_end_min // 60
+        avoid_end_min = avoid_end_min % 60
+        if t >= buffer_time and t <= time(avoid_end_hour, avoid_end_min):
             label = "Friday close" if dow == 4 else "daily maintenance"
             return True, f"Too close to {label}"
 

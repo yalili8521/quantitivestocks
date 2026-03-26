@@ -255,3 +255,91 @@ def update_overlay() -> Dict[str, float]:
     save_scaling_factors(factors)
     log.info("Risk overlay updated: %s", factors)
     return factors
+
+
+# ---------------------------------------------------------------------------
+# Cross-group position sharing (for theme/sector cap enforcement)
+# ---------------------------------------------------------------------------
+
+POSITIONS_FILE = os.path.join(OUTPUT_DIR, "cross_group_positions.json")
+
+
+def publish_positions(group: str, positions: Dict[str, dict]) -> None:
+    """Write this group's current positions to shared file.
+
+    Each group publishes its positions every cycle so other groups can
+    see cross-group theme/sector exposure.
+    """
+    snapshot = {
+        sym: {
+            "qty": abs(p.get("qty", 0)),
+            "current_price": p.get("current_price", 0),
+            "side": p.get("side", "long"),
+        }
+        for sym, p in positions.items()
+        if p.get("qty", 0) != 0
+    }
+    # Read existing, update this group, write back atomically
+    existing = _read_cross_positions()
+    existing[group] = {
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "positions": snapshot,
+    }
+    fd, tmp_path = tempfile.mkstemp(
+        dir=os.path.dirname(POSITIONS_FILE) or ".", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(existing, f, indent=2)
+        os.replace(tmp_path, POSITIONS_FILE)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def get_all_group_positions(exclude_group: Optional[str] = None) -> Dict[str, dict]:
+    """Read positions from ALL other groups (excludes ``exclude_group``).
+
+    Returns a flat dict {symbol: {qty, current_price, side}} merging
+    all groups except the caller's. If a symbol appears in multiple groups,
+    notionals are summed.
+    """
+    all_data = _read_cross_positions()
+    merged: Dict[str, dict] = {}
+    for grp, grp_data in all_data.items():
+        if grp == exclude_group:
+            continue
+        # Skip stale data (> 15 min old)
+        updated = grp_data.get("updated_at", "")
+        if updated:
+            try:
+                ts = datetime.fromisoformat(updated)
+                age = (datetime.now(timezone.utc) - ts).total_seconds()
+                if age > 900:  # 15 minutes
+                    continue
+            except (ValueError, TypeError):
+                continue
+        for sym, pos in grp_data.get("positions", {}).items():
+            if sym in merged:
+                merged[sym]["qty"] += pos.get("qty", 0)
+                # Keep higher price for conservative notional
+                merged[sym]["current_price"] = max(
+                    merged[sym]["current_price"], pos.get("current_price", 0)
+                )
+            else:
+                merged[sym] = dict(pos)
+    return merged
+
+
+def _read_cross_positions() -> dict:
+    """Read the shared cross-group positions file."""
+    if not os.path.exists(POSITIONS_FILE):
+        return {}
+    try:
+        with open(POSITIONS_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}

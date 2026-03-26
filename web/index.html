@@ -631,6 +631,10 @@ footer{border-top:1px solid var(--border);padding:40px 0}
         <div style="text-align:center;padding:24px;color:var(--text-dim);font-size:12px">Loading positions...</div>
       </div>
 
+      <!-- Trade Stats Bar -->
+      <div id="live-trade-stats" style="padding:14px 24px;display:flex;gap:24px;flex-wrap:wrap;align-items:center;border-top:1px solid var(--border-muted);font-family:var(--mono);font-size:12px;color:var(--text-dim)">
+      </div>
+
       <!-- Recent Orders (separate section within the same card) -->
       <div style="padding:18px 24px 14px;display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border-muted);border-bottom:1px solid var(--border-muted)">
         <div style="font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted)">Recent Orders</div>
@@ -2738,6 +2742,52 @@ document.addEventListener('DOMContentLoaded', function() {
       var orders = histAcct ? (histAcct.orders || []) : [];
       var trades = histAcct ? (histAcct.trades || []) : [];
       renderSignalCards(pos, orders, _bars, trades);
+
+      // Compute and render trade stats (win rate, avg win/loss, profit factor)
+      var statsEl = document.getElementById('live-trade-stats');
+      if (statsEl && trades && trades.length > 0) {
+        var wins = 0, losses = 0, totalWinPnl = 0, totalLossPnl = 0;
+        trades.forEach(function(t) {
+          var pnl = parseFloat(t.pnl_dollar) || 0;
+          if (pnl > 0) { wins++; totalWinPnl += pnl; }
+          else { losses++; totalLossPnl += Math.abs(pnl); }
+        });
+        var total = wins + losses;
+        var winRate = total > 0 ? (wins / total * 100) : 0;
+        var avgWin = wins > 0 ? totalWinPnl / wins : 0;
+        var avgLoss = losses > 0 ? totalLossPnl / losses : 0;
+        var pf = totalLossPnl > 0 ? (totalWinPnl / totalLossPnl) : (totalWinPnl > 0 ? 999 : 0);
+        var netPnl = totalWinPnl - totalLossPnl;
+        var wrColor = winRate >= 55 ? 'var(--positive)' : winRate >= 45 ? 'var(--warning)' : 'var(--negative)';
+        var pfColor = pf >= 1.5 ? 'var(--positive)' : pf >= 1.0 ? 'var(--warning)' : 'var(--negative)';
+        var netColor = netPnl >= 0 ? 'var(--positive)' : 'var(--negative)';
+
+        statsEl.innerHTML = ''
+          + '<div style="display:flex;align-items:baseline;gap:6px">'
+          + '  <span style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600">Win Rate</span>'
+          + '  <span style="font-weight:700;color:' + wrColor + '">' + winRate.toFixed(1) + '%</span>'
+          + '  <span style="color:var(--text-dim);font-size:11px">(' + wins + 'W / ' + losses + 'L)</span>'
+          + '</div>'
+          + '<div style="display:flex;align-items:baseline;gap:6px">'
+          + '  <span style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600">Profit Factor</span>'
+          + '  <span style="font-weight:700;color:' + pfColor + '">' + (pf >= 999 ? '---' : pf.toFixed(2)) + '</span>'
+          + '</div>'
+          + '<div style="display:flex;align-items:baseline;gap:6px">'
+          + '  <span style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600">Avg Win</span>'
+          + '  <span style="font-weight:700;color:var(--positive)">+$' + avgWin.toFixed(2) + '</span>'
+          + '</div>'
+          + '<div style="display:flex;align-items:baseline;gap:6px">'
+          + '  <span style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600">Avg Loss</span>'
+          + '  <span style="font-weight:700;color:var(--negative)">-$' + avgLoss.toFixed(2) + '</span>'
+          + '</div>'
+          + '<div style="display:flex;align-items:baseline;gap:6px">'
+          + '  <span style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600">Net P&L</span>'
+          + '  <span style="font-weight:700;color:' + netColor + '">' + (netPnl >= 0 ? '+' : '-') + '$' + Math.abs(netPnl).toFixed(2) + '</span>'
+          + '  <span style="color:var(--text-dim);font-size:11px">(' + total + ' trades)</span>'
+          + '</div>';
+      } else if (statsEl) {
+        statsEl.innerHTML = '<span style="color:var(--text-dim);font-size:11px">No closed trades yet</span>';
+      }
     }
   }
 

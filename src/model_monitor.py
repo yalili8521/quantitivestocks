@@ -135,11 +135,14 @@ class ModelMonitor:
                 log.warning("Failed to load paused model registry: %s", exc)
 
     def _save_state(self) -> None:
-        """Persist health metrics."""
+        """Persist health metrics (atomic write to prevent corruption)."""
         try:
             data = {sym: asdict(h) for sym, h in self._health.items()}
-            with open(self._state_path(), "w", encoding="utf-8") as f:
+            path = self._state_path()
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
+            os.replace(tmp, path)
         except Exception as exc:
             log.warning("Failed to save model health: %s", exc)
         try:
@@ -244,8 +247,9 @@ class ModelMonitor:
                 ic, _ = spearmanr(preds, reals)
                 health.rolling_ic = float(ic) if not np.isnan(ic) else 0.0
             except ImportError:
-                # Fallback: Pearson
-                health.rolling_ic = float(np.corrcoef(preds, reals)[0, 1])
+                # Fallback: Pearson (with NaN guard)
+                ic_val = np.corrcoef(preds, reals)[0, 1]
+                health.rolling_ic = float(ic_val) if not np.isnan(ic_val) else 0.0
 
         # Hit rate (directional accuracy)
         correct = ((preds > 0) == (reals > 0)).sum()

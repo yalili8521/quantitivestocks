@@ -35,18 +35,20 @@ from signals_engine import build_adapter
 # Symbol universe
 # ---------------------------------------------------------------------------
 DAILY_SYMBOLS = [
-    # Account 1 (Intraday account — daily models also needed for meta RF timing)
-    "SPY", "QQQ", "IWM", "SOXX",
-    # Account 2 (Swing — daily mode)
-    "EWT", "GLD", "EEM", "SLV",
-    # Account 3 (Expansion — daily mode)
-    "EWJ", "EWS", "XLE", "INDA",
+    # Intraday ETF group (LightGBM+GRU)
+    "XLV", "XLF", "XLE", "USO", "SPY", "PDBC", "XLY",
+    # Swing group (XGBoost+TFT) — daily LSTM models as fallback
+    "FBTC", "EWH", "SMH", "IAU", "IBIT", "EWW", "EWU", "GDXJ", "MCHI", "SLV",
 ]
 
-INTRADAY_SYMBOLS = ["SMH"]  # OOS-validated only; SOXX/SLV failed backtest
-SWING_SYMBOLS = ["EWT", "GLD", "EEM", "SLV"]
-# Crypto symbols in yfinance format (Alpaca BTC/USD → yfinance BTC-USD)
-CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD", "SOL-USD"]
+# Intraday LightGBM+GRU: same symbols as intraday paper trading group
+INTRADAY_SYMBOLS = ["XLV", "XLF", "XLE", "USO", "SPY", "PDBC", "XLY"]
+# Swing XGBoost+TFT: matches paper_trader swing group
+SWING_SYMBOLS = ["FBTC", "EWH", "SMH", "IAU", "IBIT", "EWW", "EWU", "GDXJ", "MCHI", "SLV"]
+# Crypto swing symbols in yfinance format (paper_trader uses /USD → yfinance -USD)
+CRYPTO_SYMBOLS = ["CRV-USD", "AVAX-USD", "ADA-USD", "LINK-USD"]
+# Crypto intraday symbols (LightGBM+GRU, 5-min bars, 1-hour horizon)
+CRYPTO_INTRADAY_SYMBOLS = ["ATOM-USD", "AXS-USD", "LPT-USD", "WLD-USD", "FIL-USD", "ICP-USD", "MANA-USD"]
 EPOCHS = 60
 LOOKBACK = 1000
 
@@ -202,6 +204,32 @@ def train_all_crypto() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Crypto intraday models (LightGBM+GRU, 5-min bars, 1-hour horizon)
+# ---------------------------------------------------------------------------
+def train_all_crypto_intraday() -> None:
+    """Train LightGBM+GRU intraday models for crypto symbols."""
+    print(f"\n{'='*65}")
+    print(f"  Crypto Intraday Training ({len(CRYPTO_INTRADAY_SYMBOLS)} symbols → {CRYPTO_MODEL_DIR})")
+    print(f"{'='*65}\n")
+
+    t0 = time.time()
+    cmd = [
+        PYTHON, os.path.join(PROJECT_ROOT, "main.py"),
+        "train-intraday",
+        "--symbols", ",".join(CRYPTO_INTRADAY_SYMBOLS),
+        "--provider", "yahoo",
+        "--save-dir", CRYPTO_MODEL_DIR,
+    ]
+    print(f"  Running: {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT)
+    elapsed = time.time() - t0
+
+    status = "OK" if result.returncode == 0 else "FAIL"
+    print(f"\n  [{status}] Crypto intraday — {elapsed:.0f}s")
+    print(f"{'='*65}\n")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main() -> None:
@@ -210,18 +238,21 @@ def main() -> None:
     )
     parser.add_argument(
         "--step",
-        choices=["lstm", "meta", "both", "new", "crypto", "all"],
+        choices=["lstm", "meta", "both", "new", "crypto", "crypto_intraday", "all"],
         default="all",
         help=(
             "lstm=LSTM only, meta=meta RF only (DEPRECATED), both=lstm+meta, "
-            "new=intraday+swing, crypto=crypto swing only, all=everything (default; skips meta RF)"
+            "new=intraday+swing, crypto=crypto swing only, crypto_intraday=crypto intraday only, "
+            "all=everything (default; skips meta RF)"
         ),
     )
     parser.add_argument("--mode", choices=["daily", "intraday", "both"], default="both",
                         help="For LSTM steps: daily, intraday, or both (default: both)")
     args = parser.parse_args()
 
-    fred_key = os.environ.get("FRED_API_KEY", "5e06c25a712146a59c69804dc0cdec4c")
+    fred_key = os.environ.get("FRED_API_KEY", "")
+    if not fred_key:
+        log.warning("FRED_API_KEY not set — VIX features will use yfinance fallback")
     adapter = build_adapter("yahoo")
 
     modes = ["daily", "intraday"] if args.mode == "both" else [args.mode]
@@ -253,6 +284,10 @@ def main() -> None:
     # Step 5: Crypto swing (separate model dir)
     if args.step in ("crypto", "all"):
         train_all_crypto()
+
+    # Step 6: Crypto intraday (LightGBM+GRU, 5-min bars)
+    if args.step in ("crypto_intraday", "all"):
+        train_all_crypto_intraday()
 
     total = time.time() - t_start
     print(f"\n{'='*65}")

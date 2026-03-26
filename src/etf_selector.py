@@ -33,7 +33,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from utils import SWING_MODEL_DIR
+from utils import SWING_MODEL_DIR, INTRADAY_MODEL_DIR
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1032,6 +1032,333 @@ def train_etf_selector(
     log.info("  Feature importance:")
     for feat, imp in sorted_imp[:5]:
         log.info("    %s: %.1f", feat, imp)
+
+    return metrics
+
+
+# ---------------------------------------------------------------------------
+# LambdaRank Intraday ETF Selector (Phase 3 — dedicated intraday ML ranking)
+# ---------------------------------------------------------------------------
+
+ETF_INTRADAY_SELECTOR_MODEL_FILE = "etf_intraday_selector_lgb.txt"
+ETF_INTRADAY_SELECTOR_CONFIG_FILE = "etf_intraday_selector_config.json"
+INTRADAY_ML_FEATURES = list(INTRADAY_WEIGHTS.keys())
+
+
+class ETFIntradaySelectorML:
+    """ML-based intraday ETF selector using LightGBM LambdaRank.
+
+    Fallback chain: ML model → rules-based ETFIntradaySelector → return all.
+    """
+
+    def __init__(
+        self,
+        model_dir: Optional[str] = None,
+        top_k: int = 8,
+        min_pool: int = 0,
+    ):
+        self.top_k = top_k
+        self.min_pool = min_pool
+        self._model = None
+        self._feature_names: List[str] = INTRADAY_ML_FEATURES
+        self._rules_fallback = ETFIntradaySelector(top_k=top_k, min_pool=min_pool)
+
+        model_dir = model_dir or INTRADAY_MODEL_DIR
+        model_path = os.path.join(model_dir, ETF_INTRADAY_SELECTOR_MODEL_FILE)
+        config_path = os.path.join(model_dir, ETF_INTRADAY_SELECTOR_CONFIG_FILE)
+
+        if os.path.exists(model_path):
+            try:
+                import lightgbm as lgb
+                self._model = lgb.Booster(model_file=model_path)
+                if os.path.exists(config_path):
+                    import json as _json
+                    with open(config_path, encoding="utf-8") as f:
+                        cfg = _json.load(f)
+                    self._feature_names = cfg.get("feature_names", INTRADAY_ML_FEATURES)
+                log.info("ETFIntradaySelectorML: loaded LambdaRank from %s", model_path)
+            except Exception as exc:
+                log.warning("ETFIntradaySelectorML: model load failed: %s — using rules", exc)
+                self._model = None
+        else:
+            log.info("ETFIntradaySelectorML: no model at %s — using rules fallback", model_path)
+
+    def rank(
+        self,
+        symbols: List[str],
+        bars_data: Optional[Dict[str, pd.DataFrame]] = None,
+    ) -> pd.DataFrame:
+        """Rank symbols using ML model, falling back to rules if unavailable."""
+        if self._model is None:
+            return self._rules_fallback.rank(symbols, bars_data)
+
+        if bars_data is None:
+            fetch_symbols = list(set(symbols + ["SPY"]))
+            bars_data = _fetch_intraday_bars(fetch_symbols, lookback_days=30)
+
+        if not bars_data:
+            return self._rules_fallback.rank(symbols, bars_data)
+
+        features = _compute_intraday_features(bars_data)
+        if features.empty:
+            return self._rules_fallback.rank(symbols, bars_data)
+
+        for col in self._feature_names:
+            if col not in features.columns:
+                features[col] = 0.0
+
+        X = features[self._feature_names].values
+        scores = self._model.predict(X)
+        features["score"] = scores
+        features = features.sort_values("score", ascending=False)
+        features["rank"] = range(1, len(features) + 1)
+        return features.reset_index()
+
+    def select(
+        self,
+        symbols: List[str],
+        bars_data: Optional[Dict[str, pd.DataFrame]] = None,
+    ) -> List[str]:
+        """Select top-K symbols by ML score."""
+        if len(symbols) <= self.min_pool:
+            return symbols
+        ranking = self.rank(symbols, bars_data)
+        if ranking.empty:
+            return symbols
+        return ranking.head(self.top_k)["symbol"].tolist()
+
+
+def _build_intraday_etf_panel(
+    symbols: List[str],
+    lookback_days: int = 60,
+) -> pd.DataFrame:
+    """Build cross-sectional panel for intraday LambdaRank training.
+
+    Each "query group" is one trading session (1 day of 5-min bars).
+    Features: cross-sectional intraday characteristics (ATR%, vol ratio, etc.)
+    Label: forward 1-session risk-adjusted return (next day close / today close - 1) / vol.
+    """
+    import yfinance as yf
+
+    fetch_syms = list(set(symbols + ["SPY"]))
+    log.info("Building intraday panel: %d symbols x %dd...", len(fetch_syms), lookback_days)
+
+    # Fetch daily data for labels (forward return)
+    daily = yf.download(fetch_syms, period=f"{lookback_days + 30}d",
+                        progress=False, auto_adjust=True)
+    if daily.empty:
+        raise RuntimeError("No daily data from yfinance")
+
+    multi = hasattr(daily.columns, "get_level_values")
+    if multi:
+        close_df = daily["Close"]
+        vol_df = daily["Volume"]
+    else:
+        close_df = daily[["Close"]]
+        vol_df = daily[["Volume"]]
+
+    # Build cross-sectional feature snapshots per day using daily close data.
+    # Intraday features (ATR%, vol ratio, etc.) are computed from rolling windows
+    # of daily returns, z-scored cross-sectionally per date — same approach as
+    # the swing panel builder but with intraday-specific feature weights.
+    rows = []
+    dates = close_df.index[20:]  # need 20d history for vol features
+
+    for dt in dates:
+        # Forward 1-day return label
+        idx = close_df.index.get_loc(dt)
+        if idx + 1 >= len(close_df):
+            break
+
+        # Build per-symbol features cross-sectionally for this date
+        closes_dict: Dict[str, pd.Series] = {}
+        volumes_dict: Dict[str, pd.Series] = {}
+        for sym in fetch_syms:
+            if sym not in close_df.columns:
+                continue
+            c = close_df[sym].loc[:dt].dropna()
+            if len(c) >= 20:
+                closes_dict[sym] = c
+            if sym in vol_df.columns:
+                v = vol_df[sym].loc[:dt].dropna()
+                if len(v) >= 20:
+                    volumes_dict[sym] = v
+
+        if len(closes_dict) < 5:
+            continue
+
+        # Compute cross-sectional features using daily data
+        # (reuses the swing feature pipeline — same signals, different weights at inference)
+        features = _compute_features(closes_dict, volumes_dict)
+        if features.empty:
+            continue
+
+        for sym in features.index:
+            if sym == "SPY" or sym not in close_df.columns:
+                continue
+            try:
+                price_now = close_df[sym].iloc[idx]
+                price_fwd = close_df[sym].iloc[idx + 1]
+                if pd.isna(price_now) or pd.isna(price_fwd) or price_now <= 0:
+                    continue
+                fwd_ret = float(price_fwd / price_now - 1)
+                daily_ret = close_df[sym].pct_change().iloc[max(0, idx - 20):idx]
+                vol = float(daily_ret.std())
+                vol = max(vol, 0.001)
+                risk_adj_ret = fwd_ret / vol
+            except (IndexError, KeyError):
+                continue
+
+            row = {"date": dt, "symbol": sym, "label": risk_adj_ret}
+            for col in INTRADAY_ML_FEATURES:
+                val = float(features.loc[sym, col]) if col in features.columns else 0.0
+                row[col] = val
+            rows.append(row)
+
+    panel = pd.DataFrame(rows) if rows else pd.DataFrame()
+    if panel.empty:
+        raise RuntimeError("Intraday panel is empty — no valid data")
+
+    log.info("Intraday panel: %d rows, %d symbols",
+             len(panel), panel["symbol"].nunique() if not panel.empty else 0)
+    return panel
+
+
+def train_intraday_etf_selector(
+    universe: Optional[List[str]] = None,
+    save_dir: Optional[str] = None,
+    lookback_days: int = 60,
+) -> dict:
+    """Train LightGBM LambdaRank intraday ETF selector.
+
+    Mirrors train_etf_selector() but with intraday features and 1-day horizon.
+    Saves to models/intraday/etf_intraday_selector_lgb.txt.
+    """
+    import json as _json
+    import lightgbm as lgb
+
+    if save_dir is None:
+        save_dir = INTRADAY_MODEL_DIR
+    os.makedirs(save_dir, exist_ok=True)
+
+    if universe is None:
+        from etf_screener import load_etf_universe, ALL_SEED_SYMBOLS
+        universe = load_etf_universe(SWING_MODEL_DIR)
+        if not universe:
+            universe = list(ALL_SEED_SYMBOLS)
+
+    # Build panel
+    panel = _build_intraday_etf_panel(universe, lookback_days=lookback_days)
+    if len(panel) < 50:
+        raise RuntimeError(f"Panel too small: {len(panel)} rows (need ≥50)")
+
+    # Train/val split: use last 20% of dates for validation
+    dates = sorted(panel["date"].unique())
+    split_idx = int(len(dates) * 0.8)
+    train_dates = set(dates[:split_idx])
+    val_dates = set(dates[split_idx:])
+
+    train_df = panel[panel["date"].isin(train_dates)].copy()
+    val_df = panel[panel["date"].isin(val_dates)].copy()
+
+    if len(train_df) < 20:
+        raise RuntimeError(f"Training set too small: {len(train_df)} rows")
+
+    log.info("Train: %d rows, Val: %d rows", len(train_df), len(val_df))
+
+    # Discretize labels into 0-4 grades per date
+    def _discretize(df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        df["label_int"] = 0
+        for _, grp in df.groupby("date"):
+            vals = grp["label"].values
+            if len(vals) < 3:
+                df.loc[grp.index, "label_int"] = 0
+            else:
+                pcts = pd.Series(vals).rank(pct=True)
+                bins = (pcts * 4).astype(int).clip(0, 4)
+                df.loc[grp.index, "label_int"] = bins.values
+        return df
+
+    train_df = _discretize(train_df)
+    val_df = _discretize(val_df) if len(val_df) > 0 else val_df
+
+    # Build LightGBM datasets
+    feature_cols = INTRADAY_ML_FEATURES
+    X_train = train_df[feature_cols].values
+    y_train = train_df["label_int"].values
+    train_groups = train_df.groupby("date").size().values
+
+    train_ds = lgb.Dataset(X_train, label=y_train, group=train_groups,
+                           feature_name=feature_cols)
+
+    val_ds = None
+    if len(val_df) > 0:
+        X_val = val_df[feature_cols].values
+        y_val = val_df["label_int"].values
+        val_groups = val_df.groupby("date").size().values
+        val_ds = lgb.Dataset(X_val, label=y_val, group=val_groups,
+                             feature_name=feature_cols, reference=train_ds)
+
+    # Train
+    params = {
+        "objective": "lambdarank",
+        "metric": "ndcg",
+        "ndcg_eval_at": [3, 5],
+        "learning_rate": 0.05,
+        "num_leaves": 15,
+        "max_depth": 4,
+        "min_data_in_leaf": 5,
+        "feature_fraction": 0.8,
+        "bagging_fraction": 0.8,
+        "bagging_freq": 1,
+        "verbose": -1,
+    }
+
+    callbacks = [lgb.early_stopping(30, verbose=True), lgb.log_evaluation(50)]
+    valid_sets = [train_ds] + ([val_ds] if val_ds else [])
+    valid_names = ["train"] + (["val"] if val_ds else [])
+
+    model = lgb.train(
+        params, train_ds,
+        num_boost_round=300,
+        valid_sets=valid_sets,
+        valid_names=valid_names,
+        callbacks=callbacks,
+    )
+
+    # Evaluate
+    metrics: dict = {"feature_names": feature_cols, "n_train": len(train_df)}
+    if val_ds is not None:
+        pred_val = model.predict(X_val)
+        val_groups_arr = val_df.groupby("date").size().values
+        ndcg3 = _compute_ndcg_by_group(pred_val, y_val, val_groups_arr, k=3)
+        ndcg5 = _compute_ndcg_by_group(pred_val, y_val, val_groups_arr, k=5)
+        metrics["val_ndcg3"] = round(float(np.mean(ndcg3)), 4) if ndcg3 else 0.0
+        metrics["val_ndcg5"] = round(float(np.mean(ndcg5)), 4) if ndcg5 else 0.0
+        log.info("Val NDCG@3=%.4f  NDCG@5=%.4f", metrics["val_ndcg3"], metrics["val_ndcg5"])
+
+    # NDCG gate: only deploy if better than existing
+    existing_model_path = os.path.join(save_dir, ETF_INTRADAY_SELECTOR_MODEL_FILE)
+    deploy = True
+    if os.path.exists(existing_model_path) and val_ds is not None:
+        try:
+            old_model = lgb.Booster(model_file=existing_model_path)
+            old_pred = old_model.predict(X_val)
+            old_ndcg3 = _compute_ndcg_by_group(old_pred, y_val, val_groups_arr, k=3)
+            old_mean = float(np.mean(old_ndcg3)) if old_ndcg3 else 0.0
+            if metrics.get("val_ndcg3", 0) < old_mean:
+                log.warning("New model NDCG@3=%.4f < old=%.4f — NOT deploying",
+                            metrics.get("val_ndcg3", 0), old_mean)
+                deploy = False
+        except Exception:
+            pass
+
+    if deploy:
+        model.save_model(os.path.join(save_dir, ETF_INTRADAY_SELECTOR_MODEL_FILE))
+        with open(os.path.join(save_dir, ETF_INTRADAY_SELECTOR_CONFIG_FILE), "w") as f:
+            _json.dump(metrics, f, indent=2)
+        log.info("Intraday ETF selector saved → %s", save_dir)
 
     return metrics
 

@@ -62,9 +62,9 @@ _CRYPTO_ALT_ALPACA = SymbolCosts(
     half_spread_bps=10.0, slippage_bps=10.0, fee_bps=0.0, fill_probability=0.95
 )
 
-# Crypto via Kraken (26bps taker fee per side = 13bps one-way equivalent)
-# Kraken fee schedule: 0.26% taker for volumes < $50k/month
-_KRAKEN_FEE_BPS = 13.0  # 26bps round-trip = 13bps one-way
+# Crypto via Kraken: 0.26% (26bps) taker fee PER SIDE for volumes < $50k/month
+# Round-trip = 2 × 26bps = 52bps total execution cost from fees alone
+_KRAKEN_FEE_BPS = 26.0  # 26bps per side (taker)
 
 _CRYPTO_MAJOR = SymbolCosts(
     half_spread_bps=5.0, slippage_bps=5.0, fee_bps=_KRAKEN_FEE_BPS,

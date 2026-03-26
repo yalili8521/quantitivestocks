@@ -254,7 +254,8 @@ class Backtester:
         bars = self.adapter.fetch_intraday(self.symbol, "5min", lookback_days=days_needed)
         log.info("Got %d bars.", len(bars))
 
-        vix_df = _fetch_vix_for_training(self.fred_key, lookback_days=max(days_needed, 500))
+        vix_df = _fetch_vix_for_training(self.fred_key, lookback_days=max(days_needed, 500),
+                                          include_live=False)
         log.info("Got %d VIX rows.", len(vix_df))
 
         # Build per-day feature dataset
@@ -1125,7 +1126,8 @@ class Backtester:
 
         log.info("Got %d bars.", len(bars))
 
-        vix_df = _fetch_vix_for_training(self.fred_key, lookback_days=max(lookback, 500))
+        vix_df = _fetch_vix_for_training(self.fred_key, lookback_days=max(lookback, 500),
+                                          include_live=False)
         log.info("Got %d VIX rows.", len(vix_df))
 
         # Build features and load model — varies by model_type
@@ -1348,8 +1350,8 @@ class Backtester:
                         cur_vol = vol_floor
                     expected_return = expected_return * cur_vol
             else:
-                window_start = idx_pos - effective_seq_len
-                window = features_norm.iloc[window_start:idx_pos].values
+                window_start = idx_pos - effective_seq_len + 1
+                window = features_norm.iloc[window_start:idx_pos + 1].values
                 x = torch.FloatTensor(window).unsqueeze(0)
                 with torch.no_grad():
                     expected_return = model(x).item()

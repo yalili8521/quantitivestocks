@@ -1307,6 +1307,8 @@ def main():
                         help="Model save directory")
     parser.add_argument("--walk-forward", action="store_true",
                         help="Walk-forward split: train on first 75%%, OOS on last 25%%")
+    parser.add_argument("--train-end", default=None,
+                        help="Hard cutoff date (YYYY-MM-DD). Only train on data BEFORE this date.")
     parser.add_argument("--provider", default="alpaca",
                         help="Data provider (default: alpaca)")
     args = parser.parse_args()
@@ -1330,6 +1332,10 @@ def main():
         # Standardize column names
         if "timestamp" in spy_bars.columns:
             spy_bars = spy_bars.rename(columns={"timestamp": "ts"})
+        # Apply train-end cutoff to SPY reference bars too
+        if args.train_end and "ts" in spy_bars.columns:
+            cutoff_ts = pd.Timestamp(args.train_end)
+            spy_bars = spy_bars[pd.to_datetime(spy_bars["ts"]) < cutoff_ts].copy()
         log.info("SPY reference bars: %d", len(spy_bars))
     else:
         log.warning("Could not fetch SPY bars — sector_rel_strength will be 0")
@@ -1349,6 +1355,16 @@ def main():
             # Standardize column names
             if "timestamp" in bars.columns:
                 bars = bars.rename(columns={"timestamp": "ts"})
+
+            # Apply train-end cutoff: only use data BEFORE cutoff date
+            if args.train_end:
+                cutoff_ts = pd.Timestamp(args.train_end)
+                if "ts" in bars.columns:
+                    bars = bars[pd.to_datetime(bars["ts"]) < cutoff_ts].copy()
+                log.info("%s: train-end cutoff %s → %d bars", sym, args.train_end, len(bars))
+                if len(bars) < 1000:
+                    log.warning("%s: only %d bars after cutoff filter, skipping", sym, len(bars))
+                    continue
 
             # Build training data (vol-normalized + cost-adjusted)
             engine = EtfIntradayFeatureEngine()

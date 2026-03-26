@@ -339,6 +339,11 @@ def _load_trading_config(config_path: str) -> dict:
         with open(config_path, "r", encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
+        log.warning(
+            "Trading config not found at %s — using hardcoded defaults. "
+            "This is DANGEROUS: defaults are more aggressive than production config.",
+            config_path,
+        )
         return {}
     except json.JSONDecodeError as exc:
         raise ValueError(f"Invalid trading config JSON at {config_path}: {exc}") from exc

@@ -143,19 +143,26 @@ class PaperGoldBroker(GoldBrokerAdapter):
         return self._data_adapter
 
     def get_current_price(self, symbol: str) -> float:
-        """Get latest price from Yahoo Finance (with 15s subprocess timeout)."""
+        """Get latest price from Yahoo Finance (with 15s subprocess timeout).
+
+        Returns the price only if the bar is fresh (< 5 min for 1m bars,
+        < 30 min for 5m fallback). Raises RuntimeError on stale/missing data.
+        """
         import subprocess
+        from datetime import timezone as _tz
 
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))))
         python_exe = os.path.join(project_root, ".venv", "Scripts", "python.exe")
 
+        # Fetch 1-min bar with timestamp for staleness check
         script = (
-            "import yfinance as yf\n"
+            "import yfinance as yf, json\n"
             f"t = yf.Ticker('{symbol}')\n"
             "d = t.history(period='1d', interval='1m')\n"
             "if not d.empty:\n"
-            "    print(float(d['Close'].iloc[-1]))\n"
+            "    ts = d.index[-1].isoformat()\n"
+            "    print(json.dumps({'price': float(d['Close'].iloc[-1]), 'ts': ts}))\n"
         )
         try:
             result = subprocess.run(
@@ -164,15 +171,31 @@ class PaperGoldBroker(GoldBrokerAdapter):
                 capture_output=True, text=True, timeout=15,
             )
             if result.returncode == 0 and result.stdout.strip():
-                return float(result.stdout.strip())
+                import json as _json
+                data = _json.loads(result.stdout.strip())
+                bar_ts = datetime.fromisoformat(data["ts"])
+                if bar_ts.tzinfo is None:
+                    bar_ts = bar_ts.replace(tzinfo=_tz.utc)
+                age_secs = (datetime.now(_tz.utc) - bar_ts).total_seconds()
+                if age_secs > 300:  # 5 min staleness limit for 1-min bars
+                    logger.warning("Stale 1m bar for %s: %.0fs old", symbol, age_secs)
+                else:
+                    return float(data["price"])
         except subprocess.TimeoutExpired:
             logger.warning(f"Timeout getting price for {symbol} (15s)")
         except Exception as e:
             logger.warning(f"Failed to get price for {symbol}: {e}")
 
-        # Fallback: fetch 5m bars and use last close
+        # Fallback: fetch 5m bars and check staleness (30 min limit)
         bars = self.fetch_bars(symbol, "5m", 5)
         if not bars.empty:
+            last_bar_ts = bars.index[-1]
+            if hasattr(last_bar_ts, 'tzinfo') and last_bar_ts.tzinfo is None:
+                last_bar_ts = last_bar_ts.tz_localize('UTC')
+            age_secs = (datetime.now(_tz.utc) - last_bar_ts).total_seconds()
+            if age_secs > 1800:  # 30 min staleness limit for 5-min bars
+                logger.warning("Stale 5m bar for %s: %.0fs old — skipping tick", symbol, age_secs)
+                raise RuntimeError(f"Stale price data for {symbol} ({age_secs:.0f}s old)")
             return float(bars["close"].iloc[-1])
 
         raise RuntimeError(f"Cannot get current price for {symbol}")
@@ -403,12 +426,23 @@ class PaperGoldBroker(GoldBrokerAdapter):
             "initial_balance": 5000.0,
             "trade_count": len(self._trade_log),
         }
-        with open(self._state_file, "w") as f:
-            json.dump(state, f, indent=2)
+        try:
+            tmp = self._state_file + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(state, f, indent=2)
+            os.replace(tmp, self._state_file)
+        except OSError as exc:
+            import logging
+            logging.getLogger(__name__).error("Failed to save gold scalper state: %s", exc)
 
         # Append-only trade log
-        with open(self._log_file, "w") as f:
-            json.dump(self._trade_log, f, indent=2)
+        try:
+            tmp = self._log_file + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(self._trade_log, f, indent=2)
+            os.replace(tmp, self._log_file)
+        except OSError as exc:
+            pass
 
         # Sync to GitHub Gist for Vercel dashboard
         self._sync_to_gist(state)

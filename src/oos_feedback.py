@@ -16,6 +16,8 @@ import logging
 import os
 from typing import Callable, Dict, List, Optional, Tuple
 
+import numpy as np
+
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -95,6 +97,7 @@ def compute_composite_scores(
     oos_sharpe: Dict[str, float],
     derisk_lookup: Optional[Callable[[str], Optional[Tuple[int, Optional[float]]]]] = None,
     btc_correlations: Optional[Dict[str, float]] = None,
+    fee_costs: Optional[Dict[str, float]] = None,
     min_oos_sharpe: float = -0.20,
 ) -> Dict[str, float]:
     """Composite score = w_sel * selector + w_sharpe * blended_sharpe (rank-normalized).
@@ -115,7 +118,10 @@ def compute_composite_scores(
         Used for James-Stein weight computation and live Sharpe blending.
         If None, cold-start weights (30/70) are used.
     btc_correlations : dict, optional
-        {symbol: correlation_with_BTC} for crypto penalty.
+        {symbol: correlation_with_anchor} — BTC for crypto, SPY for ETFs.
+    fee_costs : dict, optional
+        {symbol: round_trip_cost_fraction} from cost_model. Symbols with
+        above-median costs are penalised; neutral when cost == median.
     min_oos_sharpe : float
         Hard floor: symbols below this OOS Sharpe are excluded.
 
@@ -189,6 +195,11 @@ def compute_composite_scores(
         if btc_correlations and sym in btc_correlations:
             btc_corr = btc_correlations[sym]
             composite *= (1 - 0.5 * btc_corr)
+
+        if fee_costs and sym in fee_costs:
+            _median_cost = np.median(list(fee_costs.values())) if fee_costs else 1e-4
+            _cost_ratio = fee_costs[sym] / max(_median_cost, 1e-6)
+            composite *= max(0.3, 1.0 - 0.15 * (_cost_ratio - 1.0))
 
         result[sym] = round(composite, 4)
 

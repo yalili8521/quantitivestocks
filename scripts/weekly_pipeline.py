@@ -1,42 +1,51 @@
 #!/usr/bin/env python3
 """
-Weekly Crypto Pipeline — Automated maintenance for the crypto trading system.
-=============================================================================
+Weekly Pipeline — Automated retraining + OOS validation for ALL trading groups.
+================================================================================
 
-Chains six steps in sequence:
-    1. screen-universe         — Layer 0: discover tradeable coins (CoinGecko x Kraken)
-    2. train-selector          — Layer 1: retrain cross-sectional coin selector
-    3. train-crypto            — Layer 2a: retrain TFT+XGBoost swing models for all coins
-    4. train-crypto-intraday   — Layer 2b: retrain LGB+GRU intraday models for all coins
-    5. select-symbols          — Layer 3: OOS backtest + auto-update symbol_caps
-    6. model-health            — Layer 4: check model health, alert on degradation
+Orchestrates the full retrain → backtest → registry update cycle for all 4 groups:
+  - ETF Swing (XGBoost + TFT)
+  - ETF Intraday (LightGBM + GRU)
+  - Crypto Swing (XGBoost + TFT)
+  - Crypto Intraday (LightGBM + GRU)
+
+Pipeline steps:
+    1. screen-etf-universe       — Discover tradeable ETFs (Alpaca + yfinance)
+    2. screen-crypto-universe    — Discover tradeable coins (CMC + Kraken)
+    3. train-etf-swing           — Retrain swing models for all ETFs (up to cutoff)
+    4. train-etf-intraday        — Retrain intraday models for all ETFs (up to cutoff)
+    5. train-crypto-swing        — Retrain swing models for all crypto (up to cutoff)
+    6. train-crypto-intraday     — Retrain intraday models for all crypto (up to cutoff)
+    7. backtest-all              — OOS backtest ALL models (cutoff → today)
+    8. update-registries         — Populate OOS Sharpe registries from backtest results
+    9. train-selectors           — Retrain LambdaRank selectors (swing, intraday, crypto)
+   10. model-health              — Check model health, alert on degradation
+   11. slack-summary             — Send pipeline summary to Slack
+
+OOS Cutoff:
+    --train-end YYYY-MM-DD sets the boundary. All models train on data BEFORE this date.
+    OOS backtests run on data AFTER this date. Default: today - 60 days.
 
 Usage:
     python scripts/weekly_pipeline.py
-    python scripts/weekly_pipeline.py --skip train-crypto     # skip slow training step
-    python scripts/weekly_pipeline.py --skip screen-universe train-selector
-
-Schedule (PowerShell, admin):
-    $action = New-ScheduledTaskAction `
-        -Execute "C:\\Users\\yalil\\OneDrive\\Desktop\\AI-projects\\quantitivestocks\\.venv\\Scripts\\python.exe" `
-        -Argument "-u scripts/weekly_pipeline.py" `
-        -WorkingDirectory "C:\\Users\\yalil\\OneDrive\\Desktop\\AI-projects\\quantitivestocks"
-    $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At "10:00PM"
-    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
-    Register-ScheduledTask -TaskName "QuantStocks-WeeklyPipeline" `
-        -Action $action -Trigger $trigger -Settings $settings `
-        -Description "Weekly crypto pipeline: screen, train, select, health check"
+    python scripts/weekly_pipeline.py --train-end 2026-01-25
+    python scripts/weekly_pipeline.py --skip train-etf-swing backtest-all
+    python scripts/weekly_pipeline.py --only train-crypto-swing backtest-all update-registries
 """
 
 from __future__ import annotations
 
 import argparse
+import glob
+import json
 import os
+import re
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from typing import Dict, List, Optional
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(PROJECT_ROOT, "src")
@@ -48,6 +57,15 @@ PYTHON = os.path.join(PROJECT_ROOT, ".venv", "Scripts", "python.exe")
 MAIN_PY = os.path.join(PROJECT_ROOT, "main.py")
 LOG_DIR = os.path.join(PROJECT_ROOT, "logs")
 ENV_FILE = os.path.join(PROJECT_ROOT, "secrets", "alpaca.env")
+
+# Model directories
+SWING_MODEL_DIR = os.path.join(PROJECT_ROOT, "models", "swing")
+INTRADAY_MODEL_DIR = os.path.join(PROJECT_ROOT, "models", "intraday")
+CRYPTO_MODEL_DIR = os.path.join(PROJECT_ROOT, "models", "crypto")
+CRYPTO_INTRADAY_MODEL_DIR = os.path.join(PROJECT_ROOT, "models", "crypto_intraday")
+
+# Backtest output directory
+BACKTEST_DIR = os.path.join(PROJECT_ROOT, "outputs", "backtests")
 
 
 def _load_env_file() -> None:
@@ -76,253 +94,405 @@ class StepResult:
     details: str = ""
 
 
-def _run_command(args: list[str], timeout: int = 3600) -> subprocess.CompletedProcess:
-    """Run a subprocess command, capturing output."""
-    return subprocess.run(
-        args,
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
+# Global: set by --train-end or default (today - 60 days)
+TRAIN_END: str = ""
 
 
-def run_screen_universe() -> StepResult:
-    """Step 1: Layer 0 — discover tradeable coins from CoinGecko x Kraken."""
+def _run(args: list[str], timeout: int = 7200) -> subprocess.CompletedProcess:
+    """Run a subprocess, capturing output."""
+    return subprocess.run(args, cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=timeout)
+
+
+def _count_models(directory: str, pattern: str) -> list[str]:
+    """List symbols with trained models matching pattern in directory."""
+    files = glob.glob(os.path.join(directory, pattern))
+    return sorted(set(
+        os.path.basename(f).replace(pattern.replace("*", ""), "").rstrip(".")
+        for f in files
+    ))
+
+
+def _get_swing_etf_symbols() -> list[str]:
+    """Get all ETF symbols with swing models."""
+    return _count_models(SWING_MODEL_DIR, "*_xgb_swing.joblib")
+
+
+def _get_intraday_etf_symbols() -> list[str]:
+    """Get all ETF symbols with intraday models."""
+    return _count_models(INTRADAY_MODEL_DIR, "*_lgb_intraday_etf.joblib")
+
+
+def _get_crypto_swing_symbols() -> list[str]:
+    """Get all crypto symbols with swing models."""
+    return _count_models(CRYPTO_MODEL_DIR, "*_xgb_swing.joblib")
+
+
+def _get_crypto_intraday_symbols() -> list[str]:
+    """Get all crypto symbols with intraday models."""
+    return _count_models(CRYPTO_INTRADAY_MODEL_DIR, "*_lgb_intraday_crypto.joblib")
+
+
+# ---------------------------------------------------------------------------
+# Step implementations
+# ---------------------------------------------------------------------------
+
+def step_screen_etf_universe() -> StepResult:
+    """Screen ETF universe via Alpaca API + yfinance validation."""
     t0 = time.time()
     try:
-        result = _run_command([PYTHON, MAIN_PY, "screen-universe", "--top-n", "250"])
+        result = _run([PYTHON, MAIN_PY, "screen-etf-universe"])
         elapsed = time.time() - t0
         if result.returncode != 0:
-            return StepResult("screen-universe", False, elapsed,
-                              error=result.stderr[-500:] if result.stderr else "non-zero exit")
-        # Extract coin count from output
+            return StepResult("screen-etf-universe", False, elapsed,
+                              error=(result.stderr or "")[-500:])
         details = ""
-        for line in result.stdout.splitlines():
+        for line in (result.stdout or "").splitlines():
+            if "pass" in line.lower() or "etf" in line.lower():
+                details = line.strip()
+        return StepResult("screen-etf-universe", True, elapsed, details=details)
+    except Exception as exc:
+        return StepResult("screen-etf-universe", False, time.time() - t0, error=str(exc))
+
+
+def step_screen_crypto_universe() -> StepResult:
+    """Screen crypto universe via CMC + Kraken."""
+    t0 = time.time()
+    try:
+        result = _run([PYTHON, MAIN_PY, "screen-universe", "--top-n", "250"])
+        elapsed = time.time() - t0
+        if result.returncode != 0:
+            return StepResult("screen-crypto-universe", False, elapsed,
+                              error=(result.stderr or "")[-500:])
+        details = ""
+        for line in (result.stdout or "").splitlines():
             if "coins" in line.lower() or "universe" in line.lower():
                 details = line.strip()
                 break
-        return StepResult("screen-universe", True, elapsed, details=details)
-    except subprocess.TimeoutExpired:
-        return StepResult("screen-universe", False, time.time() - t0, error="timeout (1h)")
+        return StepResult("screen-crypto-universe", True, elapsed, details=details)
     except Exception as exc:
-        return StepResult("screen-universe", False, time.time() - t0, error=str(exc))
+        return StepResult("screen-crypto-universe", False, time.time() - t0, error=str(exc))
 
 
-def run_train_selector() -> StepResult:
-    """Step 2: Layer 1 — retrain the LambdaRank coin selector."""
+def step_train_etf_swing() -> StepResult:
+    """Train XGBoost+TFT swing models for all ETFs."""
     t0 = time.time()
     try:
-        result = _run_command([PYTHON, MAIN_PY, "train-selector"])
+        symbols = _get_swing_etf_symbols()
+        if not symbols:
+            return StepResult("train-etf-swing", False, 0, error="no swing ETF models on disk")
+        cmd = [PYTHON, MAIN_PY, "train-swing",
+               "--symbols", ",".join(symbols),
+               "--provider", "yahoo",
+               "--train-end", TRAIN_END]
+        result = _run(cmd, timeout=7200)
         elapsed = time.time() - t0
-        if result.returncode != 0:
-            return StepResult("train-selector", False, elapsed,
-                              error=result.stderr[-500:] if result.stderr else "non-zero exit")
-        details = ""
-        for line in result.stdout.splitlines():
-            if "ndcg" in line.lower() or "hit_rate" in line.lower() or "saved" in line.lower():
-                details = line.strip()
-        return StepResult("train-selector", True, elapsed, details=details)
-    except subprocess.TimeoutExpired:
-        return StepResult("train-selector", False, time.time() - t0, error="timeout (1h)")
+        lines = (result.stdout or "").splitlines() + (result.stderr or "").splitlines()
+        ok = sum(1 for l in lines if "Saved swing XGBoost" in l)
+        fail = sum(1 for l in lines if "training failed" in l or "skipping" in l.lower())
+        details = f"{len(symbols)} symbols, {ok} saved, {fail} failed, cutoff={TRAIN_END}"
+        return StepResult("train-etf-swing", result.returncode == 0, elapsed, details=details)
     except Exception as exc:
-        return StepResult("train-selector", False, time.time() - t0, error=str(exc))
+        return StepResult("train-etf-swing", False, time.time() - t0, error=str(exc))
 
 
-def run_train_selector_intraday() -> StepResult:
-    """Step 2b: Layer 1b — retrain the intraday LambdaRank coin selector."""
+def step_train_etf_intraday() -> StepResult:
+    """Train LightGBM+GRU intraday models for all ETFs."""
     t0 = time.time()
     try:
-        result = _run_command([PYTHON, MAIN_PY, "train-selector-intraday"])
+        symbols = _get_intraday_etf_symbols()
+        if not symbols:
+            return StepResult("train-etf-intraday", False, 0, error="no intraday ETF models on disk")
+        # Call etf_intraday_model.py directly to ensure --train-end passes through
+        etf_intraday_script = os.path.join(SRC_DIR, "etf_intraday_model.py")
+        cmd = [PYTHON, etf_intraday_script,
+               "--symbols", ",".join(symbols),
+               "--provider", "yahoo",
+               "--walk-forward",
+               "--train-end", TRAIN_END]
+        result = _run(cmd, timeout=7200)
         elapsed = time.time() - t0
-        if result.returncode != 0:
-            return StepResult("train-selector-intraday", False, elapsed,
-                              error=result.stderr[-500:] if result.stderr else "non-zero exit")
-        details = ""
-        for line in result.stdout.splitlines():
-            if "ndcg" in line.lower() or "hit_rate" in line.lower() or "saved" in line.lower():
-                details = line.strip()
-        return StepResult("train-selector-intraday", True, elapsed, details=details)
-    except subprocess.TimeoutExpired:
-        return StepResult("train-selector-intraday", False, time.time() - t0, error="timeout (1h)")
+        lines = (result.stdout or "").splitlines() + (result.stderr or "").splitlines()
+        ok = sum(1 for l in lines if "ENSEMBLE:" in l or "LGB-only:" in l)
+        details = f"{len(symbols)} symbols, {ok} models, cutoff={TRAIN_END}"
+        return StepResult("train-etf-intraday", result.returncode == 0, elapsed, details=details)
     except Exception as exc:
-        return StepResult("train-selector-intraday", False, time.time() - t0, error=str(exc))
+        return StepResult("train-etf-intraday", False, time.time() - t0, error=str(exc))
 
 
-def run_train_crypto() -> StepResult:
-    """Step 3: Layer 2 — retrain TFT+XGBoost swing models for all crypto coins."""
+def step_train_crypto_swing() -> StepResult:
+    """Train XGBoost+TFT swing models for all crypto."""
     t0 = time.time()
     try:
-        result = _run_command([PYTHON, MAIN_PY, "train-crypto"], timeout=7200)
+        # Load universe from disk
+        from universe_screener import load_universe
+        universe = load_universe(CRYPTO_MODEL_DIR)
+        if not universe:
+            universe = _get_crypto_swing_symbols()
+        if not universe:
+            return StepResult("train-crypto-swing", False, 0, error="no crypto symbols found")
+        sym_str = ",".join(s if "-" in s else f"{s}-USD" for s in universe)
+        cmd = [PYTHON, MAIN_PY, "train-swing",
+               "--symbols", sym_str,
+               "--provider", "yahoo",
+               "--save-dir", CRYPTO_MODEL_DIR,
+               "--train-end", TRAIN_END]
+        result = _run(cmd, timeout=10800)
         elapsed = time.time() - t0
-        if result.returncode != 0:
-            return StepResult("train-crypto", False, elapsed,
-                              error=result.stderr[-500:] if result.stderr else "non-zero exit")
-        # Count from log output: "Saved swing XGBoost" = success, "training failed" = failure
-        lines = result.stdout.splitlines() + result.stderr.splitlines()
-        ok_count = sum(1 for l in lines if "Saved swing XGBoost" in l or "[TFT]" in l and "saved" in l)
-        fail_count = sum(1 for l in lines if "training failed" in l)
-        # Count unique symbols trained (each has "=== Training swing XGBoost for XXX ===")
-        trained_syms = sum(1 for l in lines if "Training swing XGBoost for" in l)
-        details = f"{trained_syms} symbols, {ok_count} models saved, {fail_count} failed"
-        return StepResult("train-crypto", True, elapsed, details=details)
-    except subprocess.TimeoutExpired:
-        return StepResult("train-crypto", False, time.time() - t0, error="timeout (2h)")
+        lines = (result.stdout or "").splitlines() + (result.stderr or "").splitlines()
+        ok = sum(1 for l in lines if "Saved swing XGBoost" in l)
+        details = f"{len(universe)} symbols, {ok} saved, cutoff={TRAIN_END}"
+        return StepResult("train-crypto-swing", result.returncode == 0, elapsed, details=details)
     except Exception as exc:
-        return StepResult("train-crypto", False, time.time() - t0, error=str(exc))
+        return StepResult("train-crypto-swing", False, time.time() - t0, error=str(exc))
 
 
-def run_train_crypto_intraday() -> StepResult:
-    """Step 3b: Layer 2b — retrain LGB+GRU intraday models for crypto coins."""
+def step_train_crypto_intraday() -> StepResult:
+    """Train LightGBM+GRU intraday models for all crypto."""
     t0 = time.time()
     try:
-        result = _run_command([PYTHON, MAIN_PY, "train-crypto-intraday"], timeout=7200)
+        from universe_screener import load_universe
+        universe = load_universe(CRYPTO_MODEL_DIR)
+        if not universe:
+            universe = _get_crypto_intraday_symbols()
+        if not universe:
+            return StepResult("train-crypto-intraday", False, 0, error="no crypto symbols found")
+        sym_str = ",".join(s if "-" in s else f"{s}-USD" for s in universe)
+        # Call crypto_intraday_model.py directly (main.py rebuilds sys.argv, breaking --train-end)
+        crypto_intraday_script = os.path.join(SRC_DIR, "crypto_intraday_model.py")
+        cmd = [PYTHON, crypto_intraday_script,
+               "--symbols", sym_str,
+               "--save-dir", CRYPTO_INTRADAY_MODEL_DIR,
+               "--walk-forward",
+               "--train-end", TRAIN_END]
+        result = _run(cmd, timeout=10800)
         elapsed = time.time() - t0
-        if result.returncode != 0:
-            return StepResult("train-crypto-intraday", False, elapsed,
-                              error=result.stderr[-500:] if result.stderr else "non-zero exit")
-        lines = result.stdout.splitlines() + result.stderr.splitlines()
-        ok_count = sum(1 for l in lines if "ENSEMBLE:" in l or "LGB-only:" in l)
-        fail_count = sum(1 for l in lines if "training failed" in l)
-        trained_syms = sum(1 for l in lines if "Training crypto intraday for" in l)
-        details = f"{trained_syms} symbols, {ok_count} models saved, {fail_count} failed"
-        return StepResult("train-crypto-intraday", True, elapsed, details=details)
-    except subprocess.TimeoutExpired:
-        return StepResult("train-crypto-intraday", False, time.time() - t0, error="timeout (2h)")
+        lines = (result.stdout or "").splitlines() + (result.stderr or "").splitlines()
+        ok = sum(1 for l in lines if "ENSEMBLE:" in l or "LGB-only:" in l)
+        details = f"{len(universe)} symbols, {ok} models, cutoff={TRAIN_END}"
+        return StepResult("train-crypto-intraday", result.returncode == 0, elapsed, details=details)
     except Exception as exc:
         return StepResult("train-crypto-intraday", False, time.time() - t0, error=str(exc))
 
 
-def run_select_symbols() -> StepResult:
-    """Step 4: Layer 3 — OOS backtest + classify + auto-update config/trading.json."""
+def _backtest_group(group: str, symbols: list[str], model_flag: str,
+                    model_dir: Optional[str] = None, mode: str = "daily",
+                    interval: str = "1d") -> Dict[str, dict]:
+    """Run OOS backtests for a list of symbols. Returns {symbol: {sharpe, pf, wr, trades}}."""
+    results = {}
+    for sym in symbols:
+        try:
+            cmd = [PYTHON, MAIN_PY, "backtest",
+                   "--symbol", sym,
+                   "--start", TRAIN_END,
+                   "--model", model_flag]
+            if mode == "intraday":
+                cmd.extend(["--mode", "intraday", "--interval", interval])
+            if model_dir:
+                cmd.extend(["--model-dir", model_dir])
+            r = _run(cmd, timeout=300)
+            output = (r.stdout or "") + (r.stderr or "")
+            # Parse Sharpe from output
+            sharpe = 0.0
+            pf = 0.0
+            wr = 0.0
+            trades = 0
+            for line in output.splitlines():
+                if "Sharpe Ratio" in line:
+                    m = re.search(r"[\-+]?\d+\.?\d*", line.split(":")[-1])
+                    if m:
+                        sharpe = float(m.group())
+                elif "Profit Factor" in line:
+                    m = re.search(r"[\-+]?\d+\.?\d*", line.split(":")[-1])
+                    if m:
+                        pf = float(m.group())
+                elif "Win Rate" in line:
+                    m = re.search(r"[\-+]?\d+\.?\d*", line.split(":")[-1])
+                    if m:
+                        wr = float(m.group())
+                elif "Total Trades" in line or "trades" in line.lower():
+                    m = re.search(r"\d+", line.split(":")[-1])
+                    if m:
+                        trades = int(m.group())
+            results[sym] = {"sharpe": sharpe, "pf": pf, "wr": wr, "trades": trades}
+        except Exception as exc:
+            results[sym] = {"sharpe": 0.0, "pf": 0.0, "wr": 0.0, "trades": 0, "error": str(exc)}
+    return results
+
+
+def step_backtest_all() -> StepResult:
+    """Run OOS backtests for ALL models across all 4 groups."""
+    t0 = time.time()
+    all_results: Dict[str, Dict[str, dict]] = {}
+    try:
+        os.makedirs(BACKTEST_DIR, exist_ok=True)
+
+        # 1. Swing ETF
+        swing_syms = _get_swing_etf_symbols()
+        print(f"    Backtesting {len(swing_syms)} swing ETFs...")
+        all_results["swing"] = _backtest_group("swing", swing_syms, "swing")
+
+        # 2. Intraday ETF
+        intraday_syms = _get_intraday_etf_symbols()
+        print(f"    Backtesting {len(intraday_syms)} intraday ETFs...")
+        all_results["intraday"] = _backtest_group(
+            "intraday", intraday_syms, "etf_intraday",
+            mode="intraday", interval="5min")
+
+        # 3. Crypto swing
+        crypto_syms = _get_crypto_swing_symbols()
+        print(f"    Backtesting {len(crypto_syms)} crypto swing...")
+        all_results["crypto"] = _backtest_group(
+            "crypto", crypto_syms, "swing", model_dir=CRYPTO_MODEL_DIR)
+
+        # 4. Crypto intraday
+        crypto_id_syms = _get_crypto_intraday_symbols()
+        print(f"    Backtesting {len(crypto_id_syms)} crypto intraday...")
+        all_results["crypto_intraday"] = _backtest_group(
+            "crypto_intraday", crypto_id_syms, "crypto_intraday",
+            model_dir=CRYPTO_INTRADAY_MODEL_DIR, mode="intraday", interval="5min")
+
+        # Save results to disk for registry update
+        results_path = os.path.join(BACKTEST_DIR, f"oos_results_{TRAIN_END}.json")
+        with open(results_path, "w") as f:
+            json.dump(all_results, f, indent=2)
+
+        elapsed = time.time() - t0
+        total = sum(len(v) for v in all_results.values())
+        positive = sum(
+            1 for group in all_results.values()
+            for sym_data in group.values()
+            if sym_data.get("sharpe", 0) > 0
+        )
+        details = f"{total} backtests, {positive} positive Sharpe, saved to {results_path}"
+        return StepResult("backtest-all", True, elapsed, details=details)
+    except Exception as exc:
+        return StepResult("backtest-all", False, time.time() - t0, error=str(exc))
+
+
+def step_update_registries() -> StepResult:
+    """Update OOS Sharpe registries from backtest results."""
     t0 = time.time()
     try:
-        result = _run_command(
-            [PYTHON, MAIN_PY, "select-symbols", "--sleeve", "crypto", "--apply"],
-            timeout=7200,
-        )
+        results_path = os.path.join(BACKTEST_DIR, f"oos_results_{TRAIN_END}.json")
+        if not os.path.exists(results_path):
+            return StepResult("update-registries", False, 0, error="no backtest results file")
+
+        with open(results_path) as f:
+            all_results = json.load(f)
+
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        # --- ETF registries: promoted_symbols.json ---
+        for group_key, model_dir in [("swing", SWING_MODEL_DIR), ("intraday", INTRADAY_MODEL_DIR)]:
+            registry_path = os.path.join(model_dir, "promoted_symbols.json")
+            registry = {}
+            if os.path.exists(registry_path):
+                with open(registry_path) as f:
+                    registry = json.load(f)
+            group_results = all_results.get(group_key, {})
+            for sym, data in group_results.items():
+                registry[sym] = {
+                    "oos_sharpe": data.get("sharpe", 0.0),
+                    "oos_pf": data.get("pf", 0.0),
+                    "oos_wr": data.get("wr", 0.0),
+                    "oos_trades": data.get("trades", 0),
+                    "updated": today,
+                    "oos_start": TRAIN_END,
+                }
+            with open(registry_path, "w") as f:
+                json.dump(registry, f, indent=2)
+            print(f"    Updated {registry_path}: {len(group_results)} symbols")
+
+        # --- Crypto registries: config/trading.json ---
+        config_path = os.path.join(PROJECT_ROOT, "config", "trading.json")
+        if os.path.exists(config_path):
+            with open(config_path) as f:
+                config = json.load(f)
+
+            for group_key, registry_key in [
+                ("crypto", "oos_sharpe_registry"),
+                ("crypto_intraday", "oos_sharpe_registry_intraday"),
+            ]:
+                registry = config.get(registry_key, {})
+                group_results = all_results.get(group_key, {})
+                for sym, data in group_results.items():
+                    registry[sym] = {
+                        "oos_sharpe": data.get("sharpe", 0.0),
+                        "oos_pf": data.get("pf", 0.0),
+                        "oos_wr": data.get("wr", 0.0),
+                        "oos_trades": data.get("trades", 0),
+                        "updated": today,
+                        "oos_start": TRAIN_END,
+                    }
+                config[registry_key] = registry
+                print(f"    Updated trading.json[{registry_key}]: {len(group_results)} symbols")
+
+            # Update retrain metadata
+            config["_retrain_cadence"]["_last_retrain"] = today
+            config["_retrain_cadence"]["_oos_cutoff"] = TRAIN_END
+
+            with open(config_path, "w") as f:
+                json.dump(config, f, indent=2)
+
         elapsed = time.time() - t0
-        if result.returncode != 0:
-            return StepResult("select-symbols", False, elapsed,
-                              error=result.stderr[-500:] if result.stderr else "non-zero exit")
-        # Extract classification summary (e.g. "Summary: 1 core, 3 secondary, 10 disabled")
-        details = ""
-        for line in result.stdout.splitlines():
-            if line.strip().startswith("Summary:"):
-                details = line.strip()
-                break
-        if not details:
-            for line in result.stdout.splitlines():
-                if "core" in line.lower() or "applied" in line.lower():
-                    details = line.strip()
-        return StepResult("select-symbols", True, elapsed, details=details)
-    except subprocess.TimeoutExpired:
-        return StepResult("select-symbols", False, time.time() - t0, error="timeout (2h)")
+        total = sum(len(v) for v in all_results.values())
+        return StepResult("update-registries", True, elapsed,
+                          details=f"{total} symbols updated across 4 registries")
     except Exception as exc:
-        return StepResult("select-symbols", False, time.time() - t0, error=str(exc))
+        return StepResult("update-registries", False, time.time() - t0, error=str(exc))
 
 
-def run_train_new_etfs() -> StepResult:
-    """Step 5b: Train swing models for any newly promoted ETFs without models.
-
-    Checks promoted_symbols.json against existing model files. Only trains
-    symbols that were promoted but don't have a trained XGBoost model yet.
-    Skips entirely if there are no new symbols to train.
-    """
+def step_train_selectors() -> StepResult:
+    """Retrain LambdaRank selectors (crypto + ETF intraday)."""
     t0 = time.time()
+    trained = []
     try:
-        from utils import SWING_MODEL_DIR
-        from etf_screener import load_promoted_symbols
+        # Crypto selector
+        r = _run([PYTHON, MAIN_PY, "train-selector"])
+        if r.returncode == 0:
+            trained.append("crypto")
 
-        promoted = load_promoted_symbols(SWING_MODEL_DIR)
-        if not promoted:
-            return StepResult("train-new-etfs", True, time.time() - t0,
-                              details="No promoted_symbols.json — skipped")
+        # Crypto intraday selector
+        r = _run([PYTHON, MAIN_PY, "train-selector-intraday"])
+        if r.returncode == 0:
+            trained.append("crypto-intraday")
 
-        # Check which promoted symbols lack a model
-        import re
-        _SYM_RE = re.compile(r"^[A-Z0-9\-/]{1,10}$")
-        untrained = []
-        for sym in promoted:
-            if not _SYM_RE.match(sym):
-                print(f"  [WARN] Invalid symbol skipped: {sym!r}")
-                continue
-            model_file = os.path.join(SWING_MODEL_DIR, f"{sym}_xgb_swing.joblib")
-            if not os.path.exists(model_file):
-                untrained.append(sym)
+        # ETF intraday selector
+        r = _run([PYTHON, MAIN_PY, "train-intraday-etf-selector"])
+        if r.returncode == 0:
+            trained.append("etf-intraday")
 
-        if not untrained:
-            return StepResult("train-new-etfs", True, time.time() - t0,
-                              details="All promoted ETFs have models — nothing to train")
-
-        # Train only the new ones
-        sym_list = ",".join(untrained)
-        result = _run_command(
-            [PYTHON, MAIN_PY, "train-swing",
-             "--symbols", sym_list,
-             "--provider", "yahoo"],
-            timeout=3600,
-        )
         elapsed = time.time() - t0
-        if result.returncode != 0:
-            return StepResult("train-new-etfs", False, elapsed,
-                              error=result.stderr[-500:] if result.stderr else "non-zero exit")
-
-        lines = result.stdout.splitlines() + result.stderr.splitlines()
-        ok_count = sum(1 for l in lines if "Saved swing XGBoost" in l)
-        details = f"{len(untrained)} new symbols, {ok_count} models saved"
-        return StepResult("train-new-etfs", True, elapsed, details=details)
-    except subprocess.TimeoutExpired:
-        return StepResult("train-new-etfs", False, time.time() - t0, error="timeout (1h)")
+        return StepResult("train-selectors", len(trained) > 0, elapsed,
+                          details=f"Trained: {', '.join(trained)}")
     except Exception as exc:
-        return StepResult("train-new-etfs", False, time.time() - t0, error=str(exc))
+        return StepResult("train-selectors", False, time.time() - t0, error=str(exc))
 
 
-def run_model_health() -> StepResult:
-    """Step 5: Layer 4 — check model health, report degraded models."""
+def step_model_health() -> StepResult:
+    """Check model health, report degraded models."""
     t0 = time.time()
     try:
         from model_monitor import ModelMonitor
         monitor = ModelMonitor()
-        report = monitor.generate_report()
+        monitor.generate_report()
         elapsed = time.time() - t0
-
-        # Find paused/warning models
-        paused = []
-        warnings = []
         health = monitor.get_all_health()
-        for sym, info in health.items():
-            status = getattr(info, "status", "ok")
-            if status == "paused":
-                paused.append(sym)
-            elif status == "warning":
-                warnings.append(sym)
-
-        details_parts = []
-        if paused:
-            details_parts.append(f"PAUSED: {', '.join(paused)}")
-        if warnings:
-            details_parts.append(f"WARNING: {', '.join(warnings)}")
-        if not details_parts:
-            details_parts.append("All models healthy")
-        details = " | ".join(details_parts)
-
+        paused = [s for s, h in health.items() if getattr(h, "status", "ok") == "paused"]
+        details = f"PAUSED: {', '.join(paused)}" if paused else "All models healthy"
         return StepResult("model-health", True, elapsed, details=details)
     except Exception as exc:
         return StepResult("model-health", False, time.time() - t0, error=str(exc))
 
 
 def send_slack_summary(results: list[StepResult]) -> None:
-    """Send pipeline summary to Slack via AlertEngine."""
+    """Send pipeline summary to Slack."""
     try:
         from alerts import AlertEngine
         engine = AlertEngine()
-
-        lines = ["Weekly Crypto Pipeline Summary", ""]
+        lines = [f"Weekly Pipeline Summary (cutoff={TRAIN_END})", ""]
         total_time = sum(r.elapsed_seconds for r in results)
         passed = sum(1 for r in results if r.success)
-        failed = len(results) - passed
-
         for r in results:
             status = "PASS" if r.success else "FAIL"
             line = f"  {status}  {r.name} ({r.elapsed_seconds:.0f}s)"
@@ -331,12 +501,7 @@ def send_slack_summary(results: list[StepResult]) -> None:
             if r.error:
                 line += f" -- ERROR: {r.error[:200]}"
             lines.append(line)
-
-        lines.append("")
-        lines.append(f"Total: {passed}/{len(results)} passed, {total_time/60:.1f} min")
-        if failed:
-            lines.append(f"{failed} step(s) FAILED -- check logs")
-
+        lines.append(f"\n{passed}/{len(results)} passed, {total_time/60:.1f} min total")
         engine.notify_pipeline_summary("\n".join(lines))
     except Exception as exc:
         print(f"  [!] Slack summary failed: {exc}")
@@ -344,118 +509,104 @@ def send_slack_summary(results: list[StepResult]) -> None:
 
 def print_summary(results: list[StepResult]) -> None:
     """Print pipeline summary to console."""
-    print(f"\n{'='*65}")
-    print(f"  WEEKLY CRYPTO PIPELINE — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
-    print(f"{'='*65}\n")
-
-    total_time = 0
+    print(f"\n{'='*70}")
+    print(f"  WEEKLY PIPELINE — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
+    print(f"  OOS Cutoff: {TRAIN_END}")
+    print(f"{'='*70}\n")
     for r in results:
-        total_time += r.elapsed_seconds
         status = "OK  " if r.success else "FAIL"
-        print(f"  [{status}] {r.name:<20s} {r.elapsed_seconds:>7.0f}s", end="")
+        print(f"  [{status}] {r.name:<25s} {r.elapsed_seconds:>7.0f}s", end="")
         if r.details:
             print(f"  {r.details}", end="")
         if r.error:
             print(f"  ERROR: {r.error[:100]}", end="")
         print()
-
     passed = sum(1 for r in results if r.success)
-    print(f"\n  {passed}/{len(results)} steps passed — {total_time/60:.1f} min total")
-    print(f"{'='*65}\n")
+    total = sum(r.elapsed_seconds for r in results)
+    print(f"\n  {passed}/{len(results)} steps passed — {total/60:.1f} min total")
+    print(f"{'='*70}\n")
 
 
-def _step_succeeded(results: list[StepResult], name: str) -> bool:
-    """Check if a step succeeded (or was skipped)."""
-    for r in results:
-        if r.name == name:
-            return r.success
-    return False
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
+ALL_STEPS = [
+    ("screen-etf-universe",    step_screen_etf_universe),
+    ("screen-crypto-universe", step_screen_crypto_universe),
+    ("train-etf-swing",        step_train_etf_swing),
+    ("train-etf-intraday",     step_train_etf_intraday),
+    ("train-crypto-swing",     step_train_crypto_swing),
+    ("train-crypto-intraday",  step_train_crypto_intraday),
+    ("backtest-all",           step_backtest_all),
+    ("update-registries",      step_update_registries),
+    ("train-selectors",        step_train_selectors),
+    ("model-health",           step_model_health),
+]
 
-# Dependency gates: which upstream failures should skip downstream steps.
-# Key = downstream step, value = (upstream step, reason).
-# "soft" = upstream fail logs a warning but downstream still runs (uses cached data)
-# "hard" = upstream fail causes downstream to be skipped entirely
-DEPENDENCY_GATES: dict[str, list[tuple[str, str, str]]] = {
-    # train-selector needs fresh universe, but can use cached → soft
-    "train-selector": [
-        ("screen-universe", "soft", "universe stale, using cached"),
-    ],
-    # train-crypto is independent of selector, so no hard deps
-    "train-crypto": [],
-    # train-crypto-intraday is independent (parallel to swing training)
-    "train-crypto-intraday": [],
-    # select-symbols MUST have fresh models → hard dep on train-crypto
-    "select-symbols": [
-        ("train-crypto", "hard", "cannot backtest stale models"),
-    ],
-    # train-new-etfs is independent — uses promoted_symbols.json (already exists)
-    "train-new-etfs": [],
-    # model-health is independent — always runs
-    "model-health": [],
+# Hard dependencies: if upstream fails, downstream is skipped
+HARD_DEPS = {
+    "backtest-all": ["train-etf-swing", "train-crypto-swing"],
+    "update-registries": ["backtest-all"],
 }
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Weekly crypto maintenance pipeline")
+    global TRAIN_END
+
+    parser = argparse.ArgumentParser(description="Weekly pipeline: retrain + backtest + registry update")
+    parser.add_argument("--train-end", default=None,
+                        help="OOS cutoff date (YYYY-MM-DD). Default: today - 60 days.")
     parser.add_argument("--skip", nargs="*", default=[],
-                        help="Steps to skip: screen-universe, train-selector, "
-                             "train-crypto, train-crypto-intraday, "
-                             "select-symbols, train-new-etfs, model-health")
+                        help="Steps to skip")
+    parser.add_argument("--only", nargs="*", default=None,
+                        help="Run ONLY these steps (overrides --skip)")
     args = parser.parse_args()
 
-    # Load env vars (CMC_API_KEY, ALERT_WEBHOOK_URL, etc.)
+    # Set OOS cutoff
+    if args.train_end:
+        TRAIN_END = args.train_end
+    else:
+        TRAIN_END = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
+
     _load_env_file()
-
-    # Ensure log directory exists
     os.makedirs(LOG_DIR, exist_ok=True)
+    os.makedirs(BACKTEST_DIR, exist_ok=True)
 
-    steps = [
-        ("screen-universe", run_screen_universe),
-        ("train-selector", run_train_selector),
-        ("train-selector-intraday", run_train_selector_intraday),
-        ("train-crypto", run_train_crypto),
-        ("train-crypto-intraday", run_train_crypto_intraday),
-        ("select-symbols", run_select_symbols),
-        ("train-new-etfs", run_train_new_etfs),
-        ("model-health", run_model_health),
-    ]
+    # Determine which steps to run
+    if args.only:
+        active_steps = [(n, fn) for n, fn in ALL_STEPS if n in args.only]
+    else:
+        active_steps = [(n, fn) for n, fn in ALL_STEPS if n not in (args.skip or [])]
 
-    print(f"\n  [{datetime.now().strftime('%H:%M:%S')}] Starting weekly crypto pipeline...", flush=True)
-    print(f"  Steps: {', '.join(name for name, _ in steps)}")
-    print(f"  Skipping: {args.skip or 'none'}\n")
+    step_names = [n for n, _ in active_steps]
+    print(f"\n  [{datetime.now().strftime('%H:%M:%S')}] Starting weekly pipeline...")
+    print(f"  OOS cutoff: {TRAIN_END}")
+    print(f"  Steps: {', '.join(step_names)}\n")
 
     results: list[StepResult] = []
-    for name, fn in steps:
-        if name in args.skip:
-            results.append(StepResult(name=name, success=True, elapsed_seconds=0, details="SKIPPED"))
-            print(f"  [SKIP] {name}")
-            continue
-
-        # Check dependency gates
-        gates = DEPENDENCY_GATES.get(name, [])
-        gate_blocked = False
-        for upstream, severity, reason in gates:
-            if not _step_succeeded(results, upstream):
-                if severity == "hard":
-                    msg = f"SKIPPED (upstream {upstream} failed: {reason})"
-                    results.append(StepResult(name=name, success=False, elapsed_seconds=0,
-                                              details=msg))
-                    print(f"  [GATE] {name} -- {msg}")
-                    gate_blocked = True
-                    break
-                else:  # soft
-                    print(f"  [WARN] {name}: upstream {upstream} failed -- {reason}")
-
-        if gate_blocked:
+    for name, fn in active_steps:
+        # Check hard dependencies
+        deps = HARD_DEPS.get(name, [])
+        blocked = False
+        for dep in deps:
+            dep_result = next((r for r in results if r.name == dep), None)
+            if dep_result and not dep_result.success:
+                msg = f"SKIPPED (upstream {dep} failed)"
+                results.append(StepResult(name, False, 0, details=msg))
+                print(f"  [GATE] {name} -- {msg}")
+                blocked = True
+                break
+        if blocked:
             continue
 
         print(f"  [{datetime.now().strftime('%H:%M:%S')}] Running {name}...")
         result = fn()
         results.append(result)
-
         status = "OK" if result.success else "FAIL"
         print(f"  [{status}] {name} ({result.elapsed_seconds:.0f}s)")
+        if result.details:
+            print(f"         {result.details}")
         if result.error:
             print(f"         Error: {result.error[:200]}")
 
