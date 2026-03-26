@@ -189,10 +189,15 @@ class PaperGoldBroker(GoldBrokerAdapter):
         # Fallback: fetch 5m bars and check staleness (30 min limit)
         bars = self.fetch_bars(symbol, "5m", 5)
         if not bars.empty:
-            last_bar_ts = bars.index[-1]
-            if hasattr(last_bar_ts, 'tzinfo') and last_bar_ts.tzinfo is None:
-                last_bar_ts = last_bar_ts.tz_localize('UTC')
-            age_secs = (datetime.now(_tz.utc) - last_bar_ts).total_seconds()
+            # Extract timestamp from column (fetch_bars resets index to RangeIndex)
+            ts_col = "ts" if "ts" in bars.columns else "timestamp" if "timestamp" in bars.columns else None
+            if ts_col:
+                last_bar_ts = pd.Timestamp(bars[ts_col].iloc[-1])
+                if last_bar_ts.tzinfo is None:
+                    last_bar_ts = last_bar_ts.tz_localize('UTC')
+                age_secs = (datetime.now(_tz.utc) - last_bar_ts).total_seconds()
+            else:
+                age_secs = 0  # Can't check staleness without timestamp, allow through
             if age_secs > 1800:  # 30 min staleness limit for 5-min bars
                 logger.warning("Stale 5m bar for %s: %.0fs old — skipping tick", symbol, age_secs)
                 raise RuntimeError(f"Stale price data for {symbol} ({age_secs:.0f}s old)")

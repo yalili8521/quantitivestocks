@@ -152,7 +152,10 @@ class GoldScalperEngine:
                     time.sleep(60 if self.session.minutes_to_session_end(now) <= 0 else 30)
                     continue
 
-                self._tick(now)
+                try:
+                    self._tick(now)
+                except RuntimeError as e:
+                    logger.warning("Tick skipped: %s", e)
                 time.sleep(poll_interval)
 
         except KeyboardInterrupt:
