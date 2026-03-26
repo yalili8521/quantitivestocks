@@ -189,8 +189,12 @@ def step_train_etf_swing() -> StepResult:
         lines = (result.stdout or "").splitlines() + (result.stderr or "").splitlines()
         ok = sum(1 for l in lines if "Saved swing XGBoost" in l)
         fail = sum(1 for l in lines if "training failed" in l or "skipping" in l.lower())
+        if ok == 0 and result.stderr:
+            # Log stderr for debugging when no models saved
+            err_lines = result.stderr.strip().splitlines()[-10:]
+            log.error("train-etf-swing stderr tail:\n%s", "\n".join(err_lines))
         details = f"{len(symbols)} symbols, {ok} saved, {fail} failed, cutoff={TRAIN_END}"
-        return StepResult("train-etf-swing", result.returncode == 0, elapsed, details=details)
+        return StepResult("train-etf-swing", ok > 0, elapsed, details=details)
     except Exception as exc:
         return StepResult("train-etf-swing", False, time.time() - t0, error=str(exc))
 

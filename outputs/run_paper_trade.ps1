@@ -149,20 +149,31 @@ try {
     Write-Warning "  [Layer 0] Universe screen failed: $_ — using cached universe"
 }
 
-# Kill ALL orphaned python/cmd processes from previous runs.
-# This runs inside the S4U session so it can kill S4U-owned processes.
-# Safe because the watchdog hasn't launched any new groups yet.
-# Old zombie processes hold yfinance's SQLite cookie DB lock, blocking new traders.
-try { cmd.exe /c "taskkill /F /IM python.exe >nul 2>&1" } catch {}
-try { cmd.exe /c "taskkill /F /IM cmd.exe /FI ""WINDOWTITLE ne Administrator*"" >nul 2>&1" } catch {}
-Start-Sleep -Seconds 2  # let processes fully terminate
-
-# Also clean up PID file from previous run
+# Kill orphaned processes from previous runs — PID-based, not image-name.
+# This avoids killing unrelated python.exe (Jupyter, user scripts, etc.).
 $pidFile = Join-Path $env:TEMP 'QuantStocks-PaperTrader.pids'
 if (Test-Path -LiteralPath $pidFile) {
+    $oldPids = Get-Content -Path $pidFile -ErrorAction SilentlyContinue
+    foreach ($p in $oldPids) {
+        $p = $p.Trim()
+        if ($p -match '^\d+$') {
+            try { cmd.exe /c "taskkill /F /PID $p /T >nul 2>&1" } catch {}
+        }
+    }
     Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2  # let processes fully terminate
+    Write-Host "  Killed previous PIDs from pid file."
+} else {
+    Write-Host "  No previous PID file found — clean start."
 }
-Write-Host "  Cleaned up previous processes."
+
+# Log rotation: delete log files older than 7 days
+$oldLogs = Get-ChildItem -Path (Join-Path $LogDir '*.log') -ErrorAction SilentlyContinue |
+    Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) }
+if ($oldLogs) {
+    $oldLogs | Remove-Item -Force -ErrorAction SilentlyContinue
+    Write-Host "  Cleaned up $($oldLogs.Count) log files older than 7 days."
+}
 
 # ---------------------------------------------------------------------------
 # Function: launch one group process, return the Process object
