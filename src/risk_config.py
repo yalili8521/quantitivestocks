@@ -65,22 +65,47 @@ def validate_model_mode(model_type: str, mode: str) -> None:
 SYMBOL_SECTOR: Dict[str, str] = {
     # Tech / semiconductors
     "SMH":  "tech", "SOXX": "tech", "IGV":  "tech", "QQQ":  "tech", "XLK": "tech",
+    "ARKK": "tech", "CIBR": "tech", "XLY": "tech",
     # Commodities
     "GDX":  "commodities", "GLD":  "commodities", "SLV":  "commodities",
+    "GDXJ": "commodities", "IAU": "commodities", "USO": "commodities",
+    "PDBC": "commodities", "URNM": "commodities",
     # Emerging / international
     "EWT":  "emerging", "EEM":  "emerging", "MCHI": "emerging",
+    "EWH":  "emerging", "EWW": "emerging", "EWU": "emerging",
+    "EWZ":  "emerging", "EWY": "emerging", "EWJ": "emerging",
+    "EWA":  "emerging", "EWC": "emerging", "EWG": "emerging",
+    "INDA": "emerging",
     # Broad market
-    "SPY":  "broad", "IWM":  "broad",
-    # Crypto
-    "IBIT": "crypto",
-    "BTC/USD": "crypto", "ETH/USD": "crypto", "SOL/USD": "crypto",
-    "AVAX/USD": "crypto", "LINK/USD": "crypto", "DOGE/USD": "crypto",
-    "DOT/USD": "crypto", "SUSHI/USD": "crypto", "ADA/USD": "crypto",
-    "CRV/USD": "crypto", "AAVE/USD": "crypto", "RENDER/USD": "crypto",
-    # Extended crypto universe (Layer 1 selector candidates)
-    "NEAR/USD": "crypto", "UNI/USD": "crypto", "LTC/USD": "crypto",
-    "ARB/USD": "crypto", "OP/USD": "crypto", "FIL/USD": "crypto",
-    "APT/USD": "crypto", "INJ/USD": "crypto",
+    "SPY":  "broad", "IWM":  "broad", "XLU": "broad",
+    # Financials / healthcare
+    "XLF":  "broad", "XLV":  "broad", "XLE": "commodities",
+    # Bonds
+    "BND": "bonds", "HYG": "bonds", "EMB": "bonds", "IEF": "bonds", "TLT": "bonds",
+    # Crypto ETFs
+    "IBIT": "crypto", "FBTC": "crypto", "ETHA": "crypto",
+    # Crypto pairs — all get "crypto" theme
+    **{f"{c}/USD": "crypto" for c in [
+        "BTC", "ETH", "SOL", "AVAX", "LINK", "DOGE", "DOT", "SUSHI", "ADA",
+        "CRV", "AAVE", "RENDER", "NEAR", "UNI", "LTC", "ARB", "OP", "FIL",
+        "APT", "INJ", "ATOM", "AXS", "LPT", "WLD", "ICP", "MANA", "XRP",
+        "ALGO", "ETC", "BCH", "SHIB", "HBAR", "VET", "XLM", "SEI", "ENS",
+        "SAND", "CHZ", "BAT", "SNX", "LDO", "CVX", "1INCH", "EGLD", "RUNE",
+        "PENDLE", "ONDO", "QNT", "KAS", "GNO", "PYTH", "HNT", "TIA", "ENA",
+        "EIGEN", "ETHFI", "RAY", "CAKE", "CFX", "BNB", "JTO", "AR", "TRAC",
+        "SYRUP", "XTZ", "XDC", "BERA", "FARTCOIN", "GOMINING", "VIRTUAL", "WIF",
+    ]},
+}
+
+# Sleeve budgets: max % of TOTAL portfolio (across all groups) per sleeve
+SLEEVE_BUDGETS: Dict[str, float] = {
+    "swing": 0.60, "intraday": 0.15, "crypto": 0.25, "crypto_intraday": 0.12,
+}
+
+# Map group names to sleeve for budget enforcement
+GROUP_TO_SLEEVE: Dict[str, str] = {
+    "swing": "swing", "intraday": "intraday",
+    "crypto": "crypto", "crypto_intraday": "crypto_intraday",
 }
 
 # Crypto beta mapping (relative to BTC)
@@ -717,6 +742,45 @@ def check_theme_cap(
     if current + proposed_pct > cap:
         return False, (f"theme '{theme}' exposure {current + proposed_pct:.1%} "
                        f"> cap {cap:.1%}")
+    return True, "ok"
+
+
+def check_sleeve_budget(
+    group: str,
+    proposed_notional: float,
+    group_equity: float,
+    total_equity: float,
+    group_positions: Dict[str, dict],
+) -> tuple:
+    """Check if adding a position would breach the sleeve's total portfolio budget.
+
+    Sleeve budgets cap how much of the TOTAL portfolio equity each group can use.
+    E.g., swing sleeve = 60% means swing group exposure can't exceed 60% of total.
+
+    Returns (allowed: bool, reason: str).
+    """
+    if total_equity <= 0:
+        return True, "ok"  # Can't enforce without total equity
+
+    sleeve = GROUP_TO_SLEEVE.get(group)
+    if sleeve is None:
+        return True, "ok"
+
+    budget = SLEEVE_BUDGETS.get(sleeve)
+    if budget is None:
+        return True, "ok"
+
+    # Current exposure in this group
+    current_exposure = sum(
+        abs(p.get("qty", 0)) * p.get("current_price", 0)
+        for p in group_positions.values()
+    )
+    new_exposure = current_exposure + proposed_notional
+    exposure_pct = new_exposure / total_equity
+
+    if exposure_pct > budget:
+        return False, (f"sleeve '{sleeve}' exposure {exposure_pct:.1%} of total "
+                       f"> budget {budget:.1%}")
     return True, "ok"
 
 

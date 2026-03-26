@@ -66,6 +66,7 @@ from utils import (
 from alerts import AlertEngine
 from risk_config import (
     get_risk_config, check_position_allowed, check_theme_cap,
+    check_sleeve_budget,
     validate_model_mode, get_symbol_cap, is_symbol_disabled,
     DeRiskState, evaluate_derisk,
     get_effective_min_hold, drawdown_size_mult,
@@ -3220,6 +3221,15 @@ class AlpacaPaperTrader:
                 )
                 if not theme_ok:
                     return (f"THEME-CAP  ({theme_reason})  "
+                            f"ML: {direction} E[r]={expected_return:+.4f}")
+                # Sleeve budget check (cap per group as % of total portfolio)
+                # Estimate total equity: ~$95K per group × 4 ML groups
+                _total_eq = equity * 4
+                sleeve_ok, sleeve_reason = check_sleeve_budget(
+                    self.group or "default", invest, equity, _total_eq, positions
+                )
+                if not sleeve_ok:
+                    return (f"SLEEVE-CAP  ({sleeve_reason})  "
                             f"ML: {direction} E[r]={expected_return:+.4f}")
             except Exception as exc:
                 log.debug("Portfolio constraint check failed: %s", exc)
