@@ -143,26 +143,19 @@ class PaperGoldBroker(GoldBrokerAdapter):
         return self._data_adapter
 
     def get_current_price(self, symbol: str) -> float:
-        """Get latest price from Yahoo Finance (with 15s subprocess timeout).
-
-        Returns the price only if the bar is fresh (< 5 min for 1m bars,
-        < 30 min for 5m fallback). Raises RuntimeError on stale/missing data.
-        """
+        """Get latest price from Yahoo Finance (with 15s subprocess timeout)."""
         import subprocess
-        from datetime import timezone as _tz
 
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))))
         python_exe = os.path.join(project_root, ".venv", "Scripts", "python.exe")
 
-        # Fetch 1-min bar with timestamp for staleness check
         script = (
-            "import yfinance as yf, json\n"
+            "import yfinance as yf\n"
             f"t = yf.Ticker('{symbol}')\n"
             "d = t.history(period='1d', interval='1m')\n"
             "if not d.empty:\n"
-            "    ts = d.index[-1].isoformat()\n"
-            "    print(json.dumps({'price': float(d['Close'].iloc[-1]), 'ts': ts}))\n"
+            "    print(float(d['Close'].iloc[-1]))\n"
         )
         try:
             result = subprocess.run(
@@ -171,36 +164,15 @@ class PaperGoldBroker(GoldBrokerAdapter):
                 capture_output=True, text=True, timeout=15,
             )
             if result.returncode == 0 and result.stdout.strip():
-                import json as _json
-                data = _json.loads(result.stdout.strip())
-                bar_ts = datetime.fromisoformat(data["ts"])
-                if bar_ts.tzinfo is None:
-                    bar_ts = bar_ts.replace(tzinfo=_tz.utc)
-                age_secs = (datetime.now(_tz.utc) - bar_ts).total_seconds()
-                if age_secs > 300:  # 5 min staleness limit for 1-min bars
-                    logger.warning("Stale 1m bar for %s: %.0fs old", symbol, age_secs)
-                else:
-                    return float(data["price"])
+                return float(result.stdout.strip())
         except subprocess.TimeoutExpired:
             logger.warning(f"Timeout getting price for {symbol} (15s)")
         except Exception as e:
             logger.warning(f"Failed to get price for {symbol}: {e}")
 
-        # Fallback: fetch 5m bars and check staleness (30 min limit)
+        # Fallback: fetch 5m bars and use last close
         bars = self.fetch_bars(symbol, "5m", 5)
         if not bars.empty:
-            # Extract timestamp from column (fetch_bars resets index to RangeIndex)
-            ts_col = "ts" if "ts" in bars.columns else "timestamp" if "timestamp" in bars.columns else None
-            if ts_col:
-                last_bar_ts = pd.Timestamp(bars[ts_col].iloc[-1])
-                if last_bar_ts.tzinfo is None:
-                    last_bar_ts = last_bar_ts.tz_localize('UTC')
-                age_secs = (datetime.now(_tz.utc) - last_bar_ts).total_seconds()
-            else:
-                age_secs = 0  # Can't check staleness without timestamp, allow through
-            if age_secs > 1800:  # 30 min staleness limit for 5-min bars
-                logger.warning("Stale 5m bar for %s: %.0fs old — skipping tick", symbol, age_secs)
-                raise RuntimeError(f"Stale price data for {symbol} ({age_secs:.0f}s old)")
             return float(bars["close"].iloc[-1])
 
         raise RuntimeError(f"Cannot get current price for {symbol}")
