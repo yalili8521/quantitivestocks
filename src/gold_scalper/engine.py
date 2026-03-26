@@ -100,16 +100,16 @@ class GoldScalperEngine:
         if contracts <= 0:
             return
 
-        # Rebuild a minimal GoldPosition — we don't know which TPs were
-        # already hit, so treat it as a fresh position with the remaining
-        # contracts.  The hard stop defaults to the config value from entry.
-        sizer = self.sizer.compute(
+        # Rebuild position with proper TP ladder based on current price.
+        # Compute fresh splits as if this were a new entry, then retroactively
+        # mark TPs that price has already passed as hit.
+        sizing = self.sizer.compute(
             self.cumulative_pnl,
             equity=self.broker.get_account_equity(),
             direction=direction,
         )
-        tp_splits = [0, 0, 0, 0]  # TPs already taken, so zero
-        runner_qty = contracts     # treat all remaining as runner
+        tp_splits = sizing.tp_splits
+        runner_qty = sizing.runner_qty
 
         self.position = self.position_mgr.create_position(
             direction=direction,
@@ -117,15 +117,65 @@ class GoldScalperEngine:
             entry_time=datetime.now(self.tz),
             total_contracts=contracts,
             tp_splits=tp_splits,
-            runner_qty=contracts,
+            runner_qty=runner_qty,
         )
-        # Mark TP2 as hit so the runner exit (bias-flip) is active
-        self.position.tp2_hit = True
 
-        logger.info(
-            f"[RESTORE] Recovered open position: {direction} "
-            f"{contracts}ct @ {entry_price:.2f} — treating as runner"
-        )
+        # Check current price to determine which TPs have already been hit
+        try:
+            current_price = self.broker.get_current_price(self.config.symbol)
+            pips = self.position.pips_from_entry(current_price, self.config.pip_value)
+
+            tp_levels = [
+                (self.config.tp1_pips, "tp1"),
+                (self.config.tp2_pips, "tp2"),
+                (self.config.tp3_pips, "tp3"),
+                (self.config.tp4_pips, "tp4"),
+            ]
+            contracts_closed = 0
+            for tp_pips, tp_name in tp_levels:
+                if pips >= tp_pips:
+                    setattr(self.position, f"{tp_name}_hit", True)
+                    qty = getattr(self.position, f"{tp_name}_qty")
+                    contracts_closed += qty
+                    logger.info(f"[RESTORE] {tp_name.upper()} already passed ({pips:.0f} >= {tp_pips:.0f} pips) — {qty}ct")
+
+            # Reduce remaining contracts by those that should have closed
+            self.position.remaining_contracts = max(
+                runner_qty, contracts - contracts_closed
+            )
+
+            # Ratchet stop to the highest passed TP level
+            if self.position.tp4_hit:
+                self.position.current_stop = entry_price + (
+                    -1 if direction == "LONG" else 1
+                ) * self.config.pips_to_price(self.config.tp3_pips)
+            elif self.position.tp3_hit:
+                self.position.current_stop = entry_price + (
+                    -1 if direction == "LONG" else 1
+                ) * self.config.pips_to_price(self.config.tp2_pips)
+            elif self.position.tp2_hit:
+                self.position.current_stop = entry_price + (
+                    -1 if direction == "LONG" else 1
+                ) * self.config.pips_to_price(self.config.tp1_pips)
+            elif self.position.tp1_hit:
+                # After TP1: stop moves to breakeven + offset
+                be_offset = self.config.pips_to_price(10)  # 10 pips above BE
+                if direction == "LONG":
+                    self.position.current_stop = entry_price + be_offset
+                else:
+                    self.position.current_stop = entry_price - be_offset
+
+            logger.info(
+                f"[RESTORE] Recovered {direction} {self.position.remaining_contracts}ct "
+                f"@ {entry_price:.2f} (was {contracts}ct, {contracts_closed}ct TPs passed, "
+                f"stop={self.position.current_stop:.2f})"
+            )
+        except Exception as e:
+            # Can't get price — fall back to treating all as runner
+            self.position.tp2_hit = True
+            logger.warning(
+                f"[RESTORE] Price fetch failed ({e}), treating {contracts}ct as runner"
+            )
 
     def run(self, poll_interval: int = 10) -> None:
         """Main loop — runs until interrupted.
