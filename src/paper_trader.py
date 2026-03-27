@@ -453,9 +453,10 @@ def _acquire_single_instance_lock() -> bool:
 def _get_session() -> str:
     """Return the current Alpaca-tradeable session for ET equities.
 
+    Alpaca supports ~24-hour trading on weekdays (limit orders).
     regular  — 09:30–16:00 ET Mon–Fri  (market orders allowed)
-    extended — 04:00–09:30 and 16:00–20:00 ET Mon–Fri  (limit orders only)
-    closed   — 20:00–04:00 ET and all day Sat/Sun
+    extended — all other weekday hours   (limit orders only, extended_hours=True)
+    closed   — Sat/Sun only
     """
     from datetime import time as dt_time
     try:
@@ -468,13 +469,9 @@ def _get_session() -> str:
         return "closed"
 
     t = now_et.time()
-    if dt_time(4, 0) <= t < dt_time(9, 30):
-        return "extended"
     if dt_time(9, 30) <= t <= dt_time(16, 0):
         return "regular"
-    if dt_time(16, 0) < t <= dt_time(20, 0):
-        return "extended"
-    return "closed"
+    return "extended"
 
 
 def _parse_window_list(windows: List[str]) -> List[tuple]:
