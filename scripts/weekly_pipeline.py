@@ -53,6 +53,31 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
                     datefmt="%Y-%m-%d %H:%M:%S")
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Log rotation for weekly pipeline (10 MB, 3 backups) + cleanup old timestamped logs
+_log_dir = os.path.join(PROJECT_ROOT, "logs")
+os.makedirs(_log_dir, exist_ok=True)
+from logging.handlers import RotatingFileHandler as _RFH
+_rfh = _RFH(os.path.join(_log_dir, "weekly_pipeline.log"),
+            maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8")
+_rfh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
+                                    datefmt="%Y-%m-%d %H:%M:%S"))
+logging.getLogger().addHandler(_rfh)
+
+
+def _cleanup_old_logs(log_dir: str, prefix: str, keep: int = 10) -> None:
+    """Remove old timestamped log files, keeping only the most recent `keep`."""
+    import glob
+    pattern = os.path.join(log_dir, f"{prefix}*.log")
+    # Exclude rotated logs (e.g., weekly_pipeline.log.1)
+    files = [f for f in sorted(glob.glob(pattern), key=os.path.getmtime, reverse=True)
+             if not any(f.endswith(f".log.{i}") for i in range(1, 10))]
+    for old in files[keep:]:
+        try:
+            os.remove(old)
+            log.info("Cleaned up old log: %s", os.path.basename(old))
+        except OSError:
+            pass
 SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 for _p in (SRC_DIR, PROJECT_ROOT):
     if _p not in sys.path:
@@ -621,6 +646,13 @@ def main() -> None:
 
     print_summary(results)
     send_slack_summary(results)
+
+    # Cleanup old timestamped logs (keep 10 most recent per prefix)
+    for prefix in ("weekly_pipeline_", "universe_screen_",
+                   "paper_trader_gold_scalper_2", "paper_trader_intraday_2",
+                   "paper_trader_swing_2", "paper_trader_crypto_2",
+                   "paper_trader_crypto_intraday_2"):
+        _cleanup_old_logs(LOG_DIR, prefix, keep=10)
 
 
 if __name__ == "__main__":
