@@ -93,36 +93,46 @@ log = logging.getLogger("paper_trader")
 # Account groups (3 separate Alpaca paper accounts by asset class)
 # ---------------------------------------------------------------------------
 SYMBOL_GROUPS: Dict[str, List[str]] = {
-    # Fallback pools — dynamic selectors pick top-K each cycle from these.
-    # All symbols with trained models are included; the selector's composite
-    # scoring (James-Stein shrinkage + OOS Sharpe + SPY/BTC penalty + fee-aware)
-    # decides which actually get capital. Symbols with negative OOS Sharpe
-    # naturally rank low and receive minimal/zero allocation.
+    # Full trained universe as fallback pools. Dynamic selectors pick top-K each
+    # cycle via composite scoring (James-Stein + OOS Sharpe + correlation penalty
+    # + fee-aware). Symbols with negative OOS Sharpe rank low and get zero capital.
     #
     # Account 1 — Intraday LGB+GRU (5-min bars, 1-hour horizon)
-    # Selector picks top-8 from 59 trained models each cycle
+    # Selector picks top-8 from ranked file; all 59 trained models as fallback
     "intraday": [
-        "XLV", "XLF", "XLE", "USO", "SPY", "PDBC", "XLY",  # OOS-validated core
-        "SMH", "QQQ", "IWM", "SOXX", "IGV", "XLK", "XLP",   # tech/factor
-        "GLD", "SLV", "IAU", "GDX",                          # commodities
-        "EEM", "EWT", "MCHI", "VWO",                          # EM
+        "ARKK", "BND", "CIBR", "EEM", "EMB", "ETHA", "EWA", "EWC", "EWG",
+        "EWH", "EWJ", "EWT", "EWU", "EWW", "EWY", "EWZ", "FBTC", "GDX",
+        "GDXJ", "GLD", "HYG", "IAU", "IBIT", "IEF", "IGV", "INDA", "IWB",
+        "IWF", "IWM", "LQD", "MCHI", "MTUM", "PDBC", "QQQ", "QUAL", "SHY",
+        "SLV", "SMH", "SOXX", "SPY", "TIP", "TLT", "URNM", "USMV", "USO",
+        "VBR", "VGK", "VTV", "VWO", "XLB", "XLE", "XLF", "XLI", "XLK",
+        "XLP", "XLRE", "XLU", "XLV", "XLY",
     ],
     # Account 2 — Swing XGBoost+TFT (daily, 10-day horizon)
-    # Selector picks top-10 from 59 trained models each cycle
+    # Selector picks top-10 from ranked file; all 59 trained models as fallback
     "swing": [
-        "SMH", "FBTC", "IBIT", "EWU", "IAU", "MCHI", "EWW",  # OOS Sharpe > 0
-        "EWH", "SLV", "GDXJ",                                  # OOS Sharpe < 0 (low rank)
-        "QQQ", "SPY", "IWM", "GLD", "XLE", "XLF", "XLV",      # broad universe
-        "EEM", "EWT", "VGK", "INDA", "TLT", "HYG",
+        "ARKK", "BND", "CIBR", "EEM", "EMB", "ETHA", "EWA", "EWC", "EWG",
+        "EWH", "EWJ", "EWT", "EWU", "EWW", "EWY", "EWZ", "FBTC", "GDX",
+        "GDXJ", "GLD", "HYG", "IAU", "IBIT", "IEF", "IGV", "INDA", "IWB",
+        "IWF", "IWM", "LQD", "MCHI", "MTUM", "PDBC", "QQQ", "QUAL", "SHY",
+        "SLV", "SMH", "SOXX", "SPY", "TIP", "TLT", "URNM", "USMV", "USO",
+        "VBR", "VGK", "VTV", "VWO", "XLB", "XLE", "XLF", "XLI", "XLK",
+        "XLP", "XLRE", "XLU", "XLV", "XLY",
     ],
     # Account 3 — Crypto swing (daily, 10-day horizon)
-    # Coin selector ranks full 73-coin universe; these are fallback if selector fails
+    # Coin selector ranks full 65-coin universe; these are fallback if selector fails
     "crypto": ["CRV/USD", "AVAX/USD", "ADA/USD", "LINK/USD",
-               "BTC/USD", "ETH/USD", "SOL/USD", "DOT/USD", "ATOM/USD"],
+               "BTC/USD", "ETH/USD", "SOL/USD", "DOT/USD", "ATOM/USD",
+               "QNT/USD", "AR/USD", "BAT/USD", "FARTCOIN/USD", "AKT/USD",
+               "HNT/USD", "SAND/USD", "SNX/USD", "EGLD/USD", "FIL/USD",
+               "SYRUP/USD", "AXS/USD", "ONDO/USD", "GOMINING/USD", "RUNE/USD"],
     # Account 4 — Crypto Intraday LGB+GRU (5-min bars, 1-hour horizon)
     # Coin selector ranks full universe; these are fallback
-    "crypto_intraday": ["ATOM/USD", "AXS/USD", "LPT/USD", "WLD/USD",
-                        "FIL/USD", "ICP/USD", "MANA/USD"],
+    "crypto_intraday": ["ATOM/USD", "QNT/USD", "XLM/USD", "LPT/USD",
+                        "FIL/USD", "LTC/USD", "FET/USD", "DOT/USD",
+                        "SEI/USD", "VET/USD", "BCH/USD", "ONDO/USD",
+                        "NEAR/USD", "MANA/USD", "AXS/USD", "ICP/USD",
+                        "WLD/USD", "AAVE/USD", "ALGO/USD"],
 }
 
 # Legacy / wrong-algorithm positions: opened by a previous buggy model. Manage them
