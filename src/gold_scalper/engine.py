@@ -570,8 +570,8 @@ def main():
     )
     parser.add_argument(
         "--broker", type=str, default="paper",
-        choices=["paper", "cqg"],
-        help="Broker backend: 'paper' (local sim) or 'cqg' (AMP Futures demo)"
+        choices=["paper", "cqg", "ibkr"],
+        help="Broker backend: 'paper' (local sim), 'cqg' (AMP Futures demo), or 'ibkr' (Interactive Brokers)"
     )
     parser.add_argument(
         "--log-level", type=str, default="INFO",
@@ -613,6 +613,15 @@ def main():
         from src.gold_scalper.cqg_broker import CQGGoldBroker
         broker = CQGGoldBroker(config)
         logger.info("Using CQG broker (AMP Futures demo)")
+    elif args.broker == "ibkr":
+        from src.gold_scalper.ibkr_broker import IBKRGoldBroker
+        broker = IBKRGoldBroker(
+            config,
+            host=os.environ.get("IBKR_HOST", "127.0.0.1"),
+            port=int(os.environ.get("IBKR_PORT", "7497")),
+            client_id=int(os.environ.get("IBKR_CLIENT_ID", "10")),
+        )
+        logger.info("Using IBKR broker (Interactive Brokers)")
     else:
         broker = PaperGoldBroker(config, initial_equity=args.initial_equity)
         logger.info("Using paper broker (local simulation)")
