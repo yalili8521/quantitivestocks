@@ -1922,10 +1922,12 @@ class AlpacaPaperTrader:
                 )
                 log.info("ETF ranker: no OOS data — using raw selector scores")
 
-            # Step 2: Take top-N ranked symbols — only these are candidates
-            max_active = self._risk_config.max_positions
+            # Step 2: Take top-N ranked symbols — evaluate 2x max_positions for a
+            # deep bench (risk limits decide which actually open, not the candidate count)
+            max_active = self._risk_config.max_positions * 2
             top_n = ranked_symbols[:max_active]
-            log.info("ETF ranker: top-%d ranked: %s", max_active, ", ".join(top_n))
+            log.info("ETF ranker: top-%d candidates (max_pos=%d): %s",
+                     max_active, self._risk_config.max_positions, ", ".join(top_n))
 
             # Step 3: Reap completed background trains, then spawn new ones
             newly_trained = self._reap_background_trains()
