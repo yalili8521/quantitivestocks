@@ -755,6 +755,7 @@ class AlpacaPaperTrader:
         self._etf_selector_last_fast_refresh: Optional[datetime] = None  # intraday fast re-rank
         self._etf_active_symbols: List[str] = []
         self._etf_universe: List[str] = []
+        self._position_weights: Dict[str, float] = {}  # composite score → normalized weights
         self._etf_train_failures: Dict[str, datetime] = {}  # symbol → last failure time
         self._etf_train_cooldown_hours = 24  # retry failed training after 24h
         # Background subprocess auto-training (Phase 4: non-blocking)
@@ -1320,6 +1321,30 @@ class AlpacaPaperTrader:
                 correlations[sym] = 0.5
         return correlations
 
+    def _compute_position_weights(self, composite_scores: Dict[str, float],
+                                   symbols: List[str]) -> Dict[str, float]:
+        """Convert composite scores to normalized position weights.
+
+        weight_i = max(0, score_i) ** concentration / sum(...)
+        Higher concentration = more capital to top-ranked symbols.
+        """
+        concentration = getattr(self._risk_config, 'concentration', 1.5)
+        raw: Dict[str, float] = {}
+        for sym in symbols:
+            score = composite_scores.get(sym, 0.0)
+            if score > 0:
+                raw[sym] = score ** concentration
+        total = sum(raw.values())
+        if total <= 0:
+            n = len(symbols)
+            return {s: 1.0 / n for s in symbols} if n > 0 else {}
+        weights = {s: w / total for s, w in raw.items()}
+        # Log weight distribution
+        top3 = sorted(weights.items(), key=lambda x: -x[1])[:3]
+        log.info("Position weights (top-3): %s | total=%d symbols",
+                 ", ".join(f"{s}={w:.3f}" for s, w in top3), len(weights))
+        return weights
+
     def _compute_spy_correlations(self, symbols: List[str]) -> Dict[str, float]:
         """Compute 30-day rolling correlation of each ETF's returns with SPY.
 
@@ -1616,6 +1641,11 @@ class AlpacaPaperTrader:
             log.info("Ranker: %d coins active (top-%d candidates, %d trained on-the-fly): %s",
                      len(ready), top_k, _train_triggered, ", ".join(ready))
             self._selector_active_symbols = ready
+
+            # Compute alpha-weighted position weights for risk-budget sizing
+            if getattr(self._risk_config, 'total_risk_budget', 0) > 0:
+                self._position_weights = self._compute_position_weights(
+                    self._composite_scores, ready)
 
             # Sync full ranked list (not just ready) to Gist for dashboard
             self._sync_rankings_to_gist(all_ranked)
@@ -1976,6 +2006,11 @@ class AlpacaPaperTrader:
             log.info("ETF ranker: %d active symbols for %s: %s",
                      len(final), group, ", ".join(final))
             self._etf_active_symbols = final
+
+            # Compute alpha-weighted position weights for risk-budget sizing
+            if getattr(self._risk_config, 'total_risk_budget', 0) > 0:
+                self._position_weights = self._compute_position_weights(
+                    self._composite_scores, final)
 
             # Sync full ranked list (not just final) to Gist for dashboard
             self._sync_rankings_to_gist(ranked_symbols)
@@ -3062,100 +3097,122 @@ class AlpacaPaperTrader:
             except Exception:
                 equity = getattr(self, '_last_known_equity', self.initial_capital)
 
-            signal_pct = min(1.0, max(risk.min_signal_scale,
-                                      abs(expected_return) / self.target_return))
-
-            # Half-Kelly from rolling trade history (falls back to position_pct)
-            derisk_key = symbol.replace("/", "-")
-            derisk_state = self._derisk_states.get(derisk_key)
-            kelly_f = None
-            if derisk_state is not None:
-                kelly_f = derisk_state.half_kelly(
-                    window=risk.kelly_window, min_trades=risk.kelly_min_trades
-                )
-            if kelly_f is not None:
-                # Cross-group discount: data-driven overlay replaces static discount
-                from risk_overlay import load_scaling_factor
-                overlay_factor = load_scaling_factor(self.group or "swing")
-                effective_discount = min(risk.cross_group_kelly_discount, overlay_factor)
-                base_frac = min(kelly_f * effective_discount, risk.kelly_cap)
-                size_source = f"kelly={kelly_f:.3f}×{effective_discount:.2f}"
-                if overlay_factor < risk.cross_group_kelly_discount:
-                    size_source += f"[overlay={overlay_factor:.2f}]"
-            else:
-                base_frac = risk.position_pct
-                size_source = "fixed"
-
-            sizing_pct = base_frac * signal_pct
-
-            # --- Vol-targeting layer: normalize size by inverse volatility ---
-            # Ensures each position contributes ~target_vol risk regardless of
-            # the asset's own volatility. High-vol assets get smaller dollar size.
+            # --- Sizing: Alpha-Weighted Risk Budget (v4) or Legacy ---
             rv_30d = ctx.get("rv_30d", 0.0)
             size_note_parts = []
-            if rv_30d > 0.01:
-                target_vol = getattr(self, 'target_vol', 0.20)
-                vol_scalar = min(2.0, max(0.25, target_vol / rv_30d))
-                sizing_pct *= vol_scalar
-                if abs(vol_scalar - 1.0) > 0.05:
-                    size_note_parts.append(f"vol={vol_scalar:.2f}")
+            derisk_key = symbol.replace("/", "-")
+            derisk_state = self._derisk_states.get(derisk_key)
 
-            # --- VIX-based continuous regime scaling ---
-            # Smoothly reduces size as VIX rises: at VIX=40 size is halved.
-            # Intraday skips this (VIX is already a model feature).
-            if self.mode != "intraday":
-                vix_now = self._get_current_vix()
-                if vix_now is not None and vix_now > 0:
-                    vix_scalar = min(1.0, 20.0 / vix_now)
-                    sizing_pct *= vix_scalar
-                    if vix_scalar < 0.95:
-                        size_note_parts.append(f"vix={vix_scalar:.2f}")
+            _use_risk_budget = (
+                getattr(risk, 'total_risk_budget', 0) > 0
+                and symbol in self._position_weights
+            )
 
-            # --- Vol-adjusted position cap ---
-            # Tighter cap for high-vol assets, looser for low-vol (up to 1.5x base)
-            if rv_30d > 0.01:
-                target_vol = getattr(self, 'target_vol', 0.20)
-                vol_adj_cap = min(
-                    risk.max_position_pct * 1.5,
-                    risk.max_position_pct * (target_vol / rv_30d)
-                )
-                vol_adj_cap = max(0.03, vol_adj_cap)
+            if _use_risk_budget:
+                # === Alpha-Weighted Risk Budget sizing ===
+                # Weight comes from composite score (James-Stein + OOS Sharpe + penalties)
+                weight = self._position_weights[symbol]
+                if weight <= 0:
+                    return (f"SKIP  (zero weight in risk budget)  "
+                            f"ML: {direction} E[r]={expected_return:+.4f}")
+
+                rv = rv_30d if rv_30d > 0.01 else (0.30 if is_crypto else 0.20)
+                sizing_pct = weight * risk.total_risk_budget / rv
+                size_source = f"riskbudget w={weight:.3f} rv={rv:.2f}"
+
+                # VIX regime scaling (swing/crypto only)
+                if self.mode != "intraday":
+                    vix_now = self._get_current_vix()
+                    if vix_now is not None and vix_now > 0:
+                        vix_scalar = min(1.0, 20.0 / vix_now)
+                        sizing_pct *= vix_scalar
+                        if vix_scalar < 0.95:
+                            size_note_parts.append(f"vix={vix_scalar:.2f}")
+
+                # Hard cap (safety net — should rarely bind)
+                sizing_pct = min(sizing_pct, risk.max_position_pct)
+
+                # BTC/SPY correlation penalty is ALREADY in composite score — skip here
+
             else:
-                vol_adj_cap = risk.max_position_pct
-            sizing_pct = min(sizing_pct, vol_adj_cap)
+                # === Legacy sizing (stages 1-7) ===
+                signal_pct = min(1.0, max(risk.min_signal_scale,
+                                          abs(expected_return) / self.target_return))
 
-            if is_crypto:
-                log.debug("Crypto sizing %s: base=%.3f signal=%.3f max_pos=%.2f "
-                          "max_exp=%.2f sizing=%.3f",
-                          symbol, base_frac, signal_pct,
-                          risk.max_position_pct, risk.max_total_exposure,
-                          sizing_pct)
+                # Half-Kelly from rolling trade history (falls back to position_pct)
+                kelly_f = None
+                if derisk_state is not None:
+                    kelly_f = derisk_state.half_kelly(
+                        window=risk.kelly_window, min_trades=risk.kelly_min_trades
+                    )
+                if kelly_f is not None:
+                    from risk_overlay import load_scaling_factor
+                    overlay_factor = load_scaling_factor(self.group or "swing")
+                    effective_discount = min(risk.cross_group_kelly_discount, overlay_factor)
+                    base_frac = min(kelly_f * effective_discount, risk.kelly_cap)
+                    size_source = f"kelly={kelly_f:.3f}×{effective_discount:.2f}"
+                    if overlay_factor < risk.cross_group_kelly_discount:
+                        size_source += f"[overlay={overlay_factor:.2f}]"
+                else:
+                    base_frac = risk.position_pct
+                    size_source = "fixed"
 
-            # --- Per-symbol cap (OOS Sharpe-tiered) ---
-            # This is the SINGLE source of OOS-based sizing. Replaces the old
-            # conf_mult (redundant with sym_cap) and rank_scalar (redundant with
-            # sym_cap). Both mapped OOS Sharpe → multiplier, stacking 3 layers
-            # that all expressed the same information.
-            sym_cap = get_symbol_cap(symbol, self.group or "swing")
-            if sym_cap <= 0.0:
-                return (f"DISABLED  ({symbol} cap=0% by OOS performance)  "
-                        f"ML: {direction} E[r]={expected_return:+.4f}")
-            sizing_pct = min(sizing_pct, sym_cap)
+                sizing_pct = base_frac * signal_pct
 
-            # --- BTC correlation penalty (crypto only) ---
-            # Always penalize highly BTC-correlated alts, regardless of whether
-            # a BTC position is open. In crypto, ALL alts are implicitly BTC-exposed.
-            # Anchor coins (BTC, ETH) are exempt (their btc_corr is set to 0).
-            _BTC_KEYS = ("BTC/USD", "BTCUSD", "ETH/USD", "ETHUSD")
-            if is_crypto and self._btc_correlations and symbol not in _BTC_KEYS:
-                btc_corr = self._btc_correlations.get(symbol, 0.5)
-                corr_penalty = 1 - 0.5 * btc_corr
-                sizing_pct *= corr_penalty
-                if btc_corr > 0.7:
-                    log.info("BTC corr penalty for %s: corr=%.2f → size ×%.2f",
-                             symbol, btc_corr, corr_penalty)
+                # Vol-targeting layer
+                if rv_30d > 0.01:
+                    target_vol = getattr(self, 'target_vol', 0.20)
+                    vol_scalar = min(2.0, max(0.25, target_vol / rv_30d))
+                    sizing_pct *= vol_scalar
+                    if abs(vol_scalar - 1.0) > 0.05:
+                        size_note_parts.append(f"vol={vol_scalar:.2f}")
 
-            # --- Auto de-risking check (rolling performance gate) ---
+                # VIX-based continuous regime scaling
+                if self.mode != "intraday":
+                    vix_now = self._get_current_vix()
+                    if vix_now is not None and vix_now > 0:
+                        vix_scalar = min(1.0, 20.0 / vix_now)
+                        sizing_pct *= vix_scalar
+                        if vix_scalar < 0.95:
+                            size_note_parts.append(f"vix={vix_scalar:.2f}")
+
+                # Vol-adjusted position cap
+                if rv_30d > 0.01:
+                    target_vol = getattr(self, 'target_vol', 0.20)
+                    vol_adj_cap = min(
+                        risk.max_position_pct * 1.5,
+                        risk.max_position_pct * (target_vol / rv_30d)
+                    )
+                    vol_adj_cap = max(0.03, vol_adj_cap)
+                else:
+                    vol_adj_cap = risk.max_position_pct
+                sizing_pct = min(sizing_pct, vol_adj_cap)
+
+                if is_crypto:
+                    log.debug("Crypto sizing %s: base=%.3f signal=%.3f max_pos=%.2f "
+                              "max_exp=%.2f sizing=%.3f",
+                              symbol, base_frac, signal_pct,
+                              risk.max_position_pct, risk.max_total_exposure,
+                              sizing_pct)
+
+                # Per-symbol cap (OOS Sharpe-tiered)
+                sym_cap = get_symbol_cap(symbol, self.group or "swing")
+                if sym_cap <= 0.0:
+                    return (f"DISABLED  ({symbol} cap=0% by OOS performance)  "
+                            f"ML: {direction} E[r]={expected_return:+.4f}")
+                sizing_pct = min(sizing_pct, sym_cap)
+
+                # BTC correlation penalty (crypto only, legacy path)
+                _BTC_KEYS = ("BTC/USD", "BTCUSD", "ETH/USD", "ETHUSD")
+                if is_crypto and self._btc_correlations and symbol not in _BTC_KEYS:
+                    btc_corr = self._btc_correlations.get(symbol, 0.5)
+                    corr_penalty = 1 - 0.5 * btc_corr
+                    sizing_pct *= corr_penalty
+                    if btc_corr > 0.7:
+                        log.info("BTC corr penalty for %s: corr=%.2f → size ×%.2f",
+                                 symbol, btc_corr, corr_penalty)
+
+            # === Common safety stages (apply to both paths) ===
             size_note = f" [{size_source}]"
             if size_note_parts:
                 size_note += f" [{', '.join(size_note_parts)}]"

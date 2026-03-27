@@ -178,6 +178,10 @@ class RiskConfig:
     max_positions: int = 5              # max simultaneous positions
     min_signal_scale: float = 0.1       # floor for signal_pct (crypto uses 0.2)
 
+    # --- Alpha-weighted risk budget (v4) ---
+    total_risk_budget: float = 0.0      # 0 = disabled (legacy sizing); e.g., 0.10 = 10% portfolio vol
+    concentration: float = 1.5          # exponent for composite score → weight mapping
+
     # --- Cost thresholds ---
     cost_threshold: float = 0.001       # min |E[r]| to trade
     target_return: float = 0.02         # E[r] for full-size position
@@ -341,6 +345,8 @@ CONFIG_TO_RISK_FIELD: Dict[str, str] = {
     "trend_sma": "trend_sma_period",
     "kelly_cap": "kelly_cap",
     "cross_group_kelly_discount": "cross_group_kelly_discount",
+    "total_risk_budget": "total_risk_budget",
+    "concentration": "concentration",
 }
 
 
