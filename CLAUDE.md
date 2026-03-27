@@ -27,11 +27,12 @@ quantitivestocks/
         coin_selector.py        ← CoinSelector (LambdaRank for crypto)
         alerts.py               ← Slack webhook alerts on position entry
     config/
-        trading.json            ← production trading parameters (v2.0)
+        trading.json            ← production trading parameters (v4.0)
     tests/
-        test_risk_and_costs.py  ← 26 tests for risk/cost/monitoring modules
+        test_risk_and_costs.py  ← 49 tests for risk/cost/monitoring modules
     scripts/
-        retrain_all.py          ← batch retraining (15 daily + 4 intraday)
+        retrain_all.py          ← batch retraining (synced to paper_trader groups)
+        weekly_pipeline.py      ← automated weekly retrain + backtest + registry update
     data/
         models/                 ← trained weights (.pt, .joblib, .json)
         output/                 ← signals.json, backtest CSVs, trade CSVs
@@ -143,6 +144,19 @@ python main.py validate-risk
   - Crypto intraday: `config/trading.json:oos_sharpe_registry_intraday`
 - **Re-ranking frequency**: every 30 minutes in paper_trader run_loop
 
+## Position Sizing — Alpha-Weighted Risk Budget (v4, 2026-03-27)
+- **Unified system**: composite score IS the position weight. Selector + sizer are one integrated pipeline.
+- **Formula**: `sizing_pct = weight × total_risk_budget / realized_vol`
+  - `weight` = `composite_score ^ concentration / sum(all_scores ^ concentration)` (normalized to 1.0)
+  - `total_risk_budget`: swing=10%, intraday=5%, crypto=8%, crypto_intraday=4%
+  - `concentration=1.5`: rank #1 gets ~1.8x the capital of rank #5
+- **Vol-targeted**: high-vol assets get fewer dollars, low-vol get more — equal risk contribution
+- **E[r] only gates direction**: LONG if E[r] > cost_threshold, SHORT if < -cost_threshold, SKIP otherwise
+- **Safety stages still apply**: VIX scaling, drawdown throttle, auto de-risk, post-loss reduction, max_position_pct cap
+- **Legacy fallback**: if `total_risk_budget=0`, falls through to old 12-stage sizing pipeline
+- **BTC/SPY correlation penalty**: embedded in composite score, NOT double-counted in sizing
+- **Config**: `total_risk_budget` and `concentration` per group in `config/trading.json`
+
 ## Regime Filter
 - SPY SMA(200) + VIX < 30 (swing/crypto only; intraday skips VIX gate) + rolling 20-trade win-rate cooldown (7d)
 - Applied in both backtester.py and paper_trader.py
@@ -174,7 +188,7 @@ python main.py validate-risk
 - **post_loss_size_mult**: wired into sizing logic (was defined but never applied)
 - **initial_capital fallback**: set to default on first-cycle API failure (was undefined → crash)
 - **Model monitor NaN guard**: Pearson fallback returns 0.0 on NaN (was propagating NaN, disabling auto-pause)
-- **Log rotation**: RotatingFileHandler (10MB, 5 backups) for all paper_trader groups
+- **Log rotation**: RotatingFileHandler (10MB, 5 backups) for all paper_trader groups + gold_scalper
 - **Session filter overflow**: safe time comparison for minute >= 56 (was `time(hour, minute+4)` crash)
 
 ## API Keys
@@ -199,7 +213,7 @@ python main.py validate-risk
 - **Pipeline steps**:
   1. Screen universes (ETF: Alpaca+yfinance, Crypto: CMC+Kraken)
   2. Define OOS cutoff (today - 30 days)
-  3. Retrain ALL models on data before cutoff (257 models: 59 swing + 59 intraday + 73 crypto swing + 66 crypto intraday)
+  3. Retrain ALL models on data before cutoff (258 models: 59 swing + 59 intraday + 65 crypto swing + 65 crypto intraday + 10 selectors)
   4. Backtest ALL models on OOS data (cutoff → today)
   5. Update OOS Sharpe registries from backtest results
   6. Refresh LambdaRank selectors
@@ -231,4 +245,6 @@ python main.py validate-risk
 
 ## User Goals
 - End goal: **intraday trading** with real-time data
+- Alpaca for both data and execution
+- IBKR for live gold futures trading (planned)
 - Alpaca for both data and execution

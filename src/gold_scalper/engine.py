@@ -588,6 +588,17 @@ def main():
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
+    # Log rotation: RotatingFileHandler (10 MB, 5 backups)
+    from logging.handlers import RotatingFileHandler as _RFH
+    _log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))), "logs")
+    os.makedirs(_log_dir, exist_ok=True)
+    _rfh = _RFH(os.path.join(_log_dir, "paper_trader_gold_scalper.log"),
+                maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8")
+    _rfh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+                                        datefmt="%Y-%m-%d %H:%M:%S"))
+    logging.getLogger().addHandler(_rfh)
+
     # Load config
     config = load_config(args.config)
     logger.info(f"Config loaded: {config.symbol}, base={config.base_contracts}ct")
