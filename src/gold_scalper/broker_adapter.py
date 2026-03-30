@@ -117,10 +117,10 @@ class PaperGoldBroker(GoldBrokerAdapter):
         self._trade_log: list = []
         self._order_counter = 0
 
-        # State file paths
+        # State file paths — signal/ subfolder, separate from webhook mode
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))))
-        self._state_dir = os.path.join(project_root, "outputs", "paper_state")
+        self._state_dir = os.path.join(project_root, "outputs", "paper_state", "signal")
         os.makedirs(self._state_dir, exist_ok=True)
         self._state_file = os.path.join(self._state_dir, "gold_scalper_state.json")
         self._log_file = os.path.join(self._state_dir, "gold_scalper_trade_log.json")
@@ -493,6 +493,100 @@ class PaperGoldBroker(GoldBrokerAdapter):
                     self._trade_log = json.load(f)
             except Exception:
                 self._trade_log = []
+
+
+class HybridGoldBroker(PaperGoldBroker):
+    """Paper execution + IBKR real-time data feed.
+
+    混合经纪商：
+    - 数据来源：IBKR TWS（实时K线和价格，无Yahoo延迟）
+    - 交易执行：本地模拟（与PaperGoldBroker相同）
+    - 在IBKR断线时自动回退到Yahoo数据
+
+    Usage: python main.py gold-scalper --broker hybrid
+    """
+
+    def __init__(
+        self,
+        config: GoldScalperConfig,
+        initial_equity: float = 5000.0,
+        ibkr_host: str = "127.0.0.1",
+        ibkr_port: int = 7497,
+        ibkr_client_id: int = 10,
+    ):
+        super().__init__(config, initial_equity)
+        self._ibkr = None
+        self._ibkr_host = ibkr_host
+        self._ibkr_port = ibkr_port
+        self._ibkr_client_id = ibkr_client_id
+        self._ibkr_failed = False
+
+        # Connect to IBKR
+        self._connect_ibkr()
+
+    def _connect_ibkr(self) -> None:
+        """Initialize IBKR connection for data feed."""
+        try:
+            from src.gold_scalper.ibkr_broker import IBKRGoldBroker
+            self._ibkr = IBKRGoldBroker(
+                self.config,
+                host=self._ibkr_host,
+                port=self._ibkr_port,
+                client_id=self._ibkr_client_id,
+            )
+            self._ibkr_failed = False
+            logger.info("[HYBRID] IBKR data feed connected")
+        except Exception as e:
+            logger.warning("[HYBRID] IBKR connection failed: %s — using Yahoo fallback", e)
+            self._ibkr = None
+            self._ibkr_failed = True
+
+    def get_current_price(self, symbol: str) -> float:
+        """Get price from IBKR, fallback to Yahoo."""
+        if self._ibkr and not self._ibkr_failed:
+            try:
+                price = self._ibkr.get_current_price(symbol)
+                return price
+            except Exception as e:
+                logger.warning("[HYBRID] IBKR price failed: %s — Yahoo fallback", e)
+                self._ibkr_failed = True
+
+        # Fallback to Yahoo (parent class)
+        return super().get_current_price(symbol)
+
+    def fetch_bars(
+        self, symbol: str, timeframe: str, lookback: int,
+        _max_retries: int = 3, _timeout: int = 30,
+    ) -> pd.DataFrame:
+        """Fetch bars from IBKR, fallback to Yahoo."""
+        if self._ibkr and not self._ibkr_failed:
+            try:
+                df = self._ibkr.fetch_bars(symbol, timeframe, lookback)
+                if df is not None and not df.empty:
+                    return df
+                logger.warning("[HYBRID] IBKR returned empty %s bars", timeframe)
+            except Exception as e:
+                logger.warning("[HYBRID] IBKR fetch_bars(%s) failed: %s", timeframe, e)
+                self._ibkr_failed = True
+
+        # Fallback to Yahoo (parent class)
+        logger.debug("[HYBRID] Falling back to Yahoo for %s bars", timeframe)
+        return super().fetch_bars(symbol, timeframe, lookback, _max_retries, _timeout)
+
+    def reconnect_ibkr(self) -> bool:
+        """Attempt to reconnect IBKR data feed. Called periodically by engine."""
+        if self._ibkr and not self._ibkr_failed:
+            return True  # already connected
+        self._connect_ibkr()
+        return not self._ibkr_failed
+
+    def disconnect(self) -> None:
+        """Disconnect IBKR on shutdown."""
+        if self._ibkr:
+            try:
+                self._ibkr.disconnect()
+            except Exception:
+                pass
 
 
 def _tf_minutes(timeframe: str) -> int:

@@ -1,0 +1,12 @@
+{
+  "symbol": "VIRTUAL-USD",
+  "model_type": "tft_swing",
+  "n_features": 20,
+  "seq_len": 20,
+  "hidden": 32,
+  "n_heads": 4,
+  "val_mse": 26.04131699,
+  "val_direction_accuracy": 0.7093,
+  "n_train": 342,
+  "n_val": 86
+}

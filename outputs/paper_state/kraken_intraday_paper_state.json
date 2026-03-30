@@ -1,28 +1,21 @@
 {
-  "cash": 96429.81019471894,
+  "cash": 96742.0017319088,
   "initial_balance": 100000.0,
   "positions": {
-    "GOMINING/USD": {
-      "symbol": "GOMINING/USD",
-      "qty": 9321.611735,
-      "side": "LONG",
-      "entry_price": 0.30315149999999996,
-      "entry_time": "2026-03-24T06:04:11.304739+00:00"
-    },
-    "ETHFI/USD": {
-      "symbol": "ETHFI/USD",
-      "qty": 7123.183371,
+    "ATOM/USD": {
+      "symbol": "ATOM/USD",
+      "qty": 1801.425349,
       "side": "SHORT",
-      "entry_price": 0.52603685,
-      "entry_time": "2026-03-24T06:04:16.676497+00:00"
+      "entry_price": 1.66226845,
+      "entry_time": "2026-03-30T19:25:31.097078+00:00"
     },
-    "BERA/USD": {
-      "symbol": "BERA/USD",
-      "qty": 5749.5316,
+    "SEI/USD": {
+      "symbol": "SEI/USD",
+      "qty": 56899.054506,
       "side": "SHORT",
-      "entry_price": 0.4975511,
-      "entry_time": "2026-03-24T07:16:16.456582+00:00"
+      "entry_price": 0.051084445000000006,
+      "entry_time": "2026-03-30T19:40:51.277765+00:00"
     }
   },
-  "last_updated": "2026-03-24T07:16:16.462418+00:00"
+  "last_updated": "2026-03-30T19:49:51.143994+00:00"
 }

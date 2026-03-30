@@ -88,6 +88,15 @@ class GoldScalperConfig:
     # ── Data Provider ──
     data_provider: str = "yahoo"       # "yahoo" or "alpaca"
 
+    # ── Signal Filters (all disabled by default — no behavior change) ──
+    filter_atr_enabled: bool = False    # ATR volatility band filter
+    filter_atr_low: float = 0.7        # skip if ATR < this × 20-bar ATR MA
+    filter_atr_high: float = 2.0       # skip if ATR > this × 20-bar ATR MA
+    filter_vol_enabled: bool = False    # volume regime filter
+    filter_vol_min: float = 0.5        # skip if volume < this × 20-bar vol MA
+    filter_vwap_enabled: bool = False   # VWAP distance filter
+    filter_vwap_max_atr: float = 1.5   # skip if |price - VWAP| > this × ATR
+
     # ── Derived ──
     @property
     def runner_contracts(self) -> int:

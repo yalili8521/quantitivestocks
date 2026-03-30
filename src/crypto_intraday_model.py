@@ -964,6 +964,8 @@ def main():
                         help="Model save directory")
     parser.add_argument("--walk-forward", action="store_true",
                         help="Walk-forward split: train on first 75%%, OOS on last 25%%")
+    parser.add_argument("--train-end", default=None,
+                        help="Hard cutoff date (YYYY-MM-DD). Only train on data BEFORE this date.")
     parser.add_argument("--source", default="auto", choices=["auto", "binanceus", "mexc"],
                         help="Data source: auto (BinanceUS then MEXC), binanceus, mexc")
     args = parser.parse_args()
@@ -994,6 +996,10 @@ def main():
 
     # Fetch BTC bars once (for cross-market features)
     btc_bars = data_source.fetch_training_bars("BTC/USD", days=args.days, source=args.source)
+    # Apply train-end cutoff to BTC reference bars too
+    if args.train_end and "ts" in btc_bars.columns:
+        cutoff_ts = pd.Timestamp(args.train_end, tz="UTC")
+        btc_bars = btc_bars[pd.to_datetime(btc_bars["ts"], utc=True) < cutoff_ts].copy()
     log.info("BTC reference bars: %d", len(btc_bars))
 
     results = []
@@ -1014,6 +1020,16 @@ def main():
             if len(bars) < 1000:
                 log.warning("%s: only %d bars, skipping", sym, len(bars))
                 continue
+
+            # Apply train-end cutoff: only use data BEFORE cutoff date
+            if args.train_end:
+                cutoff_ts = pd.Timestamp(args.train_end, tz="UTC")
+                if "ts" in bars.columns:
+                    bars = bars[pd.to_datetime(bars["ts"], utc=True) < cutoff_ts].copy()
+                log.info("%s: train-end cutoff %s → %d bars", sym, args.train_end, len(bars))
+                if len(bars) < 1000:
+                    log.warning("%s: only %d bars after cutoff filter, skipping", sym, len(bars))
+                    continue
 
             # Build training data
             engine = CryptoIntradayFeatureEngine()

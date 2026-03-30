@@ -1,0 +1,12 @@
+{
+  "symbol": "ADA-USD",
+  "model_type": "tft_swing",
+  "n_features": 20,
+  "seq_len": 20,
+  "hidden": 32,
+  "n_heads": 4,
+  "val_mse": 9.6615715,
+  "val_direction_accuracy": 0.6107,
+  "n_train": 524,
+  "n_val": 131
+}

@@ -101,6 +101,56 @@ class GoldScalperBacktester:
         self.sizer = PositionSizer(config)
         self.session = SessionFilter(config)
 
+    def _apply_signal_filters(
+        self, direction: Optional[str], bars: Dict[str, pd.DataFrame]
+    ) -> str:
+        """Pre-signal filters — identical logic to engine._apply_signal_filters."""
+        if direction is None:
+            return ""
+        bars_5m = bars.get("5m", pd.DataFrame())
+        if bars_5m.empty or len(bars_5m) < 30:
+            return ""
+
+        cfg = self.config
+
+        if cfg.filter_atr_enabled:
+            from src.signals_engine import compute_atr
+            atr_s = compute_atr(bars_5m["high"], bars_5m["low"], bars_5m["close"], period=14)
+            if len(atr_s) >= 20:
+                atr_now = float(atr_s.iloc[-1])
+                atr_ma = float(atr_s.tail(20).mean())
+                if atr_ma > 0:
+                    ratio = atr_now / atr_ma
+                    if ratio < cfg.filter_atr_low:
+                        return f"ATR low ({ratio:.2f})"
+                    if ratio > cfg.filter_atr_high:
+                        return f"ATR high ({ratio:.2f})"
+
+        if cfg.filter_vol_enabled:
+            vol = bars_5m["volume"]
+            if len(vol) >= 20:
+                vol_now = float(vol.iloc[-1])
+                vol_ma = float(vol.tail(20).mean())
+                if vol_ma > 0 and vol_now < cfg.filter_vol_min * vol_ma:
+                    return f"Volume low ({vol_now:.0f})"
+
+        if cfg.filter_vwap_enabled:
+            from src.signals_engine import compute_atr
+            atr_s = compute_atr(bars_5m["high"], bars_5m["low"], bars_5m["close"], period=14)
+            if len(atr_s) >= 1:
+                atr_now = float(atr_s.iloc[-1])
+                tp = (bars_5m["high"] + bars_5m["low"] + bars_5m["close"]) / 3.0
+                cum_tpv = (tp * bars_5m["volume"]).cumsum()
+                cum_vol = bars_5m["volume"].cumsum()
+                vwap = float(cum_tpv.iloc[-1] / max(cum_vol.iloc[-1], 1))
+                price = float(bars_5m["close"].iloc[-1])
+                if atr_now > 0:
+                    dist = abs(price - vwap) / atr_now
+                    if dist > cfg.filter_vwap_max_atr:
+                        return f"VWAP dist ({dist:.1f}x ATR)"
+
+        return ""
+
     def run(
         self,
         start: str,
@@ -227,28 +277,56 @@ class GoldScalperBacktester:
 
             # ── EXIT CHECK ──
             if position and not position.is_flat:
-                # Use high/low for TP/SL checks (intrabar)
-                # Check if stop was hit (use low for long, high for short)
-                check_price = low if position.is_long else high
-                actions_sl = self.position_mgr.update(
-                    position, check_price, now, direction
-                )
+                # Intrabar logic: check whether TPs or SL would be hit
+                # within this bar using high/low.  Call update() only ONCE
+                # to avoid corrupting position state with a double call.
+                #
+                # Priority: if a TP would be hit on this bar, check TPs
+                # first (use the favorable price).  Otherwise check SL
+                # (use the adverse price).  If both could hit, we assume
+                # TPs fire first (optimistic, matches Pine Script behavior
+                # which processes limit orders before stop orders).
+                tp_price = high if position.is_long else low
+                sl_price = low if position.is_long else high
+                tp_pips = position.pips_from_entry(tp_price, self.config.pip_value)
+                sl_pips = position.pips_from_entry(sl_price, self.config.pip_value)
 
-                # Check if TP was hit (use high for long, low for short)
-                check_price_tp = high if position.is_long else low
-                actions_tp = self.position_mgr.update(
-                    position, check_price_tp, now, direction
+                # Determine which TPs could fire at the favorable price
+                next_tp = (
+                    self.config.tp1_pips if not position.tp1_hit else
+                    self.config.tp2_pips if not position.tp2_hit else
+                    self.config.tp3_pips if not position.tp3_hit else
+                    self.config.tp4_pips if not position.tp4_hit else
+                    float("inf")
                 )
+                tp_would_fire = tp_pips >= next_tp
 
-                # Combine actions (prefer TP over SL if both on same bar)
-                actions = actions_tp if actions_tp else actions_sl
+                if tp_would_fire:
+                    # TPs fire first — use favorable price
+                    actions = self.position_mgr.update(
+                        position, tp_price, now, direction
+                    )
+                else:
+                    # No new TP — use adverse price for SL/timeout/session/runner
+                    actions = self.position_mgr.update(
+                        position, sl_price, now, direction
+                    )
 
                 for action in actions:
-                    pnl = action.pnl_pips * action.contracts
-                    position.realized_pnl += pnl
-                    equity += pnl
-                    cumulative_pnl += pnl
-                    daily_pnl += pnl
+                    if action.action == "CLOSE_ALL":
+                        pnl = action.pnl_pips * action.contracts
+                        position.realized_pnl += pnl
+                        position.remaining_contracts = 0
+                        equity += pnl
+                        cumulative_pnl += pnl
+                        daily_pnl += pnl
+                        break
+                    elif action.action == "CLOSE_PARTIAL":
+                        pnl = action.pnl_pips * action.contracts
+                        position.realized_pnl += pnl
+                        equity += pnl
+                        cumulative_pnl += pnl
+                        daily_pnl += pnl
 
                 if position.is_flat or position.remaining_contracts <= 0:
                     # Position fully closed
@@ -284,6 +362,11 @@ class GoldScalperBacktester:
             # Avoid entry near close
             avoid, _ = self.session.should_avoid_entry(now)
             if avoid:
+                continue
+
+            # Pre-signal filters (same logic as engine._apply_signal_filters)
+            filter_reason = self._apply_signal_filters(direction, tf_bars)
+            if filter_reason:
                 continue
 
             # Signal
@@ -400,25 +483,76 @@ class GoldScalperBacktester:
             return pd.DataFrame()
 
     def _resample(self, bars_5m: pd.DataFrame, rule: str) -> pd.DataFrame:
-        """Resample 5m bars to higher timeframe."""
+        """Resample 5m bars to higher timeframe using COMEX session boundaries.
+
+        COMEX gold futures session: 6:00 PM ET to 5:00 PM ET next day.
+        TradingView's request.security() uses these exchange boundaries,
+        so we must match them for daily, 4H, and 1H candles.
+
+        Previously used pd.resample() which cuts at midnight UTC — this
+        shifted daily candle close prices by up to $65, causing EMA drift
+        and incorrect bias alignment (50 entries vs TV's 12).
+        """
         if bars_5m.empty:
             return pd.DataFrame()
 
         df = bars_5m.copy()
-        if "ts" in df.columns:
-            df = df.set_index("ts")
-        if not isinstance(df.index, pd.DatetimeIndex):
-            df.index = pd.to_datetime(df.index)
+        if "ts" not in df.columns and isinstance(df.index, pd.DatetimeIndex):
+            df = df.reset_index().rename(columns={df.index.name or "index": "ts"})
+        df["ts"] = pd.to_datetime(df["ts"], utc=True)
 
-        resampled = df.resample(rule).agg({
-            "open": "first",
-            "high": "max",
-            "low": "min",
-            "close": "last",
-            "volume": "sum",
-        }).dropna()
+        # Convert to US/Eastern for session assignment
+        df["ts_et"] = df["ts"].dt.tz_convert("US/Eastern")
 
-        return resampled.reset_index().rename(columns={resampled.index.name or "index": "ts"})
+        if rule in ("1D", "D"):
+            # COMEX daily: 6 PM ET to 5 PM ET next day
+            # If hour >= 18 → belongs to this date's session
+            # If hour < 18 → belongs to previous date's session
+            df["session"] = df["ts_et"].apply(
+                lambda x: x.date() if x.hour >= 18
+                else (x - pd.Timedelta(days=1)).date()
+            )
+        elif rule == "4h":
+            # 4H blocks aligned to session start (6 PM ET):
+            # Block 0: 18:00-21:55, Block 1: 22:00-01:55,
+            # Block 2: 02:00-05:55, Block 3: 06:00-09:55,
+            # Block 4: 10:00-13:55, Block 5: 14:00-17:55
+            def _4h_session(ts):
+                h = ts.hour
+                # Shift so 18:00 = hour 0
+                shifted = (h - 18) % 24
+                block = shifted // 4
+                # Session date
+                d = ts.date() if h >= 18 else (ts - pd.Timedelta(days=1)).date()
+                return f"{d}_{block}"
+            df["session"] = df["ts_et"].apply(_4h_session)
+        elif rule in ("1h", "1H", "60min"):
+            # 1H: standard hourly, but use ET timezone for alignment
+            df["session"] = df["ts_et"].dt.floor("h")
+        elif rule in ("15min", "15m"):
+            df["session"] = df["ts_et"].dt.floor("15min")
+        else:
+            # Fallback: standard pandas resample
+            df_idx = df.set_index("ts")
+            resampled = df_idx[["open", "high", "low", "close", "volume"]].resample(rule).agg({
+                "open": "first", "high": "max", "low": "min",
+                "close": "last", "volume": "sum",
+            }).dropna()
+            return resampled.reset_index().rename(
+                columns={resampled.index.name or "index": "ts"}
+            )
+
+        # Group by session and aggregate OHLCV
+        resampled = df.groupby("session").agg(
+            ts=("ts", "first"),
+            open=("open", "first"),
+            high=("high", "max"),
+            low=("low", "min"),
+            close=("close", "last"),
+            volume=("volume", "sum"),
+        ).dropna().reset_index(drop=True)
+
+        return resampled
 
     def _get_lookback_bars(
         self,

@@ -121,7 +121,7 @@ $Groups = @(
     @{ Name = 'crypto_intraday'; EnvPrefix = 'KRAKEN_';      Mode = 'intraday'; Interval = '5min';
        ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true; SkipKeyCheck = $true },
     @{ Name = 'gold_scalper';   EnvPrefix = 'AMP_CQG_';       Mode = '';         Interval = '';
-       ExtraArgs = @('--broker', 'paper'); Command = 'gold-scalper'; AlwaysOn = $true; SkipKeyCheck = $true }
+       ExtraArgs = @('--broker', 'hybrid'); Command = 'gold-scalper'; AlwaysOn = $true; SkipKeyCheck = $true }
 )
 
 $CommonArgs = @('-u', 'main.py')
@@ -318,9 +318,14 @@ while ($true) {
             $reason = "died"
         } else {
             # Check if the process is hung: no log file (stdout OR stderr) updated in 10 minutes
-            $logPattern = Join-Path $LogDir ("paper_trader_$($grp.Name)_*.log")
-            $latestLog = Get-ChildItem -Path $logPattern -ErrorAction SilentlyContinue |
-                Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            # Check both .log (stdout) and _err.log (stderr) — some groups (gold_scalper)
+            # only emit to stderr via Python logging, so stdout files stay 0-byte/stale.
+            $logPattern    = Join-Path $LogDir ("paper_trader_$($grp.Name)_*.log")
+            $errLogPattern = Join-Path $LogDir ("paper_trader_$($grp.Name)_*_err.log")
+            $latestLog = @(
+                Get-ChildItem -Path $logPattern    -ErrorAction SilentlyContinue
+                Get-ChildItem -Path $errLogPattern -ErrorAction SilentlyContinue
+            ) | Sort-Object LastWriteTime -Descending | Select-Object -First 1
             if ($latestLog) {
                 $staleMins = ((Get-Date) - $latestLog.LastWriteTime).TotalMinutes
                 if ($staleMins -gt 10) {

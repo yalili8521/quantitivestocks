@@ -340,5 +340,87 @@
         0.056634
       ]
     ]
+  },
+  {
+    "symbol": "EMB",
+    "trained_at": "2026-03-26",
+    "feature_cols": [
+      "ret252",
+      "rel_momentum_vs_spy_252",
+      "ret63",
+      "vol20",
+      "rsi14",
+      "macd_hist_norm",
+      "spy_trend_strength",
+      "real_yield_10y",
+      "risk_appetite_ratio",
+      "beta_mkt",
+      "cboe_skew",
+      "gold_silver_ratio",
+      "vix_regime",
+      "credit_spread_zscore",
+      "sector_breadth",
+      "symbol_id"
+    ],
+    "importances": [
+      0.040199,
+      0.053752,
+      0.051882,
+      0.20942,
+      0.046386,
+      0.050495,
+      0.061092,
+      0.082136,
+      0.067153,
+      0.089352,
+      0.038091,
+      0.086944,
+      0.041128,
+      0.03727,
+      0.0447,
+      0.0
+    ],
+    "top_10": [
+      [
+        "vol20",
+        0.20942
+      ],
+      [
+        "beta_mkt",
+        0.089352
+      ],
+      [
+        "gold_silver_ratio",
+        0.086944
+      ],
+      [
+        "real_yield_10y",
+        0.082136
+      ],
+      [
+        "risk_appetite_ratio",
+        0.067153
+      ],
+      [
+        "spy_trend_strength",
+        0.061092
+      ],
+      [
+        "rel_momentum_vs_spy_252",
+        0.053752
+      ],
+      [
+        "ret63",
+        0.051882
+      ],
+      [
+        "macd_hist_norm",
+        0.050495
+      ],
+      [
+        "rsi14",
+        0.046386
+      ]
+    ]
   }
 ]

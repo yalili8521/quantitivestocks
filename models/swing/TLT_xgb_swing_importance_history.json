@@ -534,5 +534,87 @@
         0.050389
       ]
     ]
+  },
+  {
+    "symbol": "TLT",
+    "trained_at": "2026-03-26",
+    "feature_cols": [
+      "ret252",
+      "rel_momentum_vs_spy_252",
+      "ret63",
+      "vol20",
+      "rsi14",
+      "macd_hist_norm",
+      "spy_trend_strength",
+      "real_yield_10y",
+      "risk_appetite_ratio",
+      "beta_mkt",
+      "cboe_skew",
+      "gold_silver_ratio",
+      "vix_regime",
+      "credit_spread_zscore",
+      "sector_breadth",
+      "symbol_id"
+    ],
+    "importances": [
+      0.076834,
+      0.048718,
+      0.095907,
+      0.108977,
+      0.034076,
+      0.043461,
+      0.069674,
+      0.165099,
+      0.069899,
+      0.082965,
+      0.039554,
+      0.076553,
+      0.048599,
+      0.039683,
+      0.0,
+      0.0
+    ],
+    "top_10": [
+      [
+        "real_yield_10y",
+        0.165099
+      ],
+      [
+        "vol20",
+        0.108977
+      ],
+      [
+        "ret63",
+        0.095907
+      ],
+      [
+        "beta_mkt",
+        0.082965
+      ],
+      [
+        "ret252",
+        0.076834
+      ],
+      [
+        "gold_silver_ratio",
+        0.076553
+      ],
+      [
+        "risk_appetite_ratio",
+        0.069899
+      ],
+      [
+        "spy_trend_strength",
+        0.069674
+      ],
+      [
+        "rel_momentum_vs_spy_252",
+        0.048718
+      ],
+      [
+        "vix_regime",
+        0.048599
+      ]
+    ]
   }
 ]

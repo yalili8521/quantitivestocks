@@ -1,0 +1,14 @@
+{
+  "feature_names": [
+    "intraday_atr",
+    "atr_to_spread",
+    "session_vol_ratio",
+    "relative_volume",
+    "intraday_autocorr",
+    "gap_penalty",
+    "dollar_volume"
+  ],
+  "n_train": 1407,
+  "val_ndcg3": 0.2602,
+  "val_ndcg5": 0.2761
+}

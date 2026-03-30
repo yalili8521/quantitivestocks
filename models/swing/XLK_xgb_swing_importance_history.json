@@ -604,5 +604,87 @@
         0.055884
       ]
     ]
+  },
+  {
+    "symbol": "XLK",
+    "trained_at": "2026-03-26",
+    "feature_cols": [
+      "ret252",
+      "rel_momentum_vs_spy_252",
+      "ret63",
+      "vol20",
+      "rsi14",
+      "macd_hist_norm",
+      "spy_trend_strength",
+      "real_yield_10y",
+      "risk_appetite_ratio",
+      "beta_mkt",
+      "cboe_skew",
+      "gold_silver_ratio",
+      "vix_regime",
+      "credit_spread_zscore",
+      "sector_breadth",
+      "symbol_id"
+    ],
+    "importances": [
+      0.055889,
+      0.060291,
+      0.073504,
+      0.059129,
+      0.031878,
+      0.070648,
+      0.081515,
+      0.058382,
+      0.105871,
+      0.114754,
+      0.043794,
+      0.0665,
+      0.049661,
+      0.040609,
+      0.087575,
+      0.0
+    ],
+    "top_10": [
+      [
+        "beta_mkt",
+        0.114754
+      ],
+      [
+        "risk_appetite_ratio",
+        0.105871
+      ],
+      [
+        "sector_breadth",
+        0.087575
+      ],
+      [
+        "spy_trend_strength",
+        0.081515
+      ],
+      [
+        "ret63",
+        0.073504
+      ],
+      [
+        "macd_hist_norm",
+        0.070648
+      ],
+      [
+        "gold_silver_ratio",
+        0.0665
+      ],
+      [
+        "rel_momentum_vs_spy_252",
+        0.060291
+      ],
+      [
+        "vol20",
+        0.059129
+      ],
+      [
+        "real_yield_10y",
+        0.058382
+      ]
+    ]
   }
 ]

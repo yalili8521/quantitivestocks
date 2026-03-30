@@ -340,5 +340,87 @@
         0.048764
       ]
     ]
+  },
+  {
+    "symbol": "VGK",
+    "trained_at": "2026-03-26",
+    "feature_cols": [
+      "ret252",
+      "rel_momentum_vs_spy_252",
+      "ret63",
+      "vol20",
+      "rsi14",
+      "macd_hist_norm",
+      "spy_trend_strength",
+      "real_yield_10y",
+      "risk_appetite_ratio",
+      "beta_mkt",
+      "cboe_skew",
+      "gold_silver_ratio",
+      "vix_regime",
+      "credit_spread_zscore",
+      "sector_breadth",
+      "symbol_id"
+    ],
+    "importances": [
+      0.113726,
+      0.036945,
+      0.083644,
+      0.095163,
+      0.043266,
+      0.030652,
+      0.05931,
+      0.098206,
+      0.052495,
+      0.032481,
+      0.032431,
+      0.172346,
+      0.036905,
+      0.061468,
+      0.050962,
+      0.0
+    ],
+    "top_10": [
+      [
+        "gold_silver_ratio",
+        0.172346
+      ],
+      [
+        "ret252",
+        0.113726
+      ],
+      [
+        "real_yield_10y",
+        0.098206
+      ],
+      [
+        "vol20",
+        0.095163
+      ],
+      [
+        "ret63",
+        0.083644
+      ],
+      [
+        "credit_spread_zscore",
+        0.061468
+      ],
+      [
+        "spy_trend_strength",
+        0.05931
+      ],
+      [
+        "risk_appetite_ratio",
+        0.052495
+      ],
+      [
+        "sector_breadth",
+        0.050962
+      ],
+      [
+        "rsi14",
+        0.043266
+      ]
+    ]
   }
 ]

@@ -340,5 +340,87 @@
         0.060109
       ]
     ]
+  },
+  {
+    "symbol": "SOXX",
+    "trained_at": "2026-03-26",
+    "feature_cols": [
+      "ret252",
+      "rel_momentum_vs_spy_252",
+      "ret63",
+      "vol20",
+      "rsi14",
+      "macd_hist_norm",
+      "spy_trend_strength",
+      "real_yield_10y",
+      "risk_appetite_ratio",
+      "beta_mkt",
+      "cboe_skew",
+      "gold_silver_ratio",
+      "vix_regime",
+      "credit_spread_zscore",
+      "sector_breadth",
+      "symbol_id"
+    ],
+    "importances": [
+      0.040939,
+      0.063491,
+      0.05114,
+      0.046056,
+      0.055526,
+      0.052761,
+      0.067988,
+      0.049472,
+      0.086867,
+      0.089673,
+      0.054561,
+      0.097992,
+      0.062828,
+      0.042503,
+      0.138203,
+      0.0
+    ],
+    "top_10": [
+      [
+        "sector_breadth",
+        0.138203
+      ],
+      [
+        "gold_silver_ratio",
+        0.097992
+      ],
+      [
+        "beta_mkt",
+        0.089673
+      ],
+      [
+        "risk_appetite_ratio",
+        0.086867
+      ],
+      [
+        "spy_trend_strength",
+        0.067988
+      ],
+      [
+        "rel_momentum_vs_spy_252",
+        0.063491
+      ],
+      [
+        "vix_regime",
+        0.062828
+      ],
+      [
+        "rsi14",
+        0.055526
+      ],
+      [
+        "cboe_skew",
+        0.054561
+      ],
+      [
+        "macd_hist_norm",
+        0.052761
+      ]
+    ]
   }
 ]

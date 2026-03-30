@@ -24,17 +24,17 @@
   ],
   "n_features": 20,
   "forward_bars": 12,
-  "train_start": "2025-09-23 09:20:00+00:00",
-  "train_end": "2025-11-06 13:35:00+00:00",
-  "val_start": "2025-11-07 12:00:00+00:00",
-  "val_end": "2025-12-12 01:00:00+00:00",
-  "train_samples": 1912,
-  "val_samples": 482,
-  "val_rmse": 0.051971,
-  "val_dir_acc": 0.6468,
-  "val_ic": 0.1812,
-  "lgb_dir_acc": 0.6971,
-  "lgb_ic": -0.1917,
+  "train_start": "2025-09-28 20:25:00+00:00",
+  "train_end": "2025-11-07 11:40:00+00:00",
+  "val_start": "2025-11-07 14:40:00+00:00",
+  "val_end": "2025-12-11 04:20:00+00:00",
+  "train_samples": 1737,
+  "val_samples": 438,
+  "val_rmse": 0.054349,
+  "val_dir_acc": 0.6315,
+  "val_ic": 0.1518,
+  "lgb_dir_acc": 0.7169,
+  "lgb_ic": -0.1259,
   "lgb_best_iteration": 1,
   "gru_active": true,
   "ensemble_weights": {
@@ -42,8 +42,9 @@
     "gru": 0.3
   },
   "feature_importance": {
-    "ret_48bar": 0.058153598103672266,
-    "btc_ret_12bar": 0.013623599894344807,
+    "hour_cos": 0.05289899930357933,
+    "ret_48bar": 0.02911282080458477,
+    "btc_ret_12bar": 0.014117100276052952,
     "ret_6bar": 0.0,
     "ret_12bar": 0.0,
     "ret_24bar": 0.0,
@@ -60,10 +61,9 @@
     "btc_ret_12bar_lag1": 0.0,
     "funding_rate": 0.0,
     "funding_rate_ma": 0.0,
-    "hour_sin": 0.0,
-    "hour_cos": 0.0
+    "hour_sin": 0.0
   },
   "cost_threshold": 0.003,
   "target_return": 0.01,
-  "pred_scale": 8.5621
+  "pred_scale": 8.6709
 }

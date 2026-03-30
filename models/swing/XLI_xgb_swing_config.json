@@ -1,13 +1,13 @@
 {
   "symbol": "XLI",
   "model_type": "xgb_swing",
-  "horizon": "5d",
+  "horizon": "10d",
   "model_version": "v4_regression_regime",
-  "target": "forward_5d_return",
-  "val_rmse": 2.5321912,
-  "val_direction_accuracy": 0.4177,
-  "n_train": 313,
-  "n_val": 79,
+  "target": "forward_10d_return",
+  "val_rmse": 2.32256761,
+  "val_direction_accuracy": 0.6333,
+  "n_train": 476,
+  "n_val": 120,
   "n_features": 16,
   "feature_names": [
     "ret252",
@@ -27,10 +27,10 @@
     "sector_breadth",
     "symbol_id"
   ],
-  "train_end": "2025-03-25",
-  "train_mode": "walk_forward_75_25",
+  "train_end": "2026-01-25",
+  "train_mode": "standard",
   "label_mean_removed": 0.0,
   "label_vol_normalized": true,
   "label_cost_adjust_bps": 7.0,
-  "training_vol_mean": 0.00839152
+  "training_vol_mean": 0.00918979
 }

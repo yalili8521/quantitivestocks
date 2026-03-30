@@ -8,10 +8,10 @@
     "IWM"
   ],
   "forward_bars": 12,
-  "train_samples": 13667,
-  "val_samples": 3420,
-  "val_ic": 0.069,
-  "val_dir_acc": 0.5035,
+  "train_samples": 3715,
+  "val_samples": 932,
+  "val_ic": 0.0954,
+  "val_dir_acc": 0.5386,
   "feature_names": [
     "ret_6bar",
     "ret_12bar",

@@ -340,5 +340,87 @@
         0.052657
       ]
     ]
+  },
+  {
+    "symbol": "LQD",
+    "trained_at": "2026-03-26",
+    "feature_cols": [
+      "ret252",
+      "rel_momentum_vs_spy_252",
+      "ret63",
+      "vol20",
+      "rsi14",
+      "macd_hist_norm",
+      "spy_trend_strength",
+      "real_yield_10y",
+      "risk_appetite_ratio",
+      "beta_mkt",
+      "cboe_skew",
+      "gold_silver_ratio",
+      "vix_regime",
+      "credit_spread_zscore",
+      "sector_breadth",
+      "symbol_id"
+    ],
+    "importances": [
+      0.047482,
+      0.057521,
+      0.077773,
+      0.083838,
+      0.037031,
+      0.039496,
+      0.055262,
+      0.151583,
+      0.082711,
+      0.101037,
+      0.053491,
+      0.048988,
+      0.058683,
+      0.048504,
+      0.056601,
+      0.0
+    ],
+    "top_10": [
+      [
+        "real_yield_10y",
+        0.151583
+      ],
+      [
+        "beta_mkt",
+        0.101037
+      ],
+      [
+        "vol20",
+        0.083838
+      ],
+      [
+        "risk_appetite_ratio",
+        0.082711
+      ],
+      [
+        "ret63",
+        0.077773
+      ],
+      [
+        "vix_regime",
+        0.058683
+      ],
+      [
+        "rel_momentum_vs_spy_252",
+        0.057521
+      ],
+      [
+        "sector_breadth",
+        0.056601
+      ],
+      [
+        "spy_trend_strength",
+        0.055262
+      ],
+      [
+        "cboe_skew",
+        0.053491
+      ]
+    ]
   }
 ]

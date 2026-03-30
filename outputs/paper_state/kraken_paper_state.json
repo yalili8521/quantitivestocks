@@ -1,52 +1,6 @@
 {
-  "cash": 120071.96,
+  "cash": 83753.75049607485,
   "initial_balance": 100000.0,
   "positions": {},
-  "last_updated": "2026-03-23T03:06:58.888706+00:00",
-  "trade_log": [
-    {
-      "symbol": "XTZ/USD",
-      "side": "LONG",
-      "qty": 24289.15793,
-      "entry_price": 0.39659819999999996,
-      "exit_price": 0.3973093628883362,
-      "pnl": 17.27,
-      "pnl_pct": 0.1793,
-      "reason": "manual_close_pool_cleanup",
-      "closed_at": "2026-03-24T08:09:07+00:00"
-    },
-    {
-      "symbol": "ATOM/USD",
-      "side": "SHORT",
-      "qty": 5420.352942,
-      "entry_price": 1.8180905,
-      "exit_price": 1.7865958213806152,
-      "pnl": 170.71,
-      "pnl_pct": 1.7323,
-      "reason": "manual_close_pool_cleanup",
-      "closed_at": "2026-03-24T08:09:07+00:00"
-    },
-    {
-      "symbol": "OP/USD",
-      "side": "SHORT",
-      "qty": 86355.141525,
-      "entry_price": 0.1155422,
-      "exit_price": 0.1147640198469162,
-      "pnl": 67.2,
-      "pnl_pct": 0.6735,
-      "reason": "manual_close_pool_cleanup",
-      "closed_at": "2026-03-24T08:09:07+00:00"
-    },
-    {
-      "symbol": "EGLD/USD",
-      "side": "LONG",
-      "qty": 2513.152968,
-      "entry_price": 3.90195,
-      "exit_price": 4.056858062744141,
-      "pnl": 389.31,
-      "pnl_pct": 3.97,
-      "reason": "manual_close_pool_cleanup",
-      "closed_at": "2026-03-24T08:09:07+00:00"
-    }
-  ]
+  "last_updated": "2026-03-27T03:23:49.049529+00:00"
 }

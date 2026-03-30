@@ -1334,8 +1334,9 @@ def main():
             spy_bars = spy_bars.rename(columns={"timestamp": "ts"})
         # Apply train-end cutoff to SPY reference bars too
         if args.train_end and "ts" in spy_bars.columns:
-            cutoff_ts = pd.Timestamp(args.train_end)
-            spy_bars = spy_bars[pd.to_datetime(spy_bars["ts"]) < cutoff_ts].copy()
+            ts_col = pd.to_datetime(spy_bars["ts"])
+            cutoff_ts = pd.Timestamp(args.train_end, tz="UTC") if ts_col.dt.tz is not None else pd.Timestamp(args.train_end)
+            spy_bars = spy_bars[ts_col < cutoff_ts].copy()
         log.info("SPY reference bars: %d", len(spy_bars))
     else:
         log.warning("Could not fetch SPY bars — sector_rel_strength will be 0")
@@ -1358,9 +1359,10 @@ def main():
 
             # Apply train-end cutoff: only use data BEFORE cutoff date
             if args.train_end:
-                cutoff_ts = pd.Timestamp(args.train_end)
                 if "ts" in bars.columns:
-                    bars = bars[pd.to_datetime(bars["ts"]) < cutoff_ts].copy()
+                    ts_col = pd.to_datetime(bars["ts"])
+                    cutoff_ts = pd.Timestamp(args.train_end, tz="UTC") if ts_col.dt.tz is not None else pd.Timestamp(args.train_end)
+                    bars = bars[ts_col < cutoff_ts].copy()
                 log.info("%s: train-end cutoff %s → %d bars", sym, args.train_end, len(bars))
                 if len(bars) < 1000:
                     log.warning("%s: only %d bars after cutoff filter, skipping", sym, len(bars))

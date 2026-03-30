@@ -152,40 +152,49 @@ class BiasStack:
 
     @staticmethod
     def resample_to_4h(df_1h: pd.DataFrame) -> pd.DataFrame:
-        """Resample 1H bars to 4H bars.
+        """Resample 1H bars to 4H bars using COMEX session boundaries.
 
-        从1小时数据重采样到4小时数据：
-        - open: 第一根1H的开盘价
-        - high: 4根1H的最高价
-        - low: 4根1H的最低价
-        - close: 最后一根1H的收盘价
-        - volume: 4根1H的成交量之和
+        COMEX gold session: 6 PM ET to 5 PM ET next day.
+        4H blocks aligned to session start (6 PM ET):
+          Block 0: 18:00-21:59 ET
+          Block 1: 22:00-01:59 ET
+          Block 2: 02:00-05:59 ET
+          Block 3: 06:00-09:59 ET
+          Block 4: 10:00-13:59 ET
+          Block 5: 14:00-17:59 ET
 
-        Args:
-            df_1h: DataFrame with 'ts', 'open', 'high', 'low', 'close', 'volume' columns.
-
-        Returns:
-            DataFrame with 4H OHLCV bars.
+        Previously used pd.resample("4h") which cuts at UTC midnight,
+        shifting candle boundaries and causing EMA drift vs TradingView.
         """
         if df_1h.empty:
             return df_1h
 
         df = df_1h.copy()
         if "ts" in df.columns:
-            df = df.set_index("ts")
-        if not isinstance(df.index, pd.DatetimeIndex):
-            df.index = pd.to_datetime(df.index)
+            pass
+        elif isinstance(df.index, pd.DatetimeIndex):
+            df = df.reset_index().rename(columns={df.index.name or "index": "ts"})
 
-        resampled = df.resample("4h").agg({
-            "open": "first",
-            "high": "max",
-            "low": "min",
-            "close": "last",
-            "volume": "sum",
-        }).dropna()
+        df["ts"] = pd.to_datetime(df["ts"], utc=True)
+        df["ts_et"] = df["ts"].dt.tz_convert("US/Eastern")
 
-        resampled = resampled.reset_index()
-        if "ts" not in resampled.columns and resampled.columns[0] != "ts":
-            resampled = resampled.rename(columns={resampled.columns[0]: "ts"})
+        # Assign 4H block: shift so 18:00 ET = hour 0
+        def _4h_block(ts_et):
+            h = ts_et.hour
+            shifted = (h - 18) % 24
+            block = shifted // 4
+            d = ts_et.date() if h >= 18 else (ts_et - pd.Timedelta(days=1)).date()
+            return f"{d}_{block}"
+
+        df["block"] = df["ts_et"].apply(_4h_block)
+
+        resampled = df.groupby("block").agg(
+            ts=("ts", "first"),
+            open=("open", "first"),
+            high=("high", "max"),
+            low=("low", "min"),
+            close=("close", "last"),
+            volume=("volume", "sum"),
+        ).dropna().reset_index(drop=True)
 
         return resampled

@@ -1,0 +1,12 @@
+{
+  "symbol": "INDA",
+  "model_type": "tft_swing",
+  "n_features": 16,
+  "seq_len": 20,
+  "hidden": 32,
+  "n_heads": 4,
+  "val_mse": 11.39287663,
+  "val_direction_accuracy": 0.569,
+  "n_train": 460,
+  "n_val": 116
+}

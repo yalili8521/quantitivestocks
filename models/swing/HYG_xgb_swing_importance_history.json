@@ -534,5 +534,87 @@
         0.054146
       ]
     ]
+  },
+  {
+    "symbol": "HYG",
+    "trained_at": "2026-03-26",
+    "feature_cols": [
+      "ret252",
+      "rel_momentum_vs_spy_252",
+      "ret63",
+      "vol20",
+      "rsi14",
+      "macd_hist_norm",
+      "spy_trend_strength",
+      "real_yield_10y",
+      "risk_appetite_ratio",
+      "beta_mkt",
+      "cboe_skew",
+      "gold_silver_ratio",
+      "vix_regime",
+      "credit_spread_zscore",
+      "sector_breadth",
+      "symbol_id"
+    ],
+    "importances": [
+      0.058369,
+      0.038617,
+      0.116268,
+      0.052439,
+      0.033437,
+      0.04317,
+      0.051595,
+      0.124361,
+      0.115032,
+      0.070246,
+      0.06263,
+      0.0383,
+      0.058307,
+      0.059759,
+      0.07747,
+      0.0
+    ],
+    "top_10": [
+      [
+        "real_yield_10y",
+        0.124361
+      ],
+      [
+        "ret63",
+        0.116268
+      ],
+      [
+        "risk_appetite_ratio",
+        0.115032
+      ],
+      [
+        "sector_breadth",
+        0.07747
+      ],
+      [
+        "beta_mkt",
+        0.070246
+      ],
+      [
+        "cboe_skew",
+        0.06263
+      ],
+      [
+        "credit_spread_zscore",
+        0.059759
+      ],
+      [
+        "ret252",
+        0.058369
+      ],
+      [
+        "vix_regime",
+        0.058307
+      ],
+      [
+        "vol20",
+        0.052439
+      ]
+    ]
   }
 ]

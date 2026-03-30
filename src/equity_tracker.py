@@ -82,7 +82,7 @@ def get_all_equities() -> Dict[str, Optional[float]]:
         "intraday": _get_alpaca_equity("ALPACA_INTRADAY_KEY", "ALPACA_INTRADAY_SECRET"),
         "swing": _get_alpaca_equity("ALPACA_SWING_KEY", "ALPACA_SWING_SECRET"),
         "crypto": _get_kraken_equity("kraken_paper_state.json"),
-        "gold_scalper": _get_kraken_equity("gold_scalper_state.json"),
+        "gold_signal": _get_kraken_equity(os.path.join("signal", "gold_scalper_state.json")),
     }
 
 

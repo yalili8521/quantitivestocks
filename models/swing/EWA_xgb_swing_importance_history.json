@@ -340,5 +340,87 @@
         0.059267
       ]
     ]
+  },
+  {
+    "symbol": "EWA",
+    "trained_at": "2026-03-26",
+    "feature_cols": [
+      "ret252",
+      "rel_momentum_vs_spy_252",
+      "ret63",
+      "vol20",
+      "rsi14",
+      "macd_hist_norm",
+      "spy_trend_strength",
+      "real_yield_10y",
+      "risk_appetite_ratio",
+      "beta_mkt",
+      "cboe_skew",
+      "gold_silver_ratio",
+      "vix_regime",
+      "credit_spread_zscore",
+      "sector_breadth",
+      "symbol_id"
+    ],
+    "importances": [
+      0.09554,
+      0.069522,
+      0.04954,
+      0.04282,
+      0.054514,
+      0.027888,
+      0.057663,
+      0.088196,
+      0.113597,
+      0.050932,
+      0.084688,
+      0.063539,
+      0.050222,
+      0.088359,
+      0.06298,
+      0.0
+    ],
+    "top_10": [
+      [
+        "risk_appetite_ratio",
+        0.113597
+      ],
+      [
+        "ret252",
+        0.09554
+      ],
+      [
+        "credit_spread_zscore",
+        0.088359
+      ],
+      [
+        "real_yield_10y",
+        0.088196
+      ],
+      [
+        "cboe_skew",
+        0.084688
+      ],
+      [
+        "rel_momentum_vs_spy_252",
+        0.069522
+      ],
+      [
+        "gold_silver_ratio",
+        0.063539
+      ],
+      [
+        "sector_breadth",
+        0.06298
+      ],
+      [
+        "spy_trend_strength",
+        0.057663
+      ],
+      [
+        "rsi14",
+        0.054514
+      ]
+    ]
   }
 ]

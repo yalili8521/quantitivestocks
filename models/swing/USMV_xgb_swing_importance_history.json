@@ -340,5 +340,87 @@
         0.057837
       ]
     ]
+  },
+  {
+    "symbol": "USMV",
+    "trained_at": "2026-03-26",
+    "feature_cols": [
+      "ret252",
+      "rel_momentum_vs_spy_252",
+      "ret63",
+      "vol20",
+      "rsi14",
+      "macd_hist_norm",
+      "spy_trend_strength",
+      "real_yield_10y",
+      "risk_appetite_ratio",
+      "beta_mkt",
+      "cboe_skew",
+      "gold_silver_ratio",
+      "vix_regime",
+      "credit_spread_zscore",
+      "sector_breadth",
+      "symbol_id"
+    ],
+    "importances": [
+      0.062305,
+      0.050858,
+      0.066209,
+      0.039545,
+      0.062092,
+      0.091363,
+      0.065644,
+      0.093674,
+      0.073276,
+      0.06154,
+      0.081509,
+      0.05496,
+      0.05405,
+      0.061064,
+      0.081912,
+      0.0
+    ],
+    "top_10": [
+      [
+        "real_yield_10y",
+        0.093674
+      ],
+      [
+        "macd_hist_norm",
+        0.091363
+      ],
+      [
+        "sector_breadth",
+        0.081912
+      ],
+      [
+        "cboe_skew",
+        0.081509
+      ],
+      [
+        "risk_appetite_ratio",
+        0.073276
+      ],
+      [
+        "ret63",
+        0.066209
+      ],
+      [
+        "spy_trend_strength",
+        0.065644
+      ],
+      [
+        "ret252",
+        0.062305
+      ],
+      [
+        "rsi14",
+        0.062092
+      ],
+      [
+        "beta_mkt",
+        0.06154
+      ]
+    ]
   }
 ]

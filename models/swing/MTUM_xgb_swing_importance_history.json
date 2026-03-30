@@ -240,5 +240,87 @@
         0.054737
       ]
     ]
+  },
+  {
+    "symbol": "MTUM",
+    "trained_at": "2026-03-26",
+    "feature_cols": [
+      "ret252",
+      "rel_momentum_vs_spy_252",
+      "ret63",
+      "vol20",
+      "rsi14",
+      "macd_hist_norm",
+      "spy_trend_strength",
+      "real_yield_10y",
+      "risk_appetite_ratio",
+      "beta_mkt",
+      "cboe_skew",
+      "gold_silver_ratio",
+      "vix_regime",
+      "credit_spread_zscore",
+      "sector_breadth",
+      "symbol_id"
+    ],
+    "importances": [
+      0.071397,
+      0.072259,
+      0.062712,
+      0.054034,
+      0.042193,
+      0.05897,
+      0.053945,
+      0.060032,
+      0.09235,
+      0.093103,
+      0.071494,
+      0.091861,
+      0.059871,
+      0.062687,
+      0.053092,
+      0.0
+    ],
+    "top_10": [
+      [
+        "beta_mkt",
+        0.093103
+      ],
+      [
+        "risk_appetite_ratio",
+        0.09235
+      ],
+      [
+        "gold_silver_ratio",
+        0.091861
+      ],
+      [
+        "rel_momentum_vs_spy_252",
+        0.072259
+      ],
+      [
+        "cboe_skew",
+        0.071494
+      ],
+      [
+        "ret252",
+        0.071397
+      ],
+      [
+        "ret63",
+        0.062712
+      ],
+      [
+        "credit_spread_zscore",
+        0.062687
+      ],
+      [
+        "real_yield_10y",
+        0.060032
+      ],
+      [
+        "vix_regime",
+        0.059871
+      ]
+    ]
   }
 ]

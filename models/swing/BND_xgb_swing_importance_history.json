@@ -240,5 +240,87 @@
         0.052467
       ]
     ]
+  },
+  {
+    "symbol": "BND",
+    "trained_at": "2026-03-26",
+    "feature_cols": [
+      "ret252",
+      "rel_momentum_vs_spy_252",
+      "ret63",
+      "vol20",
+      "rsi14",
+      "macd_hist_norm",
+      "spy_trend_strength",
+      "real_yield_10y",
+      "risk_appetite_ratio",
+      "beta_mkt",
+      "cboe_skew",
+      "gold_silver_ratio",
+      "vix_regime",
+      "credit_spread_zscore",
+      "sector_breadth",
+      "symbol_id"
+    ],
+    "importances": [
+      0.083567,
+      0.061866,
+      0.089069,
+      0.067373,
+      0.025755,
+      0.044399,
+      0.046894,
+      0.155444,
+      0.064498,
+      0.101388,
+      0.054042,
+      0.065474,
+      0.061542,
+      0.034655,
+      0.044035,
+      0.0
+    ],
+    "top_10": [
+      [
+        "real_yield_10y",
+        0.155444
+      ],
+      [
+        "beta_mkt",
+        0.101388
+      ],
+      [
+        "ret63",
+        0.089069
+      ],
+      [
+        "ret252",
+        0.083567
+      ],
+      [
+        "vol20",
+        0.067373
+      ],
+      [
+        "gold_silver_ratio",
+        0.065474
+      ],
+      [
+        "risk_appetite_ratio",
+        0.064498
+      ],
+      [
+        "rel_momentum_vs_spy_252",
+        0.061866
+      ],
+      [
+        "vix_regime",
+        0.061542
+      ],
+      [
+        "cboe_skew",
+        0.054042
+      ]
+    ]
   }
 ]

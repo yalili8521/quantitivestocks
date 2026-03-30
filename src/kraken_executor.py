@@ -154,8 +154,10 @@ class KrakenExecutor:
             "last_updated": datetime.now(timezone.utc).isoformat(),
         }
         try:
-            with open(self._state_file, "w") as f:
+            tmp = self._state_file + ".tmp"
+            with open(tmp, "w") as f:
                 json.dump(state, f, indent=2)
+            os.replace(tmp, self._state_file)
         except OSError as exc:
             log.error("Failed to save paper state: %s", exc)
 

@@ -536,5 +536,87 @@
         0.054322
       ]
     ]
+  },
+  {
+    "symbol": "EWJ",
+    "trained_at": "2026-03-26",
+    "feature_cols": [
+      "ret252",
+      "rel_momentum_vs_spy_252",
+      "ret63",
+      "vol20",
+      "rsi14",
+      "macd_hist_norm",
+      "spy_trend_strength",
+      "real_yield_10y",
+      "risk_appetite_ratio",
+      "beta_mkt",
+      "cboe_skew",
+      "gold_silver_ratio",
+      "vix_regime",
+      "credit_spread_zscore",
+      "sector_breadth",
+      "symbol_id"
+    ],
+    "importances": [
+      0.078854,
+      0.056744,
+      0.078578,
+      0.088545,
+      0.099664,
+      0.068299,
+      0.069328,
+      0.076214,
+      0.063369,
+      0.046164,
+      0.016898,
+      0.10364,
+      0.068951,
+      0.0475,
+      0.037251,
+      0.0
+    ],
+    "top_10": [
+      [
+        "gold_silver_ratio",
+        0.10364
+      ],
+      [
+        "rsi14",
+        0.099664
+      ],
+      [
+        "vol20",
+        0.088545
+      ],
+      [
+        "ret252",
+        0.078854
+      ],
+      [
+        "ret63",
+        0.078578
+      ],
+      [
+        "real_yield_10y",
+        0.076214
+      ],
+      [
+        "spy_trend_strength",
+        0.069328
+      ],
+      [
+        "vix_regime",
+        0.068951
+      ],
+      [
+        "macd_hist_norm",
+        0.068299
+      ],
+      [
+        "risk_appetite_ratio",
+        0.063369
+      ]
+    ]
   }
 ]

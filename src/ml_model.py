@@ -283,7 +283,7 @@ class FeatureEngine:
         df["rsi14"] = compute_rsi(close, RSI_PERIOD) / 100.0
         df["ret5"] = close.pct_change(5)
         df["ret10"] = close.pct_change(10)
-        df["wk_ret"] = close.pct_change(5)
+        df["wk_ret"] = close.pct_change(3)  # 3-day momentum (complements ret5=5d, ret10=10d)
         df["mo_ret"] = close.pct_change(21)
         df["vol20"] = close.pct_change().rolling(20).std() * annualize
 
