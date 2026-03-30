@@ -134,6 +134,8 @@ class KrakenExecutor:
                     self._paper_positions[sym] = PaperPosition(**pos_data)
                 log.info("Loaded paper state: cash=$%.2f, %d positions",
                          self._paper_cash, len(self._paper_positions))
+                # Reconcile with Gist in case local file is stale
+                self._sync_from_gist()
                 return
             except (json.JSONDecodeError, TypeError, KeyError) as exc:
                 log.warning("Corrupt paper state file, resetting: %s", exc)
@@ -141,7 +143,63 @@ class KrakenExecutor:
         self._paper_cash = initial_balance
         self._paper_initial = initial_balance
         self._paper_positions = {}
-        self._save_state()
+        # Try Gist before giving up
+        self._sync_from_gist()
+        if not self._paper_positions:
+            self._save_state()
+
+    def _sync_from_gist(self) -> None:
+        """Pull state from Gist on startup if it has more positions than local.
+
+        Prevents losing open positions after a restart where the local file
+        was stale or overwritten.
+        """
+        gist_id = os.environ.get("KRAKEN_STATE_GIST_ID", "")
+        gh_token = os.environ.get("GITHUB_TOKEN", "")
+        if not gist_id or not gh_token:
+            gist_id, gh_token = self._load_gist_env_fallback(gist_id, gh_token)
+        if not gist_id:
+            return
+
+        try:
+            import requests
+            resp = requests.get(
+                f"https://api.github.com/gists/{gist_id}",
+                headers={"Accept": "application/vnd.github.v3+json"},
+                timeout=10,
+            )
+            if not resp.ok:
+                return
+
+            gist_data = resp.json()
+            fname = os.path.basename(self._state_file)
+            content = gist_data.get("files", {}).get(fname, {}).get("content", "")
+            if not content:
+                return
+
+            gist_state = json.loads(content)
+            gist_positions = gist_state.get("positions", {})
+            local_positions = len(self._paper_positions)
+
+            if len(gist_positions) > local_positions:
+                log.warning(
+                    "Gist has %d positions vs local %d — restoring from Gist",
+                    len(gist_positions), local_positions,
+                )
+                self._paper_cash = gist_state.get("cash", self._paper_cash)
+                self._paper_initial = gist_state.get("initial_balance", self._paper_initial)
+                self._paper_positions = {}
+                for sym, pos_data in gist_positions.items():
+                    self._paper_positions[sym] = PaperPosition(**pos_data)
+                # Save restored state to local file
+                self._save_state()
+                log.info("Restored from Gist: cash=$%.2f, %d positions",
+                         self._paper_cash, len(self._paper_positions))
+            else:
+                log.info("Gist sync check OK — local (%d pos) matches or exceeds Gist (%d pos)",
+                         local_positions, len(gist_positions))
+        except Exception as exc:
+            log.warning("Gist sync-from failed (non-fatal): %s", exc)
 
     def _save_state(self) -> None:
         """Persist paper positions and balance to disk, then sync to GitHub Gist."""
