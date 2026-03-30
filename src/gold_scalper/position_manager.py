@@ -222,15 +222,15 @@ class PositionManager:
             ))
             return actions
 
-        # --- EXIT 3: TP1 timeout ---
-        if not pos.tp1_hit:
+        # --- EXIT 3: TP2 timeout (matches Pine Script) ---
+        if not pos.tp2_hit:
             elapsed = (now - pos.entry_time).total_seconds() / 60.0
             if elapsed >= self.config.tp1_timeout_minutes:
                 actions.append(TradeAction(
                     action="CLOSE_ALL",
                     contracts=pos.remaining_contracts,
                     new_stop=None,
-                    reason=f"Timeout ({self.config.tp1_timeout_minutes}min) - TP1 not hit",
+                    reason=f"Timeout ({self.config.tp1_timeout_minutes}min) - TP2 not hit",
                     pnl_pips=pips,
                     price=current_price,
                 ))
@@ -323,8 +323,8 @@ class PositionManager:
         # TP4
         if not pos.tp4_hit and pips >= cfg.tp4_pips:
             pos.tp4_hit = True
-            # SL → TP3 level
-            new_sl = self._tp_level_stop(pos, entry, cfg.tp3_pips)
+            # SL → TP2 level (gives runner more room; matches Pine Script)
+            new_sl = self._tp_level_stop(pos, entry, cfg.tp2_pips)
             pos.current_stop = new_sl
 
             actions.append(TradeAction(
@@ -353,8 +353,8 @@ class PositionManager:
         - 做多仓位：偏向堆栈不再全部看涨 → 平仓
         - 做空仓位：偏向堆栈不再全部看跌 → 平仓
         """
-        # Runner exit activates after TP2 hit
-        if not pos.tp2_hit:
+        # Runner exit activates after TP4 hit (matches Pine Script)
+        if not pos.tp4_hit:
             return None
 
         if pos.remaining_contracts <= 0:
@@ -381,13 +381,17 @@ class PositionManager:
     def _be_stop(self, pos: GoldPosition, entry: float, offset_pips: float) -> float:
         """Calculate breakeven stop with offset.
 
-        盈亏平衡止损 = 入场价 + offset（做多）/ 入场价 - offset（做空）
+        Pine Script convention: sl_after_tp1 = -10 means SL is placed 10 pips
+        BELOW entry for longs (giving breathing room, accepting small loss risk).
+        Positive offset = lock in profit above entry.  Negative = allow dip below.
+
+        盈亏平衡止损 = 入场价 - offset（做多）/ 入场价 + offset（做空）
         """
         offset = offset_pips * self.config.pip_value
         if pos.is_long:
-            return entry + offset
-        else:
             return entry - offset
+        else:
+            return entry + offset
 
     def _tp_level_stop(self, pos: GoldPosition, entry: float, tp_pips: float) -> float:
         """Calculate stop at a TP level price.

@@ -79,6 +79,7 @@ class GoldScalperEngine:
         self._last_day: Optional[int] = None
         self._circuit_breaker_fired: bool = False
         self._cooldown_until: Optional[datetime] = None  # no new entries until this time
+        self._last_heartbeat: Optional[datetime] = None   # periodic liveness log
 
         # Restore position from broker state (survives process restarts)
         self._restore_position()
@@ -120,61 +121,39 @@ class GoldScalperEngine:
             runner_qty=runner_qty,
         )
 
-        # Check current price to determine which TPs have already been hit
+        # Ratchet stop based on current price, but do NOT mark TPs as hit.
+        # The normal _tick → position_mgr.update() flow will detect passed
+        # TP levels and execute the partial close orders through the broker.
+        # Previously this method marked TPs hit without executing partials,
+        # causing the engine (fewer contracts) and broker (full position) to
+        # desync — the next runner-exit check would then dump the entire
+        # position as "Runner Exit - Bias Flipped".
         try:
             current_price = self.broker.get_current_price(self.config.symbol)
             pips = self.position.pips_from_entry(current_price, self.config.pip_value)
 
-            tp_levels = [
-                (self.config.tp1_pips, "tp1"),
-                (self.config.tp2_pips, "tp2"),
-                (self.config.tp3_pips, "tp3"),
-                (self.config.tp4_pips, "tp4"),
-            ]
-            contracts_closed = 0
-            for tp_pips, tp_name in tp_levels:
-                if pips >= tp_pips:
-                    setattr(self.position, f"{tp_name}_hit", True)
-                    qty = getattr(self.position, f"{tp_name}_qty")
-                    contracts_closed += qty
-                    logger.info(f"[RESTORE] {tp_name.upper()} already passed ({pips:.0f} >= {tp_pips:.0f} pips) — {qty}ct")
-
-            # Reduce remaining contracts by those that should have closed
-            self.position.remaining_contracts = max(
-                runner_qty, contracts - contracts_closed
-            )
-
-            # Ratchet stop to the highest passed TP level
-            if self.position.tp4_hit:
-                self.position.current_stop = entry_price + (
-                    -1 if direction == "LONG" else 1
-                ) * self.config.pips_to_price(self.config.tp3_pips)
-            elif self.position.tp3_hit:
-                self.position.current_stop = entry_price + (
-                    -1 if direction == "LONG" else 1
-                ) * self.config.pips_to_price(self.config.tp2_pips)
-            elif self.position.tp2_hit:
-                self.position.current_stop = entry_price + (
-                    -1 if direction == "LONG" else 1
-                ) * self.config.pips_to_price(self.config.tp1_pips)
-            elif self.position.tp1_hit:
-                # After TP1: stop moves to breakeven + offset
-                be_offset = self.config.pips_to_price(10)  # 10 pips above BE
-                if direction == "LONG":
-                    self.position.current_stop = entry_price + be_offset
-                else:
-                    self.position.current_stop = entry_price - be_offset
+            # Only set the protective stop — let _tick handle TP partials
+            sign = 1 if direction == "LONG" else -1
+            if pips >= self.config.tp4_pips:
+                self.position.current_stop = entry_price + sign * self.config.pips_to_price(self.config.tp3_pips)
+            elif pips >= self.config.tp3_pips:
+                self.position.current_stop = entry_price + sign * self.config.pips_to_price(self.config.tp2_pips)
+            elif pips >= self.config.tp2_pips:
+                self.position.current_stop = entry_price + sign * self.config.pips_to_price(self.config.tp1_pips)
+            elif pips >= self.config.tp1_pips:
+                be_offset = self.config.pips_to_price(self.config.be_offset_pips)
+                self.position.current_stop = entry_price + sign * be_offset
 
             logger.info(
-                f"[RESTORE] Recovered {direction} {self.position.remaining_contracts}ct "
-                f"@ {entry_price:.2f} (was {contracts}ct, {contracts_closed}ct TPs passed, "
-                f"stop={self.position.current_stop:.2f})"
+                f"[RESTORE] Recovered {direction} {contracts}ct "
+                f"@ {entry_price:.2f} (pips={pips:.0f}, "
+                f"stop={self.position.current_stop:.2f}) — "
+                f"TPs will fire on next tick"
             )
         except Exception as e:
-            # Can't get price — fall back to treating all as runner
-            self.position.tp2_hit = True
             logger.warning(
-                f"[RESTORE] Price fetch failed ({e}), treating {contracts}ct as runner"
+                f"[RESTORE] Price fetch failed ({e}), keeping hard stop "
+                f"at {self.position.current_stop:.2f}"
             )
 
     def run(self, poll_interval: int = 10) -> None:
@@ -206,6 +185,25 @@ class GoldScalperEngine:
                     self._tick(now)
                 except RuntimeError as e:
                     logger.warning("Tick skipped: %s", e)
+
+                # Heartbeat every 5 minutes — proves the process is alive
+                # to the watchdog (which checks log file staleness).
+                if (self._last_heartbeat is None or
+                        (now - self._last_heartbeat).total_seconds() >= 300):
+                    pos_status = "FLAT"
+                    if self.position and not self.position.is_flat:
+                        p = self.position
+                        pos_status = (
+                            f"{p.direction} {p.remaining_contracts}ct "
+                            f"@ {p.entry_price:.2f}"
+                        )
+                    logger.info(
+                        "Heartbeat: %s | daily PnL=$%.2f | W/L=%d/%d",
+                        pos_status, self.daily_pnl,
+                        self.daily_wins, self.daily_losses,
+                    )
+                    self._last_heartbeat = now
+
                 time.sleep(poll_interval)
 
         except KeyboardInterrupt:
@@ -280,6 +278,12 @@ class GoldScalperEngine:
             logger.debug(f"Skipping entry: {reason}")
             return
 
+        # Pre-signal filters (ATR, volume, VWAP) — all configurable, disabled by default
+        filter_reason = self._apply_signal_filters(direction, bars)
+        if filter_reason:
+            logger.debug(f"Filtered: {filter_reason}")
+            return
+
         # Generate signal
         signal = self.signal_gen.evaluate(direction, bars.get("5m", pd.DataFrame()))
 
@@ -338,6 +342,75 @@ class GoldScalperEngine:
             bias_summary=bias_summary,
             rsi=signal.rsi_value,
         )
+
+    def _apply_signal_filters(
+        self, direction: Optional[str], bars: Dict[str, pd.DataFrame]
+    ) -> str:
+        """Pre-signal filters — reject entries based on volatility/volume/VWAP.
+
+        Returns empty string if all filters pass, or rejection reason.
+        All filters are disabled by default (config fields default False).
+        """
+        if direction is None:
+            return ""  # no bias alignment, nothing to filter
+
+        bars_5m = bars.get("5m", pd.DataFrame())
+        if bars_5m.empty or len(bars_5m) < 30:
+            return ""  # insufficient data for indicators
+
+        cfg = self.config
+
+        # Filter 1: ATR volatility band
+        if cfg.filter_atr_enabled:
+            from src.signals_engine import compute_atr
+            atr_series = compute_atr(
+                bars_5m["high"], bars_5m["low"], bars_5m["close"], period=14
+            )
+            if len(atr_series) >= 20:
+                atr_now = float(atr_series.iloc[-1])
+                atr_ma = float(atr_series.tail(20).mean())
+                if atr_ma > 0:
+                    ratio = atr_now / atr_ma
+                    if ratio < cfg.filter_atr_low:
+                        return f"ATR ratio {ratio:.2f} < {cfg.filter_atr_low} (dead market)"
+                    if ratio > cfg.filter_atr_high:
+                        return f"ATR ratio {ratio:.2f} > {cfg.filter_atr_high} (too volatile)"
+
+        # Filter 2: Volume regime
+        if cfg.filter_vol_enabled:
+            vol = bars_5m["volume"]
+            if len(vol) >= 20:
+                vol_now = float(vol.iloc[-1])
+                vol_ma = float(vol.tail(20).mean())
+                if vol_ma > 0 and vol_now < cfg.filter_vol_min * vol_ma:
+                    return (
+                        f"Volume {vol_now:.0f} < {cfg.filter_vol_min}× MA "
+                        f"({vol_ma:.0f}) — thin market"
+                    )
+
+        # Filter 3: VWAP distance
+        if cfg.filter_vwap_enabled:
+            from src.signals_engine import compute_atr
+            atr_series = compute_atr(
+                bars_5m["high"], bars_5m["low"], bars_5m["close"], period=14
+            )
+            if len(atr_series) >= 1:
+                atr_now = float(atr_series.iloc[-1])
+                # Compute VWAP inline (need typical_price × volume / cumulative volume)
+                tp = (bars_5m["high"] + bars_5m["low"] + bars_5m["close"]) / 3.0
+                cum_tpv = (tp * bars_5m["volume"]).cumsum()
+                cum_vol = bars_5m["volume"].cumsum()
+                vwap = float(cum_tpv.iloc[-1] / max(cum_vol.iloc[-1], 1))
+                price = float(bars_5m["close"].iloc[-1])
+                if atr_now > 0:
+                    dist = abs(price - vwap) / atr_now
+                    if dist > cfg.filter_vwap_max_atr:
+                        return (
+                            f"VWAP distance {dist:.1f}× ATR > "
+                            f"{cfg.filter_vwap_max_atr} (overstretched)"
+                        )
+
+        return ""  # all filters passed
 
     def _execute_action(self, action: TradeAction, biases) -> None:
         """Execute a trade action from the position manager.
@@ -570,8 +643,17 @@ def main():
     )
     parser.add_argument(
         "--broker", type=str, default="paper",
-        choices=["paper", "cqg", "ibkr"],
-        help="Broker backend: 'paper' (local sim), 'cqg' (AMP Futures demo), or 'ibkr' (Interactive Brokers)"
+        choices=["paper", "cqg", "ibkr", "hybrid"],
+        help="Broker backend: 'paper' (Yahoo data + sim), 'hybrid' (IBKR data + sim), 'ibkr' (IBKR live), 'cqg' (AMP demo)"
+    )
+    parser.add_argument(
+        "--mode", type=str, default="signal",
+        choices=["signal", "webhook"],
+        help="Run mode: 'signal' (generate signals locally), 'webhook' (receive from TradingView)"
+    )
+    parser.add_argument(
+        "--webhook-port", type=int, default=8000,
+        help="Port for webhook server (default: 8000)"
     )
     parser.add_argument(
         "--log-level", type=str, default="INFO",
@@ -589,11 +671,14 @@ def main():
     )
 
     # Log rotation: RotatingFileHandler (10 MB, 5 backups)
+    # Separate log files for signal mode vs webhook mode
     from logging.handlers import RotatingFileHandler as _RFH
     _log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__)))), "logs")
     os.makedirs(_log_dir, exist_ok=True)
-    _rfh = _RFH(os.path.join(_log_dir, "paper_trader_gold_scalper.log"),
+    _log_name = ("gold_webhook.log" if args.mode == "webhook"
+                 else "gold_signal.log")
+    _rfh = _RFH(os.path.join(_log_dir, _log_name),
                 maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8")
     _rfh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s",
                                         datefmt="%Y-%m-%d %H:%M:%S"))
@@ -615,19 +700,60 @@ def main():
         logger.info("Using CQG broker (AMP Futures demo)")
     elif args.broker == "ibkr":
         from src.gold_scalper.ibkr_broker import IBKRGoldBroker
-        broker = IBKRGoldBroker(
-            config,
-            host=os.environ.get("IBKR_HOST", "127.0.0.1"),
-            port=int(os.environ.get("IBKR_PORT", "7497")),
-            client_id=int(os.environ.get("IBKR_CLIENT_ID", "10")),
-        )
+        # Webhook mode uses clientId 20, signal mode uses 10 — prevents conflicts
+        _default_cid = "20" if args.mode == "webhook" else "10"
+        _ibkr_host = os.environ.get("IBKR_HOST", "127.0.0.1")
+        _ibkr_port = int(os.environ.get("IBKR_PORT", "7497"))
+        _ibkr_cid = int(os.environ.get("IBKR_CLIENT_ID", _default_cid))
+        # Retry IBKR connection — TWS may not be up yet after a restart
+        broker = None
+        for _attempt in range(1, 61):  # up to ~10 min of retries
+            try:
+                broker = IBKRGoldBroker(
+                    config, host=_ibkr_host, port=_ibkr_port, client_id=_ibkr_cid,
+                )
+                break
+            except Exception as _e:
+                logger.warning(
+                    "IBKR connect attempt %d/60 failed: %s — retrying in 10s",
+                    _attempt, _e,
+                )
+                import time as _time
+                _time.sleep(10)
+        if broker is None:
+            raise RuntimeError(
+                f"Cannot connect to IBKR at {_ibkr_host}:{_ibkr_port} after 60 attempts"
+            )
         logger.info("Using IBKR broker (Interactive Brokers)")
+    elif args.broker == "hybrid":
+        from src.gold_scalper.broker_adapter import HybridGoldBroker
+        broker = HybridGoldBroker(
+            config,
+            initial_equity=args.initial_equity,
+            ibkr_host=os.environ.get("IBKR_HOST", "127.0.0.1"),
+            ibkr_port=int(os.environ.get("IBKR_PORT", "7497")),
+            ibkr_client_id=int(os.environ.get("IBKR_CLIENT_ID", "10")),
+        )
+        logger.info("Using hybrid broker (IBKR data + paper execution)")
     else:
         broker = PaperGoldBroker(config, initial_equity=args.initial_equity)
         logger.info("Using paper broker (local simulation)")
     alerts = ScalperAlertEngine(webhook_url)
 
-    # Run engine
+    # Webhook mode: start webhook server instead of signal loop
+    if args.mode == "webhook":
+        from src.gold_scalper.webhook_server import start_server
+        logger.info("Starting webhook mode — waiting for TradingView signals")
+        start_server(
+            broker=broker,
+            config=config,
+            host="0.0.0.0",
+            port=args.webhook_port,
+            webhook_url=webhook_url,
+        )
+        return
+
+    # Signal mode: run normal engine loop
     engine = GoldScalperEngine(
         config=config,
         broker=broker,

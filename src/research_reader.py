@@ -626,8 +626,11 @@ class ResearchReader:
         # Match **TICKER** optionally followed by parenthetical description
         bold_re = re.compile(r"\*\*([A-Z]{2,5})\*\*(?:\s*\(([^)]+)\))?")
         # Known ETF tickers (expand beyond just TICKER_CATEGORY_HINTS)
-        from etf_screener import ALL_SEED_SYMBOLS
-        known = set(TICKER_CATEGORY_HINTS.keys()) | set(ALL_SEED_SYMBOLS)
+        try:
+            from src.etf_screener import ALL_SEED_SYMBOLS
+            known = set(TICKER_CATEGORY_HINTS.keys()) | set(ALL_SEED_SYMBOLS)
+        except ImportError:
+            known = set(TICKER_CATEGORY_HINTS.keys())
         # Also accept any bold uppercase that looks like a ticker
         # but filter out common false positives
         FALSE_POSITIVES = {

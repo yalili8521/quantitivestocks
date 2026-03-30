@@ -413,6 +413,113 @@ def _is_leveraged(name: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Expanded universe discovery via Alpaca assets API
+# ---------------------------------------------------------------------------
+def discover_etf_universe_alpaca(
+    min_aum: float = 1_000_000_000,
+    min_avg_dollar_vol: float = 50_000_000,
+) -> List[str]:
+    """Discover tradeable ETFs via Alpaca assets API + yfinance validation.
+
+    Returns sorted list of ETF tickers that pass hard filters:
+      - AUM >= $1B
+      - Avg daily dollar volume >= $50M
+      - Not leveraged/inverse
+      - Confirmed quoteType == "ETF" via yfinance
+
+    Falls back to ALL_SEED_SYMBOLS on any failure.
+    """
+    import yfinance as yf
+
+    # Step 1: Get all tradable assets from Alpaca
+    key = os.environ.get("ALPACA_INTRADAY_KEY") or os.environ.get("ALPACA_SWING_KEY")
+    secret = os.environ.get("ALPACA_INTRADAY_SECRET") or os.environ.get("ALPACA_SWING_SECRET")
+    if not key or not secret:
+        log.warning("No Alpaca API key for universe discovery — using seed")
+        return list(ALL_SEED_SYMBOLS)
+
+    try:
+        import requests
+        resp = requests.get(
+            "https://paper-api.alpaca.markets/v2/assets",
+            headers={"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret},
+            params={"status": "active", "asset_class": "us_equity"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        assets = resp.json()
+    except Exception as exc:
+        log.warning("Alpaca assets API failed: %s — using seed", exc)
+        return list(ALL_SEED_SYMBOLS)
+
+    # Filter tradeable, reasonable exchanges
+    tradable_exchanges = {"NYSE", "NASDAQ", "AMEX", "ARCA", "BATS", "NYSE ARCA"}
+    candidates = sorted(set(
+        a["symbol"] for a in assets
+        if a.get("tradable") and a.get("exchange") in tradable_exchanges
+        and not a.get("symbol", "").endswith(".")  # skip foreign classes
+    ))
+    log.info("Alpaca returned %d tradable US equity symbols", len(candidates))
+
+    # Step 2: Batch-download 5d price data to find active ETFs with volume
+    # Process in chunks to avoid yfinance timeout
+    valid_etfs: List[str] = list(ALL_SEED_SYMBOLS)  # always include seeds
+    chunk_size = 100
+    for i in range(0, len(candidates), chunk_size):
+        chunk = candidates[i:i + chunk_size]
+        try:
+            data = yf.download(chunk, period="5d", progress=False, auto_adjust=True, threads=True)
+            if data.empty:
+                continue
+            # Check which symbols have valid data and volume
+            if hasattr(data.columns, "get_level_values"):
+                for sym in data.columns.get_level_values(1).unique():
+                    try:
+                        close = data["Close"][sym].dropna()
+                        vol = data["Volume"][sym].dropna()
+                        if len(close) >= 3 and close.iloc[-1] > 0:
+                            avg_dv = (close * vol).mean()
+                            if avg_dv >= min_avg_dollar_vol:
+                                valid_etfs.append(sym)
+                    except Exception:
+                        continue
+        except Exception as exc:
+            log.debug("Chunk %d yf.download failed: %s", i, exc)
+            continue
+
+    valid_etfs = sorted(set(valid_etfs))
+    log.info("Post volume filter: %d candidates (seeds + Alpaca discovery)", len(valid_etfs))
+
+    # Step 3: Validate ETF quoteType and AUM via yfinance .info (sample top candidates)
+    # This is expensive so we only validate candidates not in seed universe
+    new_candidates = [s for s in valid_etfs if s not in ALL_SEED_SYMBOLS]
+    confirmed_etfs = list(ALL_SEED_SYMBOLS)  # seeds always included
+
+    for sym in new_candidates[:200]:  # cap at 200 new candidates
+        try:
+            info = yf.Ticker(sym).info or {}
+            qt = info.get("quoteType", "")
+            aum = info.get("totalAssets") or 0
+            name = info.get("longName") or info.get("shortName") or sym
+
+            if qt != "ETF":
+                continue
+            if aum > 0 and aum < min_aum:
+                continue
+            if _is_leveraged(name):
+                continue
+            confirmed_etfs.append(sym)
+        except Exception:
+            continue
+
+    confirmed_etfs = sorted(set(confirmed_etfs))
+    log.info("Confirmed %d ETFs (seeds=%d + discovered=%d)",
+             len(confirmed_etfs), len(ALL_SEED_SYMBOLS),
+             len(confirmed_etfs) - len(ALL_SEED_SYMBOLS))
+    return confirmed_etfs
+
+
+# ---------------------------------------------------------------------------
 # Main screening pipeline
 # ---------------------------------------------------------------------------
 def screen_etf_universe(
@@ -434,10 +541,21 @@ def screen_etf_universe(
     """
     save_dir = save_dir or SWING_MODEL_DIR
 
-    # Tier 1: yfinance .info for all seed ETFs
+    # Tier 0: Expanded universe via Alpaca assets API
+    expanded_universe = None
+    try:
+        expanded_universe = discover_etf_universe_alpaca(
+            min_aum=min_aum, min_avg_dollar_vol=min_avg_dollar_vol,
+        )
+        log.info("[Tier 0] Alpaca discovery found %d ETFs", len(expanded_universe))
+    except Exception as exc:
+        log.warning("[Tier 0] Alpaca ETF discovery failed: %s — using seed", exc)
+
+    # Tier 1: yfinance .info for universe (expanded or seed fallback)
+    universe_symbols = expanded_universe or list(ALL_SEED_SYMBOLS)
     raw_data = None
     try:
-        raw_data = fetch_etf_info(ALL_SEED_SYMBOLS)
+        raw_data = fetch_etf_info(universe_symbols)
     except Exception as exc:
         log.warning("[Tier 1] yfinance info fetch failed: %s", exc)
 
@@ -541,7 +659,15 @@ def screen_etf_universe(
 
     log.info("Final ETF universe: %d ETFs", len(candidates))
 
-    # Step 5: Save
+    # Step 5: Save — but NEVER overwrite a good universe with an empty one.
+    if not candidates:
+        cache_age = _cache_age_days(save_dir)
+        if cache_age < 90:
+            log.warning("Screen produced 0 ETFs — keeping cached universe (%.0f days old)", cache_age)
+            cached = load_etf_universe_detail(save_dir)
+            return [ScreenedETF(**c) for c in cached] if cached else []
+        log.error("Screen produced 0 ETFs and cache is stale (%.0f days) — saving empty", cache_age)
+
     _save_etf_universe(candidates, save_dir)
 
     return candidates

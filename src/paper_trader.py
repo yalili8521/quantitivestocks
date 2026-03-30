@@ -700,6 +700,10 @@ class AlpacaPaperTrader:
 
         self._vix_cache: Optional[pd.DataFrame] = None
 
+        # Research bias (loaded lazily, refreshed every 6 hours)
+        self._research_bias: Dict[str, float] = {}
+        self._research_bias_ts: float = 0.0
+
         # Crypto intraday data source (lazy init)
         self._crypto_intraday_data = None
 
@@ -1257,6 +1261,36 @@ class AlpacaPaperTrader:
             model_syms.add(sym)
         return model_syms
 
+    def _load_research_bias(self) -> Dict[str, float]:
+        """Load research bias weights from daily market intelligence reports.
+
+        Caches results for 6 hours to avoid re-parsing on every cycle.
+        Returns {symbol: bias_weight} where weight is in [-1.0, +1.0].
+        """
+        _REFRESH_SECS = 6 * 3600
+        now = time.time()
+        if self._research_bias and (now - self._research_bias_ts) < _REFRESH_SECS:
+            return self._research_bias
+
+        try:
+            from research_reader import ResearchReader
+            reader = ResearchReader()
+            signals = reader.read_last_n_days(7)
+            bias = reader.compute_bias_weights(signals)
+            if bias:
+                self._research_bias = bias
+                self._research_bias_ts = now
+                log.info("Research bias loaded: %d tickers (top-5: %s)",
+                         len(bias),
+                         ", ".join(f"{s}={w:+.2f}" for s, w in
+                                   sorted(bias.items(), key=lambda x: -abs(x[1]))[:5]))
+            else:
+                log.info("Research bias: no signals found")
+        except Exception as e:
+            log.warning("Research bias load failed: %s", e)
+
+        return self._research_bias
+
     def _load_oos_registries(self) -> tuple:
         """Load OOS Sharpe and performance registries from config/trading.json.
 
@@ -1564,6 +1598,21 @@ class AlpacaPaperTrader:
                             composite[sym] += _TFT_CONF_WEIGHT * conf
                 except Exception:
                     pass
+
+            # Research bias boost (from daily market intelligence reports)
+            _RESEARCH_WEIGHT = 0.15
+            _rbias = self._load_research_bias()
+            if _rbias:
+                _applied = 0
+                for sym in list(composite.keys()):
+                    # Map crypto symbol format: BTC-USD -> BTC
+                    _base = sym.split("-")[0] if "-" in sym else sym
+                    _b = _rbias.get(sym, _rbias.get(_base, 0.0))
+                    if _b != 0.0:
+                        composite[sym] += _RESEARCH_WEIGHT * _b
+                        _applied += 1
+                if _applied:
+                    log.info("Research bias applied to %d crypto symbols", _applied)
 
             # Sort by composite score, best-first
             composite = dict(sorted(composite.items(), key=lambda x: -x[1]))
@@ -1935,12 +1984,26 @@ class AlpacaPaperTrader:
                     btc_correlations=spy_correlations,
                     fee_costs=fee_costs,
                 )
+
+                # Research bias boost (from daily market intelligence reports)
+                _RESEARCH_WEIGHT_ETF = 0.15
+                _rbias = self._load_research_bias()
+                if _rbias:
+                    _applied = 0
+                    for sym in list(self._composite_scores.keys()):
+                        _b = _rbias.get(sym, 0.0)
+                        if _b != 0.0:
+                            self._composite_scores[sym] += _RESEARCH_WEIGHT_ETF * _b
+                            _applied += 1
+                    if _applied:
+                        log.info("ETF ranker: research bias applied to %d symbols", _applied)
+
                 # Re-sort by composite score
                 ranked_symbols = sorted(
                     self._composite_scores.keys(),
                     key=lambda s: -self._composite_scores[s],
                 )
-                log.info("ETF ranker: composite scoring applied (%d OOS, SPY penalty, fee-aware)",
+                log.info("ETF ranker: composite scoring applied (%d OOS, SPY penalty, fee-aware, research bias)",
                          len(oos_sharpe_map))
             else:
                 # No OOS data — use raw selector scores
@@ -3312,9 +3375,16 @@ class AlpacaPaperTrader:
                         f"ML: {direction} E[r]={expected_return:+.4f}")
 
             if enter_dir == "LONG":
-                self.buy(symbol, qty, limit_price=current_price)
+                oid = self.buy(symbol, qty, limit_price=current_price)
             else:
-                self.sell_short(symbol, qty, limit_price=current_price)
+                oid = self.sell_short(symbol, qty, limit_price=current_price)
+
+            # Order was deferred (market closed) or failed — do NOT update
+            # internal state or log the trade.  The signal will fire again
+            # next cycle; once the market reopens the order will go through.
+            if oid is None:
+                return (f"DEFERRED  (order not submitted)  "
+                        f"ML: {direction} E[r]={expected_return:+.4f}")
 
             self._peak_prices[symbol] = current_price
             self._entry_atrs[symbol] = bar_atr

@@ -20,6 +20,7 @@ Environment variables:
 """
 
 import os
+import selectors  # noqa: F401 — pre-import before src/ shadows stdlib selectors
 import sys
 
 # Ensure project root and src/ are on sys.path

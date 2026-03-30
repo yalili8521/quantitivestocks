@@ -139,7 +139,7 @@ class ModelMonitor:
         try:
             data = {sym: asdict(h) for sym, h in self._health.items()}
             path = self._state_path()
-            tmp = path + ".tmp"
+            tmp = path + f".tmp.{os.getpid()}"
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
             os.replace(tmp, path)

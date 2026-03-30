@@ -755,7 +755,17 @@ def screen_universe(
 
     log.info("Final universe: %d coins (source: %s)", len(candidates), data_source)
 
-    # Step 5: Save
+    # Step 5: Save — but NEVER overwrite a good universe with an empty one.
+    # An empty result likely means an API or network failure, not that all
+    # coins genuinely disappeared.  Reuse the cached file instead.
+    if not candidates:
+        cache_age = _universe_cache_age_days(save_dir)
+        if cache_age < 30:
+            log.warning("Screen produced 0 coins — keeping cached universe (%.0f days old)", cache_age)
+            cached = load_universe_detail(save_dir)
+            return [ScreenedCoin(**c) for c in cached] if cached else []
+        log.error("Screen produced 0 coins and cache is stale (%.0f days) — saving empty", cache_age)
+
     _save_universe(candidates, save_dir, data_source=data_source)
 
     return candidates

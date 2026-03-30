@@ -101,14 +101,15 @@ class IBKRGoldBroker(GoldBrokerAdapter):
         self._client_id = client_id
 
         # State persistence (backup — real state lives at IBKR)
+        # Stored in webhook/ subfolder, separate from signal-mode bot
         project_root = os.path.dirname(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         )
-        state_dir = os.path.join(project_root, "outputs", "paper_state")
+        state_dir = os.path.join(project_root, "outputs", "paper_state", "webhook")
         os.makedirs(state_dir, exist_ok=True)
-        self._state_file = os.path.join(state_dir, "gold_scalper_ibkr_state.json")
+        self._state_file = os.path.join(state_dir, "ibkr_state.json")
         self._trade_log_file = os.path.join(
-            state_dir, "gold_scalper_ibkr_trade_log.json"
+            state_dir, "ibkr_trade_log.json"
         )
         self._trade_log: List[Dict] = self._load_trade_log()
 
@@ -478,6 +479,81 @@ class IBKRGoldBroker(GoldBrokerAdapter):
         with open(tmp, "w") as f:
             json.dump(self._trade_log[-500:], f, indent=2)
         os.replace(tmp, self._trade_log_file)
+
+    def fetch_historical_5m(self, days: int = 60) -> pd.DataFrame:
+        """Fetch extended 5m historical bars for backtesting.
+
+        IBKR limits 5m requests to ~5 days per call, so we chain multiple
+        requests backwards from now.  Max ~180 days of 5m data.
+
+        Args:
+            days: Total calendar days of history to fetch.
+
+        Returns:
+            DataFrame with ts, open, high, low, close, volume columns.
+        """
+        self._ensure_connected()
+
+        from datetime import datetime as dt, timedelta
+
+        all_rows = []
+        chunk_days = 5  # IBKR limit for 5-min bars per request
+        end_dt = dt.now()
+
+        remaining = days
+        while remaining > 0:
+            fetch_days = min(chunk_days, remaining)
+            duration_str = f"{fetch_days} D"
+            end_str = end_dt.strftime("%Y%m%d-%H:%M:%S")
+
+            try:
+                ib_bars = self.ib.reqHistoricalData(
+                    self._contract,
+                    endDateTime=end_str,
+                    durationStr=duration_str,
+                    barSizeSetting="5 mins",
+                    whatToShow="TRADES",
+                    useRTH=False,
+                    formatDate=1,
+                )
+                self.ib.sleep(1)  # pace requests to avoid IBKR throttle
+            except Exception as e:
+                logger.error("[IBKR] Historical chunk failed at %s: %s", end_str, e)
+                break
+
+            if not ib_bars:
+                logger.warning("[IBKR] No bars returned for chunk ending %s", end_str)
+                break
+
+            rows = []
+            for bar in ib_bars:
+                rows.append({
+                    "ts": pd.Timestamp(bar.date),
+                    "open": bar.open,
+                    "high": bar.high,
+                    "low": bar.low,
+                    "close": bar.close,
+                    "volume": bar.volume,
+                })
+            all_rows = rows + all_rows  # prepend older data
+
+            # Move window back
+            oldest_ts = pd.Timestamp(ib_bars[0].date)
+            end_dt = oldest_ts.to_pydatetime() - timedelta(minutes=1)
+            remaining -= fetch_days
+            logger.info(
+                "[IBKR] Fetched %d bars (%s to %s), %d days remaining",
+                len(rows),
+                rows[0]["ts"], rows[-1]["ts"], remaining,
+            )
+
+        if not all_rows:
+            return pd.DataFrame(columns=["ts", "open", "high", "low", "close", "volume"])
+
+        df = pd.DataFrame(all_rows)
+        df = df.drop_duplicates(subset=["ts"]).sort_values("ts").reset_index(drop=True)
+        logger.info("[IBKR] Total historical bars: %d (%.0f days)", len(df), days)
+        return df
 
     def disconnect(self) -> None:
         """Gracefully disconnect from IBKR."""
