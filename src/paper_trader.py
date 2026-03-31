@@ -1622,9 +1622,8 @@ class AlpacaPaperTrader:
             for i, sym in enumerate(all_ranked, 1):
                 sel_score = dict(result.rankings).get(sym, 0)
                 oos_s = oos_sharpe.get(sym, 0)
-                blended_s = self._blended_sharpe(sym, oos_s)
-                log.info("  Rank #%d %s: composite=%.3f (sel=%.2f, oos_sharpe=%.2f, blended=%.2f)",
-                         i, sym, composite[sym], sel_score, oos_s, blended_s)
+                log.info("  Rank #%d %s: composite=%.3f (sel=%.2f, oos_sharpe=%.2f)",
+                         i, sym, composite[sym], sel_score, oos_s)
 
             # Step 2: Take top-K ranked as CANDIDATES (K ≥ 12)
             # The candidate pool is larger than max_positions so that
@@ -1709,18 +1708,27 @@ class AlpacaPaperTrader:
         """Return symbols that have a trained model on disk for the given group."""
         import glob as _glob
         if group == "swing":
-            pattern = os.path.join(SWING_MODEL_DIR, "*_xgb_swing_config.json")
-            suffix = "_xgb_swing_config.json"
+            patterns = [
+                (os.path.join(SWING_MODEL_DIR, "*_xgb_swing_config.json"),
+                 "_xgb_swing_config.json"),
+            ]
         elif group == "intraday":
-            pattern = os.path.join(INTRADAY_MODEL_DIR, "*_lgb_intraday_config.json")
-            suffix = "_lgb_intraday_config.json"
+            # Match both legacy (*_lgb_intraday_config.json) and new
+            # (*_lgb_intraday_etf_config.json) naming conventions.
+            patterns = [
+                (os.path.join(INTRADAY_MODEL_DIR, "*_lgb_intraday_config.json"),
+                 "_lgb_intraday_config.json"),
+                (os.path.join(INTRADAY_MODEL_DIR, "*_lgb_intraday_etf_config.json"),
+                 "_lgb_intraday_etf_config.json"),
+            ]
         else:
             return set()
         model_syms: Set[str] = set()
-        for path in _glob.glob(pattern):
-            fname = os.path.basename(path)
-            sym = fname.replace(suffix, "")
-            model_syms.add(sym)
+        for pattern, suffix in patterns:
+            for path in _glob.glob(pattern):
+                fname = os.path.basename(path)
+                sym = fname.replace(suffix, "")
+                model_syms.add(sym)
         return model_syms
 
     def _train_on_the_fly(self, symbol: str) -> bool:
@@ -3807,7 +3815,7 @@ class AlpacaPaperTrader:
                 # Fallback: static self.symbols
                 now_utc = datetime.now(timezone.utc)
 
-                if self.group in ("crypto", "crypto_intraday") and self._coin_selector is not None:
+                if self.group in ("crypto", "crypto_intraday"):
                     _fast_interval = _FAST_REFRESH_SECS.get(self.group)
                     _do_full = (_should_refresh_selector(self.group, self._selector_last_run_date)
                                 or not self._selector_active_symbols)
@@ -3985,7 +3993,9 @@ class AlpacaPaperTrader:
                     # Extended-hours guard: Asian/EM ETFs have near-zero volume
                     # during US pre/after-market — underlying markets are closed.
                     # Skipping avoids 0.5-2% spread costs on worthless signals.
-                    if session == "extended" and sym not in EXTENDED_HOURS_UNIVERSE:
+                    # Crypto groups trade 24/7 — NEVER apply extended-hours filter.
+                    _is_crypto_group = self.group in ("crypto", "crypto_intraday")
+                    if not _is_crypto_group and session == "extended" and sym not in EXTENDED_HOURS_UNIVERSE:
                         # Still allow exits on existing positions, block new entries
                         pos = positions.get(sym)
                         if pos is None or pos["qty"] == 0:

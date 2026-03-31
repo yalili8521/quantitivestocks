@@ -1,0 +1,9 @@
+{
+  "updated_at": "2026-03-31T04:24:45.783032+00:00",
+  "factors": {
+    "intraday": 1.0,
+    "swing": 1.0,
+    "crypto": 1.0,
+    "crypto_intraday": 1.0
+  }
+}

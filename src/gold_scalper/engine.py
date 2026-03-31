@@ -278,6 +278,11 @@ class GoldScalperEngine:
             logger.debug(f"Skipping entry: {reason}")
             return
 
+        # Block entries when running on delayed Yahoo fallback data
+        if hasattr(self.broker, "is_ibkr_live") and not self.broker.is_ibkr_live:
+            logger.debug("Skipping entry: IBKR data unavailable — Yahoo fallback is delayed")
+            return
+
         # Pre-signal filters (ATR, volume, VWAP) — all configurable, disabled by default
         filter_reason = self._apply_signal_filters(direction, bars)
         if filter_reason:

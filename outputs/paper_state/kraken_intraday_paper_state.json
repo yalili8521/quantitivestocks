@@ -1,21 +1,14 @@
 {
-  "cash": 96742.0017319088,
+  "cash": 93801.15912397156,
   "initial_balance": 100000.0,
   "positions": {
-    "ATOM/USD": {
-      "symbol": "ATOM/USD",
-      "qty": 1801.425349,
-      "side": "SHORT",
-      "entry_price": 1.66226845,
-      "entry_time": "2026-03-30T19:25:31.097078+00:00"
-    },
-    "SEI/USD": {
-      "symbol": "SEI/USD",
-      "qty": 56899.054506,
-      "side": "SHORT",
-      "entry_price": 0.051084445000000006,
-      "entry_time": "2026-03-30T19:40:51.277765+00:00"
+    "LPT/USD": {
+      "symbol": "LPT/USD",
+      "qty": 1398.545908,
+      "side": "LONG",
+      "entry_price": 2.0720355,
+      "entry_time": "2026-03-31T01:46:12.948511+00:00"
     }
   },
-  "last_updated": "2026-03-30T19:49:51.143994+00:00"
+  "last_updated": "2026-03-31T01:46:12.965520+00:00"
 }

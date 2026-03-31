@@ -1,0 +1,82 @@
+{
+  "intraday": {
+    "updated_at": "2026-03-31T04:32:20.073389+00:00",
+    "positions": {
+      "XLE": {
+        "qty": 58.0,
+        "current_price": 61.99,
+        "side": "LONG"
+      }
+    }
+  },
+  "swing": {
+    "updated_at": "2026-03-31T04:27:50.240861+00:00",
+    "positions": {
+      "ARKK": {
+        "qty": 26.0,
+        "current_price": 64.54,
+        "side": "LONG"
+      },
+      "IGV": {
+        "qty": 22.0,
+        "current_price": 78.5,
+        "side": "LONG"
+      },
+      "PDBC": {
+        "qty": 204.0,
+        "current_price": 17.42,
+        "side": "SHORT"
+      },
+      "XLP": {
+        "qty": 47.0,
+        "current_price": 82.11,
+        "side": "LONG"
+      },
+      "XLRE": {
+        "qty": 77.0,
+        "current_price": 40.28,
+        "side": "LONG"
+      }
+    }
+  },
+  "crypto": {
+    "updated_at": "2026-03-31T04:31:34.986961+00:00",
+    "positions": {
+      "AVAX/USD": {
+        "qty": 323.043324,
+        "current_price": 8.94,
+        "side": "LONG"
+      },
+      "CRV/USD": {
+        "qty": 13376.78682,
+        "current_price": 0.2181,
+        "side": "LONG"
+      },
+      "ATOM/USD": {
+        "qty": 2245.165932,
+        "current_price": 1.6945,
+        "side": "LONG"
+      },
+      "QNT/USD": {
+        "qty": 24.366841,
+        "current_price": 71.37,
+        "side": "LONG"
+      },
+      "FARTCOIN/USD": {
+        "qty": 14626.352705,
+        "current_price": 0.1704,
+        "side": "SHORT"
+      }
+    }
+  },
+  "crypto_intraday": {
+    "updated_at": "2026-03-31T04:24:46.834079+00:00",
+    "positions": {
+      "LPT/USD": {
+        "qty": 1398.545908,
+        "current_price": 2.061,
+        "side": "LONG"
+      }
+    }
+  }
+}

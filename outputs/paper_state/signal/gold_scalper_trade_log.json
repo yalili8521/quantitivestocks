@@ -405,5 +405,16 @@
     "pnl": -1830.0,
     "reason": "Hard Stop Hit",
     "order_id": "PAPER-000057"
+  },
+  {
+    "time": "2026-03-30T17:45:54.061277",
+    "symbol": "GC=F",
+    "direction": "SHORT",
+    "contracts": 6,
+    "entry": 4517.39990234375,
+    "exit": 4544.7998046875,
+    "pnl": -1643.99,
+    "reason": "Hard Stop Hit",
+    "order_id": "PAPER-000059"
   }
 ]

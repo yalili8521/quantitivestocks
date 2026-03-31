@@ -317,15 +317,23 @@ while ($true) {
             $needsRestart = $true
             $reason = "died"
         } else {
-            # Check if the process is hung: no log file (stdout OR stderr) updated in 10 minutes
-            # Check both .log (stdout) and _err.log (stderr) — some groups (gold_scalper)
-            # only emit to stderr via Python logging, so stdout files stay 0-byte/stale.
+            # Check if the process is hung: no log file updated in 10 minutes.
+            # Gold scalper writes to gold_signal.log / gold_webhook.log (via Python logging),
+            # NOT to the paper_trader_gold_scalper_*.log stdout redirect (which stays 0-byte).
             $logPattern    = Join-Path $LogDir ("paper_trader_$($grp.Name)_*.log")
             $errLogPattern = Join-Path $LogDir ("paper_trader_$($grp.Name)_*_err.log")
-            $latestLog = @(
+            $logCandidates = @(
                 Get-ChildItem -Path $logPattern    -ErrorAction SilentlyContinue
                 Get-ChildItem -Path $errLogPattern -ErrorAction SilentlyContinue
-            ) | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            )
+            # Also check the gold scalper's own RotatingFileHandler logs
+            if ($grp.Name -eq 'gold_scalper') {
+                $logCandidates += @(
+                    Get-Item -Path (Join-Path $LogDir 'gold_signal.log') -ErrorAction SilentlyContinue
+                    Get-Item -Path (Join-Path $LogDir 'gold_webhook.log') -ErrorAction SilentlyContinue
+                )
+            }
+            $latestLog = $logCandidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1
             if ($latestLog) {
                 $staleMins = ((Get-Date) - $latestLog.LastWriteTime).TotalMinutes
                 if ($staleMins -gt 10) {

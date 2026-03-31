@@ -524,6 +524,11 @@ class HybridGoldBroker(PaperGoldBroker):
         # Connect to IBKR
         self._connect_ibkr()
 
+    @property
+    def is_ibkr_live(self) -> bool:
+        """True when IBKR real-time data is active (not Yahoo fallback)."""
+        return self._ibkr is not None and not self._ibkr_failed
+
     def _connect_ibkr(self) -> None:
         """Initialize IBKR connection for data feed."""
         try:

@@ -78,7 +78,7 @@
     "same_dir_confidence_mult": 1.5,
     "trend_sma": 50,
     "position_pct": 0.45,
-    "total_risk_budget": 0.10,
+    "total_risk_budget": 0.1,
     "concentration": 1.5,
     "max_position_pct": 0.12,
     "max_sector_pct": 0.35,
@@ -302,590 +302,79 @@
     "spread_mult": 3.0
   },
   "oos_sharpe_registry": {
-    "ATOM-USD": {
-      "oos_sharpe": -0.501,
-      "oos_pf": 0.855,
-      "oos_wr": 42.9,
-      "oos_trades": 7,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "SAND-USD": {
-      "oos_sharpe": 2.347,
-      "oos_pf": 999.0,
-      "oos_wr": 100.0,
-      "oos_trades": 2,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "JTO-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 999.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "EGLD-USD": {
-      "oos_sharpe": 1.859,
-      "oos_pf": 6.198,
-      "oos_wr": 83.3,
-      "oos_trades": 6,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "CAKE-USD": {
-      "oos_sharpe": -0.349,
-      "oos_pf": 0.875,
-      "oos_wr": 62.5,
-      "oos_trades": 8,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "DOT-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 999.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "XTZ-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 999.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ONDO-USD": {
-      "oos_sharpe": 1.521,
-      "oos_pf": 2.569,
-      "oos_wr": 71.4,
-      "oos_trades": 7,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "FIL-USD": {
-      "oos_sharpe": 1.811,
-      "oos_pf": 2.965,
-      "oos_wr": 71.4,
-      "oos_trades": 7,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "HNT-USD": {
-      "oos_sharpe": 2.513,
-      "oos_pf": 3.102,
-      "oos_wr": 62.5,
-      "oos_trades": 8,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "WLD-USD": {
-      "oos_sharpe": 0.217,
-      "oos_pf": 1.082,
-      "oos_wr": 70.0,
-      "oos_trades": 10,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ADA-USD": {
-      "oos_sharpe": -0.218,
-      "oos_pf": 0.852,
-      "oos_wr": 33.3,
-      "oos_trades": 6,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "OP-USD": {
-      "oos_sharpe": -4.514,
-      "oos_pf": 0.206,
-      "oos_wr": 30.0,
-      "oos_trades": 10,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "VET-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 999.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ALGO-USD": {
-      "oos_sharpe": -1.584,
-      "oos_pf": 0.252,
-      "oos_wr": 50.0,
-      "oos_trades": 2,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "SEI-USD": {
-      "oos_sharpe": -6.717,
-      "oos_pf": 0.118,
-      "oos_wr": 22.2,
-      "oos_trades": 9,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "FET-USD": {
-      "oos_sharpe": -1.069,
-      "oos_pf": 0.706,
-      "oos_wr": 50.0,
-      "oos_trades": 10,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "MANA-USD": {
-      "oos_sharpe": -3.761,
-      "oos_pf": 0.024,
-      "oos_wr": 42.9,
-      "oos_trades": 7,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ETC-USD": {
-      "oos_sharpe": -4.166,
-      "oos_pf": 0.0,
-      "oos_wr": 0.0,
-      "oos_trades": 3,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "INJ-USD": {
-      "oos_sharpe": -1.845,
-      "oos_pf": 0.488,
-      "oos_wr": 40.0,
-      "oos_trades": 10,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "CRV-USD": {
-      "oos_sharpe": -3.855,
-      "oos_pf": 0.221,
-      "oos_wr": 44.4,
-      "oos_trades": 9,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "LDO-USD": {
-      "oos_sharpe": -3.332,
-      "oos_pf": 0.19,
-      "oos_wr": 14.3,
-      "oos_trades": 7,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "AR-USD": {
-      "oos_sharpe": 4.252,
-      "oos_pf": 999.0,
-      "oos_wr": 100.0,
-      "oos_trades": 2,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "1INCH-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 999.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "KAS-USD": {
-      "oos_sharpe": -3.572,
-      "oos_pf": 0.042,
-      "oos_wr": 20.0,
-      "oos_trades": 5,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "AVAX-USD": {
-      "oos_sharpe": -1.55,
-      "oos_pf": 0.378,
-      "oos_wr": 33.3,
-      "oos_trades": 6,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "RENDER-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 999.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ENS-USD": {
-      "oos_sharpe": -1.648,
-      "oos_pf": 0.422,
-      "oos_wr": 37.5,
-      "oos_trades": 8,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "LTC-USD": {
-      "oos_sharpe": 0.949,
-      "oos_pf": 6.376,
-      "oos_wr": 66.7,
-      "oos_trades": 3,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "CFX-USD": {
-      "oos_sharpe": -5.849,
-      "oos_pf": 0.0,
-      "oos_wr": 0.0,
-      "oos_trades": 3,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "QNT-USD": {
-      "oos_sharpe": 4.955,
-      "oos_pf": 5.883,
-      "oos_wr": 66.7,
-      "oos_trades": 6,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "LPT-USD": {
-      "oos_sharpe": -4.233,
-      "oos_pf": 0.0,
-      "oos_wr": 0.0,
-      "oos_trades": 7,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "GNO-USD": {
-      "oos_sharpe": -1.272,
-      "oos_pf": 0.639,
-      "oos_wr": 50.0,
-      "oos_trades": 10,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "NEAR-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 999.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ENA-USD": {
-      "oos_sharpe": -2.481,
-      "oos_pf": 0.379,
-      "oos_wr": 40.0,
-      "oos_trades": 10,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ETHFI-USD": {
-      "oos_sharpe": -0.89,
-      "oos_pf": 0.305,
-      "oos_wr": 25.0,
-      "oos_trades": 4,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "GOMINING-USD": {
-      "oos_sharpe": 1.433,
-      "oos_pf": 2.232,
-      "oos_wr": 75.0,
-      "oos_trades": 4,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "LINK-USD": {
-      "oos_sharpe": -0.409,
-      "oos_pf": 0.692,
-      "oos_wr": 50.0,
-      "oos_trades": 2,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "SHIB-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 999.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "VIRTUAL-USD": {
-      "oos_sharpe": -0.744,
-      "oos_pf": 0.752,
-      "oos_wr": 40.0,
-      "oos_trades": 10,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "HBAR-USD": {
-      "oos_sharpe": -2.612,
-      "oos_pf": 0.297,
-      "oos_wr": 28.6,
-      "oos_trades": 7,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "SUSHI-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 999.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "DOGE-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 999.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "RUNE-USD": {
-      "oos_sharpe": 1.011,
-      "oos_pf": 1.684,
-      "oos_wr": 66.7,
-      "oos_trades": 6,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "AAVE-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 999.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "BNB-USD": {
-      "oos_sharpe": -2.202,
-      "oos_pf": 0.379,
-      "oos_wr": 28.6,
-      "oos_trades": 7,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "PENDLE-USD": {
-      "oos_sharpe": -2.98,
-      "oos_pf": 0.246,
-      "oos_wr": 37.5,
-      "oos_trades": 8,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ICP-USD": {
-      "oos_sharpe": 0.125,
-      "oos_pf": 1.082,
-      "oos_wr": 50.0,
-      "oos_trades": 2,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "BTC-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 999.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ETH-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 999.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "CVX-USD": {
-      "oos_sharpe": -1.298,
-      "oos_pf": 0.622,
-      "oos_wr": 50.0,
-      "oos_trades": 10,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "BCH-USD": {
-      "oos_sharpe": -2.969,
-      "oos_pf": 0.251,
-      "oos_wr": 50.0,
-      "oos_trades": 10,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "XDC-USD": {
-      "oos_sharpe": -6.39,
-      "oos_pf": 0.006,
-      "oos_wr": 14.3,
-      "oos_trades": 7,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "XLM-USD": {
-      "oos_sharpe": -1.795,
-      "oos_pf": 0.499,
-      "oos_wr": 50.0,
-      "oos_trades": 8,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "CHZ-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 999.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "XRP-USD": {
-      "oos_sharpe": 0.58,
-      "oos_pf": 1.269,
-      "oos_wr": 55.6,
-      "oos_trades": 9,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "TIA-USD": {
-      "oos_sharpe": -4.275,
-      "oos_pf": 0.268,
-      "oos_wr": 22.2,
-      "oos_trades": 9,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "RAY-USD": {
-      "oos_sharpe": -3.126,
-      "oos_pf": 0.248,
-      "oos_wr": 40.0,
-      "oos_trades": 10,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "SOL-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 999.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "BAT-USD": {
-      "oos_sharpe": 4.191,
-      "oos_pf": 9.368,
-      "oos_wr": 83.3,
-      "oos_trades": 6,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "WIF-USD": {
-      "oos_sharpe": 0.253,
-      "oos_pf": 1.098,
-      "oos_wr": 66.7,
-      "oos_trades": 9,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "AXS-USD": {
-      "oos_sharpe": 1.708,
-      "oos_pf": 1.599,
-      "oos_wr": 55.6,
-      "oos_trades": 9,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "PYTH-USD": {
-      "oos_sharpe": -0.053,
-      "oos_pf": 0.975,
-      "oos_wr": 66.7,
-      "oos_trades": 9,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "TRAC-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 999.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "AKT-USD": {
-      "oos_sharpe": 2.786,
-      "oos_pf": 13.447,
-      "oos_wr": 80.0,
-      "oos_trades": 5,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "APT-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 0.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ARB-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 0.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "BERA-USD": {
-      "oos_sharpe": -0.697,
-      "oos_pf": 0.678,
-      "oos_wr": 18.2,
-      "oos_trades": 11,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "EIGEN-USD": {
-      "oos_sharpe": -2.189,
-      "oos_pf": 0.503,
-      "oos_wr": 37.5,
-      "oos_trades": 8,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "FARTCOIN-USD": {
-      "oos_sharpe": 3.055,
-      "oos_pf": 2.408,
-      "oos_wr": 72.7,
-      "oos_trades": 11,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "SNX-USD": {
-      "oos_sharpe": 2.198,
-      "oos_pf": 3.36,
-      "oos_wr": 75.0,
-      "oos_trades": 8,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "SYRUP-USD": {
-      "oos_sharpe": 1.766,
-      "oos_pf": 1.663,
-      "oos_wr": 71.4,
-      "oos_trades": 7,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "UNI-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 0.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    }
+    "ATOM-USD": -0.501,
+    "SAND-USD": 2.347,
+    "JTO-USD": 0.0,
+    "EGLD-USD": 1.859,
+    "CAKE-USD": -0.349,
+    "DOT-USD": 0.0,
+    "XTZ-USD": 0.0,
+    "ONDO-USD": 1.521,
+    "FIL-USD": 1.811,
+    "HNT-USD": 2.513,
+    "WLD-USD": 0.217,
+    "ADA-USD": -0.218,
+    "OP-USD": -4.514,
+    "VET-USD": 0.0,
+    "ALGO-USD": -1.584,
+    "SEI-USD": -6.717,
+    "FET-USD": -1.069,
+    "MANA-USD": -3.761,
+    "ETC-USD": -4.166,
+    "INJ-USD": -1.845,
+    "CRV-USD": -3.855,
+    "LDO-USD": -3.332,
+    "AR-USD": 4.252,
+    "1INCH-USD": 0.0,
+    "KAS-USD": -3.572,
+    "AVAX-USD": -1.55,
+    "RENDER-USD": 0.0,
+    "ENS-USD": -1.648,
+    "LTC-USD": 0.949,
+    "CFX-USD": -5.849,
+    "QNT-USD": 4.955,
+    "LPT-USD": -4.233,
+    "GNO-USD": -1.272,
+    "NEAR-USD": 0.0,
+    "ENA-USD": -2.481,
+    "ETHFI-USD": -0.89,
+    "GOMINING-USD": 1.433,
+    "LINK-USD": -0.409,
+    "SHIB-USD": 0.0,
+    "VIRTUAL-USD": -0.744,
+    "HBAR-USD": -2.612,
+    "SUSHI-USD": 0.0,
+    "DOGE-USD": 0.0,
+    "RUNE-USD": 1.011,
+    "AAVE-USD": 0.0,
+    "BNB-USD": -2.202,
+    "PENDLE-USD": -2.98,
+    "ICP-USD": 0.125,
+    "BTC-USD": 0.0,
+    "ETH-USD": 0.0,
+    "CVX-USD": -1.298,
+    "BCH-USD": -2.969,
+    "XDC-USD": -6.39,
+    "XLM-USD": -1.795,
+    "CHZ-USD": 0.0,
+    "XRP-USD": 0.58,
+    "TIA-USD": -4.275,
+    "RAY-USD": -3.126,
+    "SOL-USD": 0.0,
+    "BAT-USD": 4.191,
+    "WIF-USD": 0.253,
+    "AXS-USD": 1.708,
+    "PYTH-USD": -0.053,
+    "TRAC-USD": 0.0,
+    "AKT-USD": 2.786,
+    "APT-USD": 0.0,
+    "ARB-USD": 0.0,
+    "BERA-USD": -0.697,
+    "EIGEN-USD": -2.189,
+    "FARTCOIN-USD": 3.055,
+    "SNX-USD": 2.198,
+    "SYRUP-USD": 1.766,
+    "UNI-USD": 0.0
   },
   "crypto_blacklist": {
     "_comment": "Only operational risk \u00e2\u20ac\u201d coins that may become untradeable or have unreliable data. NOT fundamentals.",
@@ -1296,542 +785,73 @@
   },
   "oos_sharpe_registry_intraday": {
     "_comment": "Crypto intraday OOS Sharpe ratios (2026-02-05 to 2026-03-22, 1h hold, 5min bars). Auto-populated from 66-coin backtest.",
-    "1INCH-USD": {
-      "oos_sharpe": 1.947,
-      "oos_pf": 1.349,
-      "oos_wr": 42.4,
-      "oos_trades": 33,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "AAVE-USD": {
-      "oos_sharpe": 1.886,
-      "oos_pf": 1.278,
-      "oos_wr": 53.3,
-      "oos_trades": 60,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ADA-USD": {
-      "oos_sharpe": -2.25,
-      "oos_pf": 0.625,
-      "oos_wr": 50.0,
-      "oos_trades": 52,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ALGO-USD": {
-      "oos_sharpe": 2.254,
-      "oos_pf": 1.455,
-      "oos_wr": 56.2,
-      "oos_trades": 64,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "AR-USD": {
-      "oos_sharpe": -3.075,
-      "oos_pf": 0.548,
-      "oos_wr": 42.9,
-      "oos_trades": 28,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ATOM-USD": {
-      "oos_sharpe": 27.045,
-      "oos_pf": 6.31,
-      "oos_wr": 79.2,
-      "oos_trades": 495,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "AVAX-USD": {
-      "oos_sharpe": 1.949,
-      "oos_pf": 1.458,
-      "oos_wr": 48.3,
-      "oos_trades": 29,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "AXS-USD": {
-      "oos_sharpe": 2.941,
-      "oos_pf": 2.83,
-      "oos_wr": 35.7,
-      "oos_trades": 28,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "BAT-USD": {
-      "oos_sharpe": -5.559,
-      "oos_pf": 0.274,
-      "oos_wr": 32.1,
-      "oos_trades": 28,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "BCH-USD": {
-      "oos_sharpe": 5.252,
-      "oos_pf": 1.801,
-      "oos_wr": 66.9,
-      "oos_trades": 124,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "BERA-USD": {
-      "oos_sharpe": -1.651,
-      "oos_pf": 0.709,
-      "oos_wr": 39.3,
-      "oos_trades": 28,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "BNB-USD": {
-      "oos_sharpe": -0.884,
-      "oos_pf": 0.662,
-      "oos_wr": 46.7,
-      "oos_trades": 30,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "BTC-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 999.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "CAKE-USD": {
-      "oos_sharpe": 0.513,
-      "oos_pf": 1.144,
-      "oos_wr": 51.5,
-      "oos_trades": 33,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "CFX-USD": {
-      "oos_sharpe": -3.628,
-      "oos_pf": 0.442,
-      "oos_wr": 37.0,
-      "oos_trades": 27,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "CHZ-USD": {
-      "oos_sharpe": 1.752,
-      "oos_pf": 1.35,
-      "oos_wr": 48.5,
-      "oos_trades": 33,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "CRV-USD": {
-      "oos_sharpe": -1.504,
-      "oos_pf": 0.759,
-      "oos_wr": 45.0,
-      "oos_trades": 40,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "CVX-USD": {
-      "oos_sharpe": -3.444,
-      "oos_pf": 0.508,
-      "oos_wr": 42.9,
-      "oos_trades": 28,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "DOGE-USD": {
-      "oos_sharpe": -1.515,
-      "oos_pf": 0.714,
-      "oos_wr": 48.5,
-      "oos_trades": 33,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "DOT-USD": {
-      "oos_sharpe": 7.042,
-      "oos_pf": 2.029,
-      "oos_wr": 65.5,
-      "oos_trades": 200,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "EGLD-USD": {
-      "oos_sharpe": -0.482,
-      "oos_pf": 0.86,
-      "oos_wr": 37.0,
-      "oos_trades": 27,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "EIGEN-USD": {
-      "oos_sharpe": 4.757,
-      "oos_pf": 5.74,
-      "oos_wr": 44.4,
-      "oos_trades": 18,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ENA-USD": {
-      "oos_sharpe": 1.903,
-      "oos_pf": 1.26,
-      "oos_wr": 51.4,
-      "oos_trades": 70,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ENS-USD": {
-      "oos_sharpe": -0.503,
-      "oos_pf": 0.893,
-      "oos_wr": 39.3,
-      "oos_trades": 28,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ETC-USD": {
-      "oos_sharpe": 3.958,
-      "oos_pf": 1.766,
-      "oos_wr": 59.4,
-      "oos_trades": 101,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ETH-USD": {
-      "oos_sharpe": -0.852,
-      "oos_pf": 0.815,
-      "oos_wr": 37.0,
-      "oos_trades": 27,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ETHFI-USD": {
-      "oos_sharpe": 1.796,
-      "oos_pf": 1.52,
-      "oos_wr": 48.3,
-      "oos_trades": 29,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "FARTCOIN-USD": {
-      "oos_sharpe": 1.221,
-      "oos_pf": 1.331,
-      "oos_wr": 28.0,
-      "oos_trades": 25,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "FET-USD": {
-      "oos_sharpe": 7.214,
-      "oos_pf": 2.269,
-      "oos_wr": 64.7,
-      "oos_trades": 139,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "FIL-USD": {
-      "oos_sharpe": 9.178,
-      "oos_pf": 2.724,
-      "oos_wr": 63.6,
-      "oos_trades": 118,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "GNO-USD": {
-      "oos_sharpe": -2.957,
-      "oos_pf": 0.479,
-      "oos_wr": 23.1,
-      "oos_trades": 26,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "GOMINING-USD": {
-      "oos_sharpe": 0.887,
-      "oos_pf": 1.222,
-      "oos_wr": 26.9,
-      "oos_trades": 26,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "HBAR-USD": {
-      "oos_sharpe": -2.936,
-      "oos_pf": 0.525,
-      "oos_wr": 32.1,
-      "oos_trades": 28,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "HNT-USD": {
-      "oos_sharpe": -11.107,
-      "oos_pf": 0.115,
-      "oos_wr": 22.2,
-      "oos_trades": 27,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ICP-USD": {
-      "oos_sharpe": -0.683,
-      "oos_pf": 0.885,
-      "oos_wr": 47.6,
-      "oos_trades": 42,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "INJ-USD": {
-      "oos_sharpe": -4.789,
-      "oos_pf": 0.301,
-      "oos_wr": 29.6,
-      "oos_trades": 27,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "JTO-USD": {
-      "oos_sharpe": 0.835,
-      "oos_pf": 1.194,
-      "oos_wr": 45.5,
-      "oos_trades": 11,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "KAS-USD": {
-      "oos_sharpe": -3.695,
-      "oos_pf": 0.397,
-      "oos_wr": 25.9,
-      "oos_trades": 27,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "LDO-USD": {
-      "oos_sharpe": 3.666,
-      "oos_pf": 1.695,
-      "oos_wr": 63.5,
-      "oos_trades": 52,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "LINK-USD": {
-      "oos_sharpe": -4.885,
-      "oos_pf": 0.188,
-      "oos_wr": 33.3,
-      "oos_trades": 27,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "LPT-USD": {
-      "oos_sharpe": 9.867,
-      "oos_pf": 3.038,
-      "oos_wr": 69.8,
-      "oos_trades": 149,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "LTC-USD": {
-      "oos_sharpe": 8.627,
-      "oos_pf": 2.335,
-      "oos_wr": 67.2,
-      "oos_trades": 235,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "MANA-USD": {
-      "oos_sharpe": 4.214,
-      "oos_pf": 1.714,
-      "oos_wr": 54.3,
-      "oos_trades": 92,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "NEAR-USD": {
-      "oos_sharpe": 4.632,
-      "oos_pf": 1.694,
-      "oos_wr": 62.4,
-      "oos_trades": 85,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "ONDO-USD": {
-      "oos_sharpe": 4.997,
-      "oos_pf": 1.88,
-      "oos_wr": 55.6,
-      "oos_trades": 81,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "OP-USD": {
-      "oos_sharpe": 0.929,
-      "oos_pf": 1.153,
-      "oos_wr": 56.5,
-      "oos_trades": 46,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "PENDLE-USD": {
-      "oos_sharpe": -2.254,
-      "oos_pf": 0.556,
-      "oos_wr": 35.7,
-      "oos_trades": 28,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "PYTH-USD": {
-      "oos_sharpe": -7.927,
-      "oos_pf": 0.133,
-      "oos_wr": 21.4,
-      "oos_trades": 28,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "QNT-USD": {
-      "oos_sharpe": 12.685,
-      "oos_pf": 3.182,
-      "oos_wr": 65.6,
-      "oos_trades": 189,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "RAY-USD": {
-      "oos_sharpe": -3.689,
-      "oos_pf": 0.514,
-      "oos_wr": 31.0,
-      "oos_trades": 29,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "RENDER-USD": {
-      "oos_sharpe": -2.496,
-      "oos_pf": 0.578,
-      "oos_wr": 37.9,
-      "oos_trades": 29,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "RUNE-USD": {
-      "oos_sharpe": -3.695,
-      "oos_pf": 0.453,
-      "oos_wr": 37.0,
-      "oos_trades": 27,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "SAND-USD": {
-      "oos_sharpe": 2.879,
-      "oos_pf": 1.679,
-      "oos_wr": 48.3,
-      "oos_trades": 29,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "SEI-USD": {
-      "oos_sharpe": 6.061,
-      "oos_pf": 2.713,
-      "oos_wr": 57.4,
-      "oos_trades": 47,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "SOL-USD": {
-      "oos_sharpe": 0.0,
-      "oos_pf": 999.0,
-      "oos_wr": 0.0,
-      "oos_trades": 0,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "SYRUP-USD": {
-      "oos_sharpe": -5.85,
-      "oos_pf": 0.209,
-      "oos_wr": 33.3,
-      "oos_trades": 27,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "TIA-USD": {
-      "oos_sharpe": 2.385,
-      "oos_pf": 1.726,
-      "oos_wr": 44.4,
-      "oos_trades": 27,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "TRAC-USD": {
-      "oos_sharpe": 2.297,
-      "oos_pf": 1.294,
-      "oos_wr": 54.5,
-      "oos_trades": 66,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "VET-USD": {
-      "oos_sharpe": 5.447,
-      "oos_pf": 2.417,
-      "oos_wr": 58.8,
-      "oos_trades": 80,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "VIRTUAL-USD": {
-      "oos_sharpe": 2.687,
-      "oos_pf": 1.724,
-      "oos_wr": 49.0,
-      "oos_trades": 49,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "WIF-USD": {
-      "oos_sharpe": 0.006,
-      "oos_pf": 0.989,
-      "oos_wr": 37.0,
-      "oos_trades": 27,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "WLD-USD": {
-      "oos_sharpe": 4.179,
-      "oos_pf": 1.482,
-      "oos_wr": 60.0,
-      "oos_trades": 150,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "XDC-USD": {
-      "oos_sharpe": 0.891,
-      "oos_pf": 1.15,
-      "oos_wr": 48.8,
-      "oos_trades": 43,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "XLM-USD": {
-      "oos_sharpe": 12.598,
-      "oos_pf": 2.514,
-      "oos_wr": 68.0,
-      "oos_trades": 378,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "XRP-USD": {
-      "oos_sharpe": 0.022,
-      "oos_pf": 1.001,
-      "oos_wr": 37.0,
-      "oos_trades": 27,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "XTZ-USD": {
-      "oos_sharpe": 2.113,
-      "oos_pf": 1.333,
-      "oos_wr": 54.0,
-      "oos_trades": 50,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    },
-    "IP-USD": {
-      "oos_sharpe": 0.072,
-      "oos_pf": 1.006,
-      "oos_wr": 46.7,
-      "oos_trades": 30,
-      "updated": "2026-03-26",
-      "oos_start": "2026-01-25"
-    }
+    "1INCH-USD": 1.947,
+    "AAVE-USD": 1.886,
+    "ADA-USD": -2.25,
+    "ALGO-USD": 2.254,
+    "AR-USD": -3.075,
+    "ATOM-USD": 27.045,
+    "AVAX-USD": 1.949,
+    "AXS-USD": 2.941,
+    "BAT-USD": -5.559,
+    "BCH-USD": 5.252,
+    "BERA-USD": -1.651,
+    "BNB-USD": -0.884,
+    "BTC-USD": 0.0,
+    "CAKE-USD": 0.513,
+    "CFX-USD": -3.628,
+    "CHZ-USD": 1.752,
+    "CRV-USD": -1.504,
+    "CVX-USD": -3.444,
+    "DOGE-USD": -1.515,
+    "DOT-USD": 7.042,
+    "EGLD-USD": -0.482,
+    "EIGEN-USD": 4.757,
+    "ENA-USD": 1.903,
+    "ENS-USD": -0.503,
+    "ETC-USD": 3.958,
+    "ETH-USD": -0.852,
+    "ETHFI-USD": 1.796,
+    "FARTCOIN-USD": 1.221,
+    "FET-USD": 7.214,
+    "FIL-USD": 9.178,
+    "GNO-USD": -2.957,
+    "GOMINING-USD": 0.887,
+    "HBAR-USD": -2.936,
+    "HNT-USD": -11.107,
+    "ICP-USD": -0.683,
+    "INJ-USD": -4.789,
+    "JTO-USD": 0.835,
+    "KAS-USD": -3.695,
+    "LDO-USD": 3.666,
+    "LINK-USD": -4.885,
+    "LPT-USD": 9.867,
+    "LTC-USD": 8.627,
+    "MANA-USD": 4.214,
+    "NEAR-USD": 4.632,
+    "ONDO-USD": 4.997,
+    "OP-USD": 0.929,
+    "PENDLE-USD": -2.254,
+    "PYTH-USD": -7.927,
+    "QNT-USD": 12.685,
+    "RAY-USD": -3.689,
+    "RENDER-USD": -2.496,
+    "RUNE-USD": -3.695,
+    "SAND-USD": 2.879,
+    "SEI-USD": 6.061,
+    "SOL-USD": 0.0,
+    "SYRUP-USD": -5.85,
+    "TIA-USD": 2.385,
+    "TRAC-USD": 2.297,
+    "VET-USD": 5.447,
+    "VIRTUAL-USD": 2.687,
+    "WIF-USD": 0.006,
+    "WLD-USD": 4.179,
+    "XDC-USD": 0.891,
+    "XLM-USD": 12.598,
+    "XRP-USD": 0.022,
+    "XTZ-USD": 2.113,
+    "IP-USD": 0.072
   },
   "oos_performance_registry_intraday": {
     "_comment": "Crypto intraday OOS performance metrics. Auto-populated from 66-coin backtest.",
