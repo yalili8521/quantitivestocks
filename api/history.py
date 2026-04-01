@@ -29,6 +29,12 @@ ACCOUNTS = [
         "key_env": "ALPACA_SWING_KEY",
         "secret_env": "ALPACA_SWING_SECRET",
     },
+    {
+        "name": "BTC",
+        "group": "btc",
+        "key_env": "ALPACA_CRYPTO_KEY",
+        "secret_env": "ALPACA_CRYPTO_SECRET",
+    },
 ]
 
 

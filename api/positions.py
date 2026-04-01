@@ -310,6 +310,17 @@ class handler(BaseHTTPRequestHandler):
             "positions": gold_data["positions"],
         })
 
+        # BTC — Alpaca crypto paper account
+        btc_key    = os.environ.get("ALPACA_CRYPTO_KEY", "")
+        btc_secret = os.environ.get("ALPACA_CRYPTO_SECRET", "")
+        btc_data   = _fetch_alpaca(btc_key, btc_secret)
+        accounts.append({
+            "name":      "BTC",
+            "group":     "btc",
+            "account":   btc_data["account"],
+            "positions": btc_data["positions"],
+        })
+
         body = json.dumps({"accounts": accounts}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
