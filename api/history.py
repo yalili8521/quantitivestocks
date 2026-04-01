@@ -38,7 +38,7 @@ ACCOUNTS = [
 ]
 
 
-def _fetch_alpaca(api_key: str, api_secret: str, allowed_symbols: set | None = None) -> dict:
+def _fetch_alpaca(api_key: str, api_secret: str, allowed_symbols: set | None = None, skip_crypto: bool = True) -> dict:
     if not api_key or not api_secret:
         return {"portfolio": {}, "orders": [], "traded_symbols": []}
 
@@ -74,7 +74,7 @@ def _fetch_alpaca(api_key: str, api_secret: str, allowed_symbols: set | None = N
                     continue
                 sym = o.get("symbol", "")
                 # Skip crypto symbols on Alpaca ETF accounts
-                if "/" in sym:
+                if skip_crypto and "/" in sym:
                     continue
                 # Filter out orders for symbols not in this group
                 if allowed_symbols and sym not in allowed_symbols:
@@ -337,7 +337,8 @@ class handler(BaseHTTPRequestHandler):
         for cfg in ACCOUNTS:
             key    = os.environ.get(cfg["key_env"], "")
             secret = os.environ.get(cfg["secret_env"], "")
-            data   = _fetch_alpaca(key, secret, cfg.get("symbols"))
+            is_crypto = cfg["group"] == "btc"
+            data   = _fetch_alpaca(key, secret, cfg.get("symbols"), skip_crypto=not is_crypto)
             accounts.append({
                 "name":      cfg["name"],
                 "group":     cfg["group"],
