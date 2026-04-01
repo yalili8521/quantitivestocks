@@ -1,8 +1,9 @@
 """Vercel serverless function: GET /api/positions
 
-Returns live paper-trading accounts and positions for all four groups.
+Returns live paper-trading accounts and positions for all groups.
 - Intraday + Swing: Alpaca paper API
-- Crypto + Crypto Intraday: Kraken paper state from GitHub Gist (local paper simulation)
+- Gold Scalper: paper state from GitHub Gist
+- BTC: Alpaca crypto paper API
 """
 
 from http.server import BaseHTTPRequestHandler
@@ -80,115 +81,6 @@ def _fetch_alpaca(api_key: str, api_secret: str) -> dict:
             for p in positions
             if isinstance(p, dict)
         ],
-    }
-
-
-def _fetch_kraken_prices(symbols: list[str]) -> dict[str, float]:
-    """Fetch live prices from Kraken public API (no auth needed).
-
-    Uses a static mapping for known Kraken pair quirks (BTC→XXBT, ETH→XETH,
-    DOGE→XDG) and auto-generates the rest as {BASE}USD.
-    """
-    # Kraken uses non-standard names for some legacy pairs
-    KRAKEN_OVERRIDES = {
-        "BTC/USD": "XXBTZUSD", "ETH/USD": "XETHZUSD", "DOGE/USD": "XDGUSD",
-    }
-
-    def _to_kraken_pair(sym: str) -> str:
-        if sym in KRAKEN_OVERRIDES:
-            return KRAKEN_OVERRIDES[sym]
-        # Generic: FIL/USD → FILUSD, OP/USD → OPUSD, etc.
-        return sym.replace("/", "")
-
-    sym_to_kraken = {s: _to_kraken_pair(s) for s in symbols}
-    kraken_to_sym = {v: k for k, v in sym_to_kraken.items()}
-    pairs_needed = list(sym_to_kraken.values())
-
-    if not pairs_needed:
-        return {}
-    try:
-        resp = req.get(
-            "https://api.kraken.com/0/public/Ticker",
-            params={"pair": ",".join(pairs_needed)},
-            timeout=10,
-        )
-        if not resp.ok:
-            return {}
-        data = resp.json().get("result", {})
-        prices = {}
-        for pair, info in data.items():
-            sym = kraken_to_sym.get(pair, pair)
-            prices[sym] = float(info["c"][0])
-        return prices
-    except Exception:
-        return {}
-
-
-def _fetch_kraken_paper(state_filename: str = "kraken_paper_state.json") -> dict:
-    """Read Kraken paper state from GitHub Gist + live prices from Kraken."""
-    gist_id = os.environ.get("KRAKEN_STATE_GIST_ID", "")
-    if not gist_id:
-        return {"account": {}, "positions": []}
-
-    try:
-        resp = req.get(
-            f"https://api.github.com/gists/{gist_id}",
-            headers={"Accept": "application/vnd.github.v3+json"},
-            timeout=10,
-        )
-        if not resp.ok:
-            return {"account": {}, "positions": []}
-
-        gist_data = resp.json()
-        content = gist_data.get("files", {}).get(state_filename, {}).get("content", "{}")
-        state = json.loads(content)
-    except Exception:
-        return {"account": {}, "positions": []}
-
-    cash = state.get("cash", 0)
-    initial = state.get("initial_balance", 100000)
-    positions_raw = state.get("positions", {})
-
-    # Fetch live prices for all held symbols
-    live_prices = _fetch_kraken_prices(list(positions_raw.keys()))
-
-    # Build position list with live P&L
-    positions = []
-    total_value = cash
-    for sym, pos in positions_raw.items():
-        entry_price = pos.get("entry_price", 0)
-        qty = pos.get("qty", 0)
-        side = pos.get("side", "LONG")
-        current_price = live_prices.get(sym, entry_price)
-        notional = current_price * qty
-
-        if side == "LONG":
-            pnl = (current_price - entry_price) * qty
-            total_value += notional
-        else:
-            pnl = (entry_price - current_price) * qty
-            total_value += pnl  # short P&L added to cash
-
-        pnl_pct = pnl / (entry_price * qty) if entry_price * qty > 0 else 0
-
-        positions.append({
-            "symbol":          sym,
-            "qty":             str(qty),
-            "side":            "long" if side == "LONG" else "short",
-            "avg_entry_price": str(entry_price),
-            "current_price":   str(current_price),
-            "unrealized_pl":   str(round(pnl, 2)),
-            "unrealized_plpc": str(round(pnl_pct, 4)),
-            "market_value":    str(round(notional, 2)),
-        })
-
-    return {
-        "account": {
-            "equity":       str(round(total_value, 2)),
-            "cash":         str(cash),
-            "buying_power": str(cash * 2),
-        },
-        "positions": positions,
     }
 
 
@@ -282,24 +174,6 @@ class handler(BaseHTTPRequestHandler):
                 "account":   data["account"],
                 "positions": data["positions"],
             })
-
-        # Crypto group — Kraken paper state from Gist
-        crypto_data = _fetch_kraken_paper("kraken_paper_state.json")
-        accounts.append({
-            "name":      "Crypto",
-            "group":     "crypto",
-            "account":   crypto_data["account"],
-            "positions": crypto_data["positions"],
-        })
-
-        # Crypto Intraday group — separate Kraken paper state
-        crypto_intraday_data = _fetch_kraken_paper("kraken_intraday_paper_state.json")
-        accounts.append({
-            "name":      "Crypto 5m",
-            "group":     "crypto_intraday",
-            "account":   crypto_intraday_data["account"],
-            "positions": crypto_intraday_data["positions"],
-        })
 
         # Gold Scalper — micro gold paper state from Gist
         gold_data = _fetch_gold_scalper()

@@ -1,8 +1,8 @@
 """Vercel serverless function: GET /api/history
 
 Returns portfolio equity history + filled orders for all account groups.
-- Intraday + Swing: Alpaca paper API
-- Crypto: Kraken paper state from GitHub Gist (trade log)
+- Intraday + Swing + BTC: Alpaca paper API
+- Gold Scalper: paper state from GitHub Gist (trade log)
 """
 
 from http.server import BaseHTTPRequestHandler
@@ -120,8 +120,8 @@ def _pair_closed_trades(orders: list, fee_pct: float = 0.0) -> list:
     """Pair open→close orders per symbol into round-trip closed trades.
 
     Handles position overwrites (double opens) by implicitly closing the old
-    position at the new open's price.  When *fee_pct* > 0 (e.g. 0.0026 for
-    Kraken 0.26%), fees on both legs are subtracted from P&L.
+    position at the new open's price.  When *fee_pct* > 0, fees on both legs
+    are subtracted from P&L.
     """
     chrono = sorted(orders, key=lambda o: o.get("filled_at", ""))
     # symbol → {price, qty, side, time}
@@ -217,111 +217,8 @@ def _recent_trades(trades: list, max_days: int = 3) -> list:
     return [t for t in recent if (t.get("closed_at") or "")[:10] in recent_days]
 
 
-def _build_equity_curve(
-    trade_log: list, initial_balance: float, fee_pct: float = 0.0,
-) -> dict:
-    """Synthesize an equity curve from the trade log.
-
-    Mirrors the Kraken paper executor's margin-based cash accounting:
-      - LONG open (buy, intent=open):  cash -= qty * price + fee
-      - LONG close (sell, intent=close): cash += entry * qty + pnl - fee
-      - SHORT open (sell, intent=open): cash -= fee only (margin model)
-      - SHORT close (buy, intent=close): cash += pnl - fee
-
-    Equity = cash + sum(market_value for LONGs) + sum(unrealized_pnl for SHORTs)
-    """
-    if not trade_log:
-        return {}
-
-    sorted_trades = sorted(trade_log, key=lambda t: t.get("time", ""))
-
-    cash = initial_balance
-    # Track open positions: symbol -> {side, qty, entry_price}
-    open_positions: dict = {}
-    timestamps: list[int] = []
-    equity: list[float] = []
-    last_prices: dict = {}
-
-    for t in sorted_trades:
-        sym = t.get("symbol", "")
-        side = t.get("side", "")
-        qty = float(t.get("qty", 0))
-        price = float(t.get("price", 0))
-        time_str = t.get("time", "")
-        intent = t.get("intent", "")
-
-        if not sym or not time_str or qty == 0 or price == 0:
-            continue
-
-        last_prices[sym] = price
-        fee = qty * price * fee_pct
-
-        if intent == "open":
-            # If reopening a symbol that's already open, implicitly close
-            # the old position first (executor overwrites without logging).
-            if sym in open_positions:
-                old = open_positions[sym]
-                old_fee = price * old["qty"] * fee_pct
-                if old["side"] == "LONG":
-                    old_pnl = (price - old["entry_price"]) * old["qty"] - old_fee
-                    cash += old["entry_price"] * old["qty"] + old_pnl
-                else:
-                    old_pnl = (old["entry_price"] - price) * old["qty"] - old_fee
-                    cash += old_pnl
-                del open_positions[sym]
-
-            if side == "buy":
-                # LONG open: debit full notional + fee
-                cash -= qty * price + fee
-                open_positions[sym] = {"side": "LONG", "qty": qty, "entry_price": price}
-            else:
-                # SHORT open: margin model — only fee deducted (no notional)
-                cash -= fee
-                open_positions[sym] = {"side": "SHORT", "qty": qty, "entry_price": price}
-        elif intent == "close":
-            if sym in open_positions:
-                pos = open_positions[sym]
-                close_qty = min(qty, pos["qty"])  # partial or full close
-                if pos["side"] == "LONG":
-                    pnl = (price - pos["entry_price"]) * close_qty - fee
-                    cash += pos["entry_price"] * close_qty + pnl
-                else:
-                    pnl = (pos["entry_price"] - price) * close_qty - fee
-                    cash += pnl
-                pos["qty"] -= close_qty
-                if pos["qty"] < 1e-10:
-                    del open_positions[sym]
-
-        # Compute equity: cash + position values
-        pos_value = 0.0
-        for s, pos in open_positions.items():
-            lp = last_prices.get(s, pos["entry_price"])
-            if pos["side"] == "LONG":
-                pos_value += lp * pos["qty"]
-            else:
-                # SHORT: unrealized P&L only (cash wasn't debited for notional)
-                pos_value += (pos["entry_price"] - lp) * pos["qty"]
-
-        try:
-            ts = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
-            timestamps.append(int(ts.timestamp()))
-        except (ValueError, TypeError):
-            continue
-        equity.append(cash + pos_value)
-
-    if not timestamps:
-        return {}
-
-    return {
-        "timestamps": timestamps,
-        "equity": equity,
-        "profit_loss": [],
-        "profit_loss_pct": [],
-    }
-
-
 def _fetch_gist_files() -> dict:
-    """Fetch all files from the Kraken state Gist (single API call)."""
+    """Fetch all files from the state Gist (single API call)."""
     gist_id = os.environ.get("KRAKEN_STATE_GIST_ID", "")
     if not gist_id:
         return {}
@@ -340,52 +237,6 @@ def _fetch_gist_files() -> dict:
     except Exception:
         pass
     return {}
-
-
-def _parse_kraken_history(
-    gist_files: dict,
-    trade_log_filename: str = "kraken_trade_log.json",
-    state_filename: str = "kraken_paper_state.json",
-) -> dict:
-    """Parse Kraken paper trade log + state from pre-fetched Gist files."""
-    if not gist_files:
-        return {"portfolio": {}, "orders": [], "trades": []}
-
-    try:
-        trade_log_content = gist_files.get(trade_log_filename, {}).get("content", "[]")
-        trade_log = json.loads(trade_log_content) if trade_log_content else []
-
-        state_content = gist_files.get(state_filename, {}).get("content", "{}")
-        state = json.loads(state_content) if state_content else {}
-        initial_balance = float(state.get("initial_balance", 100000))
-
-        orders = []
-        for t in trade_log:
-            orders.append({
-                "symbol":    t.get("symbol", ""),
-                "side":      t.get("side", ""),
-                "qty":       str(t.get("qty", "0")),
-                "price":     str(t.get("price", "0")),
-                "filled_at": t.get("time", ""),
-                "intent":    t.get("intent", ""),
-            })
-
-        portfolio = _build_equity_curve(trade_log, initial_balance, fee_pct=0.0026)
-
-    except Exception:
-        return {"portfolio": {}, "orders": [], "trades": []}
-
-    # Pair ALL orders (including implicit closes from overwrites), then
-    # filter to recent 3 days.  The equity curve also processes the full
-    # log with the same overwrite logic, so both views stay consistent.
-    all_paired = _pair_closed_trades(orders, fee_pct=0.0026)
-    recent_paired = _recent_trades(all_paired)
-
-    return {
-        "portfolio": portfolio,
-        "orders": _recent_orders(orders),
-        "trades": recent_paired,
-    }
 
 
 def _parse_gold_scalper_history(
@@ -498,34 +349,10 @@ class handler(BaseHTTPRequestHandler):
                 if sym not in all_symbols:
                     all_symbols.append(sym)
 
-        # Single Gist fetch for all crypto data + selector rankings
+        # Single Gist fetch for gold scalper data + selector rankings
         gist_files = _fetch_gist_files()
 
-        # Crypto group — Kraken paper trade log from Gist
-        crypto_data = _parse_kraken_history(
-            gist_files, "kraken_trade_log.json", "kraken_paper_state.json"
-        )
-        accounts.append({
-            "name":      "Crypto",
-            "group":     "crypto",
-            "portfolio": crypto_data["portfolio"],
-            "orders":    crypto_data["orders"],
-            "trades":    crypto_data.get("trades", []),
-        })
-
-        # Crypto Intraday group — separate Kraken paper state
-        crypto_intraday_data = _parse_kraken_history(
-            gist_files, "kraken_intraday_trade_log.json", "kraken_intraday_paper_state.json"
-        )
-        accounts.append({
-            "name":      "Crypto 5m",
-            "group":     "crypto_intraday",
-            "portfolio": crypto_intraday_data["portfolio"],
-            "orders":    crypto_intraday_data["orders"],
-            "trades":    crypto_intraday_data.get("trades", []),
-        })
-
-        # Gold Scalper — paper state from same Gist (different trade log format)
+        # Gold Scalper — paper state from Gist (different trade log format)
         gold_data = _parse_gold_scalper_history(
             gist_files, "gold_scalper_trade_log.json", "gold_scalper_state.json"
         )

@@ -50,8 +50,6 @@ def _help_text() -> str:
     train-intraday      Train the intraday ETF model (LGB+GRU ensemble)
     train-intraday-legacy  Train the old first-30-min LightGBM model
     train-swing         Train the swing ETF model
-    train-crypto        Train swing models for crypto -> models/crypto/
-    train-crypto-intraday Train intraday models for crypto -> models/crypto_intraday/
     training-tables     Generate training and backtest tables
     backtest-portfolio  Portfolio-level multi-symbol backtest
     divergence-report   Compare backtest vs live paper trading
@@ -60,16 +58,10 @@ def _help_text() -> str:
     select-symbols      Screen candidate symbols and update config
     train-etf-selector  Train the LambdaRank ETF selector (swing)
     train-intraday-etf-selector  Train the LambdaRank intraday ETF selector
-    train-selector      Train the cross-sectional coin selector
-    train-selector-intraday  Train the intraday coin selector
-    rank-coins          Rank coins using the trained selector
-    rank-coins-intraday Rank coins using the intraday selector
-    screen-universe     Discover tradeable coins from the full market
     screen-etf-universe Discover tradeable ETFs from the broad market
     select-features     IC-based feature selection pipeline
     batch-backtest      Batch train + OOS backtest ETF universe
     lock-status         Show whether a group paper trader lock is present
-    weekly-pipeline     Run the weekly crypto maintenance pipeline
     paused-models       Show persisted paused models
     unpause             Clear a persisted paused-model state
     gold-scalper        Run the gold multi-TF NYSE scalper (paper trading)
@@ -83,7 +75,6 @@ def _help_text() -> str:
   Examples:
     python main.py trade --group swing
     python main.py train-swing --symbols EWT,GLD,EEM,SLV --provider yahoo
-    python main.py train-crypto
     python main.py backtest-portfolio --group swing --start 2024-01-01
 
   Run `python main.py <command> --help` for command-specific options.
@@ -159,53 +150,6 @@ def main() -> None:
         from swing_model import main as swing_main
         swing_main()
 
-    elif command == "train-crypto":
-        # Trains swing models for all coins in screen_universe (universe.json)
-        # Falls back to hardcoded list if universe.json doesn't exist
-        from utils import CRYPTO_MODEL_DIR
-        from universe_screener import load_universe
-        _universe = load_universe(CRYPTO_MODEL_DIR)
-        if _universe:
-            _CRYPTO_TRAIN_SYMBOLS = ",".join(_universe)
-            print(f"  Training {len(_universe)} coins from universe.json")
-        else:
-            _CRYPTO_TRAIN_SYMBOLS = (
-                "BTC-USD,ETH-USD,SOL-USD,AVAX-USD,LINK-USD,DOGE-USD,DOT-USD,"
-                "SUSHI-USD,ADA-USD,CRV-USD,AAVE-USD,RENDER-USD,"
-                "NEAR-USD,LTC-USD,ARB-USD,OP-USD,FIL-USD,APT-USD,INJ-USD,"
-                "WIF-USD,AR-USD,ENA-USD,LDO-USD"
-            )
-            print(f"  No universe.json — using hardcoded {len(_CRYPTO_TRAIN_SYMBOLS.split(','))} coins")
-        sys.argv = [sys.argv[0],
-                     "--symbols", _CRYPTO_TRAIN_SYMBOLS,
-                     "--provider", "yahoo",
-                     "--save-dir", CRYPTO_MODEL_DIR,
-                     "--train-recent"] + sys.argv[1:]
-        from swing_model import main as swing_main
-        swing_main()
-
-    elif command == "train-crypto-intraday":
-        # Trains intraday LGB+GRU models for crypto coins
-        # Auto-loads symbols from universe.json (same as train-crypto)
-        from utils import CRYPTO_MODEL_DIR, CRYPTO_INTRADAY_MODEL_DIR
-        from universe_screener import load_universe
-        _universe = load_universe(CRYPTO_MODEL_DIR)
-        if _universe:
-            _CRYPTO_INTRADAY_SYMBOLS = ",".join(_universe)
-            print(f"  Training intraday for {len(_universe)} coins from universe.json")
-        else:
-            _CRYPTO_INTRADAY_SYMBOLS = (
-                "BTC-USD,ETH-USD,SOL-USD,AVAX-USD,LINK-USD,DOGE-USD,"
-                "ADA-USD,CRV-USD,AAVE-USD,RENDER-USD"
-            )
-            print(f"  No universe.json — using hardcoded {len(_CRYPTO_INTRADAY_SYMBOLS.split(','))} coins")
-        sys.argv = [sys.argv[0],
-                     "--symbols", _CRYPTO_INTRADAY_SYMBOLS,
-                     "--save-dir", CRYPTO_INTRADAY_MODEL_DIR,
-                     "--walk-forward"] + sys.argv[1:]
-        from crypto_intraday_model import main as crypto_intraday_main
-        crypto_intraday_main()
-
     elif command == "backtest-portfolio":
         from portfolio_backtester import main as portfolio_bt_main
         portfolio_bt_main()
@@ -226,35 +170,6 @@ def main() -> None:
             if a == "--train-end" and i + 1 < len(sys.argv):
                 train_end = sys.argv[i + 1]
         train_etf_selector(train_end=train_end)
-
-    elif command == "train-selector":
-        # Train cross-sectional coin selector (Layer 1 of crypto pipeline)
-        sys.argv = [sys.argv[0], "train"] + sys.argv[1:]
-        from coin_selector import main as selector_main
-        selector_main()
-
-    elif command == "rank-coins":
-        # Rank coins using trained selector (Layer 1 inference)
-        sys.argv = [sys.argv[0], "rank"] + sys.argv[1:]
-        from coin_selector import main as selector_main
-        selector_main()
-
-    elif command == "train-selector-intraday":
-        # Train intraday cross-sectional coin selector
-        sys.argv = [sys.argv[0], "train-intraday"] + sys.argv[1:]
-        from coin_selector import main as selector_main
-        selector_main()
-
-    elif command == "rank-coins-intraday":
-        # Rank coins using intraday selector
-        sys.argv = [sys.argv[0], "rank-intraday"] + sys.argv[1:]
-        from coin_selector import main as selector_main
-        selector_main()
-
-    elif command == "screen-universe":
-        # Layer 0: discover tradeable coins from full market
-        from universe_screener import main as screener_main
-        screener_main()
 
     elif command == "model-health":
         from model_monitor import ModelMonitor
@@ -311,10 +226,6 @@ def main() -> None:
         import scripts.batch_etf_backtest as batch_bt
         batch_bt.main()
 
-    elif command == "weekly-pipeline":
-        import scripts.weekly_pipeline as weekly
-        weekly.main()
-
     elif command == "gold-scalper":
         from src.gold_scalper.engine import main as gold_main
         gold_main()
@@ -325,7 +236,7 @@ def main() -> None:
 
     elif command == "validate-risk":
         from risk_config import get_risk_config
-        for group in ("intraday", "swing", "crypto", "crypto_intraday"):
+        for group in ("intraday", "swing"):
             risk = get_risk_config(group)
             print(f"\n  {group.upper()} risk config:")
             print(f"    position_pct:       {risk.position_pct:.0%}")
@@ -386,12 +297,11 @@ def main() -> None:
 
     else:
         print(f"\n  Unknown command: {command!r}")
-        print("  Available commands: signals, train, train-meta, train-intraday, train-swing, train-crypto,")
+        print("  Available commands: signals, train, train-meta, train-intraday, train-swing,")
         print("                      predict, backtest, backtest-portfolio, trade, report, training-tables,")
         print("                      divergence-report, select-symbols, check-positions, stop-paper-trader,")
-        print("                      lock-status, model-health, validate-risk, train-selector, train-selector-intraday,")
-        print("                      rank-coins, rank-coins-intraday,")
-        print("                      screen-universe, screen-etf-universe, select-features, batch-backtest, weekly-pipeline,")
+        print("                      lock-status, model-health, validate-risk, screen-etf-universe,")
+        print("                      select-features, batch-backtest,")
         print("                      paused-models, unpause, gold-scalper, gold-backtest,")
         print("                      read-research, weekly-etf-pipeline")
         print("  Run `python main.py --help` for usage.\n")
