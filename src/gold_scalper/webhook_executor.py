@@ -51,13 +51,14 @@ class WebhookSignal:
 
 
 class WebhookExecutor:
-    """Routes TradingView signals to IBKR with risk controls.
+    """Routes TradingView signals to broker with risk controls.
 
     TradingView信号执行器：
     - 接收解析后的webhook信号
     - 检查风险控制（每日亏损限额、冷却期、最大仓位）
-    - 通过IBKRGoldBroker下单
+    - 通过broker下单
     - 跟踪仓位状态和每日盈亏
+    - 同步状态到GitHub Gist供dashboard显示
     """
 
     def __init__(
@@ -65,6 +66,7 @@ class WebhookExecutor:
         broker,  # IBKRGoldBroker or PaperGoldBroker
         config: GoldScalperConfig,
         alerts: Optional[ScalperAlertEngine] = None,
+        initial_equity: float = 5000.0,
     ):
         self.broker = broker
         self.config = config
@@ -79,6 +81,13 @@ class WebhookExecutor:
         self._last_day: Optional[int] = None
         self._circuit_breaker_fired: bool = False
         self._cooldown_until: Optional[datetime] = None
+        self._last_entry_attempt: Optional[datetime] = None  # dedup guard
+        self._entry_dedup_seconds: int = 30  # reject duplicate entries within this window
+
+        # Equity tracking for dashboard
+        self._initial_equity: float = initial_equity
+        self._equity: float = initial_equity
+        self._trade_log: List[Dict] = []
 
         # State persistence — separate folder from signal-mode bot
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(
@@ -86,6 +95,7 @@ class WebhookExecutor:
         state_dir = os.path.join(project_root, "outputs", "paper_state", "webhook")
         os.makedirs(state_dir, exist_ok=True)
         self._state_file = os.path.join(state_dir, "webhook_executor_state.json")
+        self._log_file = os.path.join(state_dir, "webhook_trade_log.json")
         self._load_state()
 
     def parse_signal(self, payload: Dict) -> WebhookSignal:
@@ -220,6 +230,15 @@ class WebhookExecutor:
     def _handle_entry(self, signal: WebhookSignal, now: datetime) -> Dict:
         """Handle ENTRY signal from TradingView."""
 
+        # Dedup guard — TradingView fires the same alert 2-4x at ~5s intervals
+        if self._last_entry_attempt:
+            elapsed = (now - self._last_entry_attempt).total_seconds()
+            if elapsed < self._entry_dedup_seconds:
+                msg = f"Duplicate entry rejected ({elapsed:.0f}s since last attempt)"
+                logger.warning("[WEBHOOK] %s", msg)
+                return {"status": "rejected", "message": msg}
+        self._last_entry_attempt = now
+
         # Risk checks
         if self._circuit_breaker_fired:
             msg = f"Circuit breaker active (daily PnL ${self.daily_pnl:.2f})"
@@ -251,16 +270,11 @@ class WebhookExecutor:
         if contracts < 1:
             return {"status": "rejected", "message": "Zero contracts"}
 
-        # Place order
-        side = "BUY" if signal.direction == "LONG" else "SELL"
-        order_id = self.broker.place_market_order(
-            self.config.symbol, contracts, side
-        )
+        # No real broker — TV price is the fill price. Generate a local order ID.
+        self._order_counter = getattr(self, "_order_counter", 0) + 1
+        order_id = f"TV-{self._order_counter:06d}"
 
-        if not order_id:
-            return {"status": "error", "message": "Order placement failed"}
-
-        # Create position
+        # Create position using TradingView price as fill price
         self.position = WebhookPosition(
             direction=signal.direction,
             entry_price=signal.price,
@@ -305,20 +319,15 @@ class WebhookExecutor:
         if contracts < 1:
             return {"status": "rejected", "message": "Zero contracts to close"}
 
-        # Close partial
-        order_id = self.broker.close_partial(
-            self.config.symbol, contracts,
-            f"TP{signal.tp_level} (TradingView)",
-        )
-
-        if not order_id:
-            return {"status": "error", "message": "Partial close failed"}
+        # No real broker — track locally with TV price
+        self._order_counter = getattr(self, "_order_counter", 0) + 1
+        order_id = f"TV-{self._order_counter:06d}"
 
         self.position.remaining_contracts -= contracts
         if signal.tp_level:
             self.position.tp_hits.append(signal.tp_level)
 
-        # Estimate P&L for this partial
+        # Calculate P&L using TradingView price
         pip_val = self.config.pip_value
         if self.position.direction == "LONG":
             pips = (signal.price - self.position.entry_price) / pip_val
@@ -335,11 +344,12 @@ class WebhookExecutor:
 
         # Check if position fully closed
         if self.position.remaining_contracts <= 0:
-            self._on_position_closed(now)
+            self._on_position_closed(now, exit_price=signal.price,
+                                     exit_reason=f"TP{signal.tp_level}")
 
         return {
             "status": "ok",
-            "message": f"TP{signal.tp_level}: {contracts}ct closed",
+            "message": f"TP{signal.tp_level}: {contracts}ct closed @ ${signal.price:.2f}",
             "order_id": order_id,
         }
 
@@ -351,14 +361,11 @@ class WebhookExecutor:
         reason = signal.reason or "TradingView exit"
         contracts = self.position.remaining_contracts
 
-        order_id = self.broker.close_all(
-            self.config.symbol, reason,
-        )
+        # No real broker — track locally with TV price
+        self._order_counter = getattr(self, "_order_counter", 0) + 1
+        order_id = f"TV-{self._order_counter:06d}"
 
-        if not order_id:
-            return {"status": "error", "message": "Close all failed"}
-
-        # Estimate final P&L
+        # Calculate P&L using TradingView price
         pip_val = self.config.pip_value
         if self.position.direction == "LONG":
             pips = (signal.price - self.position.entry_price) / pip_val
@@ -373,11 +380,12 @@ class WebhookExecutor:
             reason, contracts, signal.price, exit_pnl,
         )
 
-        self._on_position_closed(now)
+        self._on_position_closed(now, exit_price=signal.price,
+                                 exit_reason=reason)
 
         return {
             "status": "ok",
-            "message": f"Closed {contracts}ct — {reason}",
+            "message": f"Closed {contracts}ct @ ${signal.price:.2f} — {reason}",
             "order_id": order_id,
         }
 
@@ -389,7 +397,8 @@ class WebhookExecutor:
         signal.reason = "Session Close (TradingView)"
         return self._handle_exit(signal, now)
 
-    def _on_position_closed(self, now: datetime) -> None:
+    def _on_position_closed(self, now: datetime, exit_price: float = 0,
+                            exit_reason: str = "") -> None:
         """Update stats after position fully closed."""
         if not self.position:
             return
@@ -397,6 +406,7 @@ class WebhookExecutor:
         total_pnl = self.position.realized_pnl
         self.daily_pnl += total_pnl
         self.daily_trades += 1
+        self._equity += total_pnl
 
         if total_pnl >= 0:
             self.daily_wins += 1
@@ -407,22 +417,35 @@ class WebhookExecutor:
 
         logger.info(
             "[WEBHOOK] Position closed: %s — PnL $%.2f — Duration %.0f min — "
-            "Daily: $%.2f (%dW/%dL)",
+            "Daily: $%.2f (%dW/%dL) — Equity: $%.2f",
             self.position.direction, total_pnl, duration,
             self.daily_pnl, self.daily_wins, self.daily_losses,
+            self._equity,
         )
+
+        # Append to trade log (same format as PaperGoldBroker for dashboard)
+        self._trade_log.append({
+            "time": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "symbol": self.config.symbol.replace("=F", ""),
+            "direction": self.position.direction,
+            "contracts": self.position.total_contracts,
+            "entry": self.position.entry_price,
+            "exit": exit_price or self.position.entry_price,
+            "pnl": round(total_pnl, 2),
+            "reason": exit_reason or f"TPs hit: {self.position.tp_hits}",
+        })
 
         # Send trade summary alert
         if self.alerts:
             self.alerts.on_trade_summary(
                 direction=self.position.direction,
                 entry_price=self.position.entry_price,
-                exit_price=0,  # TV provides price in the signal
+                exit_price=exit_price,
                 total_pnl=total_pnl,
                 duration_minutes=duration,
-                exit_reason=f"TPs hit: {self.position.tp_hits}",
+                exit_reason=exit_reason or f"TPs hit: {self.position.tp_hits}",
                 tp_log=[],
-                equity=self.broker.get_account_equity(),
+                equity=self._equity,
                 daily_wins=self.daily_wins,
                 daily_losses=self.daily_losses,
                 daily_trades=self.daily_trades,
@@ -455,17 +478,36 @@ class WebhookExecutor:
             self._last_day = day
 
     def _save_state(self) -> None:
-        """Persist state to JSON."""
-        state = {
+        """Persist state to JSON and sync to GitHub Gist for dashboard."""
+        # Dashboard-compatible state (matches PaperGoldBroker format)
+        pos_for_dashboard = None
+        if self.position and self.position.remaining_contracts > 0:
+            pos_for_dashboard = {
+                "direction": self.position.direction,
+                "entry_price": self.position.entry_price,
+                "contracts": self.position.remaining_contracts,
+            }
+
+        gist_state = {
+            "equity": self._equity,
+            "initial_balance": self._initial_equity,
+            "trade_count": len(self._trade_log),
+            "position": pos_for_dashboard,
+        }
+
+        # Local state (includes executor-specific fields for restart)
+        local_state = {
+            **gist_state,
             "daily_pnl": self.daily_pnl,
             "daily_trades": self.daily_trades,
             "daily_wins": self.daily_wins,
             "daily_losses": self.daily_losses,
             "circuit_breaker": self._circuit_breaker_fired,
-            "position": None,
+            # Keep detailed position for executor restore
+            "position_detail": None,
         }
         if self.position:
-            state["position"] = {
+            local_state["position_detail"] = {
                 "direction": self.position.direction,
                 "entry_price": self.position.entry_price,
                 "total_contracts": self.position.total_contracts,
@@ -473,16 +515,87 @@ class WebhookExecutor:
                 "tp_hits": self.position.tp_hits,
                 "realized_pnl": self.position.realized_pnl,
             }
+
+        # Save local state
         try:
             tmp = self._state_file + ".tmp"
             with open(tmp, "w") as f:
-                json.dump(state, f, indent=2)
+                json.dump(local_state, f, indent=2)
             os.replace(tmp, self._state_file)
         except OSError as e:
             logger.error("[WEBHOOK] State save failed: %s", e)
 
+        # Save local trade log
+        try:
+            tmp = self._log_file + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(self._trade_log, f, indent=2)
+            os.replace(tmp, self._log_file)
+        except OSError as e:
+            logger.error("[WEBHOOK] Trade log save failed: %s", e)
+
+        # Sync to GitHub Gist for Vercel dashboard
+        self._sync_to_gist(gist_state)
+
+    def _sync_to_gist(self, state: dict) -> None:
+        """Upload state + trade log to GitHub Gist for the dashboard."""
+        gist_id = os.environ.get("KRAKEN_STATE_GIST_ID", "")
+        gh_token = os.environ.get("GITHUB_TOKEN", "")
+
+        if not gist_id or not gh_token:
+            env_file = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(
+                    os.path.abspath(__file__)))),
+                "secrets", "alpaca.env",
+            )
+            if os.path.exists(env_file):
+                with open(env_file) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, _, v = line.partition("=")
+                            v = v.strip().strip('"').strip("'")
+                            if k.strip() == "KRAKEN_STATE_GIST_ID" and not gist_id:
+                                gist_id = v
+                            elif k.strip() == "GITHUB_TOKEN" and not gh_token:
+                                gh_token = v
+
+        if not gist_id or not gh_token:
+            return
+
+        try:
+            import requests
+            files = {
+                "gold_scalper_state.json": {
+                    "content": json.dumps(state, indent=2),
+                },
+            }
+            if self._trade_log:
+                files["gold_scalper_trade_log.json"] = {
+                    "content": json.dumps(self._trade_log[-200:], indent=2),
+                }
+            requests.patch(
+                f"https://api.github.com/gists/{gist_id}",
+                headers={
+                    "Authorization": f"token {gh_token}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
+                json={"files": files},
+                timeout=10,
+            )
+        except Exception as exc:
+            logger.debug("[WEBHOOK] Gist sync error: %s", exc)
+
     def _load_state(self) -> None:
         """Load state from JSON if exists."""
+        # Load trade log
+        if os.path.exists(self._log_file):
+            try:
+                with open(self._log_file) as f:
+                    self._trade_log = json.load(f)
+            except Exception as e:
+                logger.warning("[WEBHOOK] Trade log load failed: %s", e)
+
         if not os.path.exists(self._state_file):
             return
         try:
@@ -493,14 +606,17 @@ class WebhookExecutor:
             self.daily_wins = state.get("daily_wins", 0)
             self.daily_losses = state.get("daily_losses", 0)
             self._circuit_breaker_fired = state.get("circuit_breaker", False)
-            pos = state.get("position")
-            if pos and pos.get("remaining_contracts", 0) > 0:
+            self._equity = state.get("equity", self._initial_equity)
+            self._initial_equity = state.get("initial_balance", self._initial_equity)
+
+            pos = state.get("position_detail") or state.get("position")
+            if pos and pos.get("remaining_contracts", pos.get("contracts", 0)) > 0:
                 self.position = WebhookPosition(
                     direction=pos["direction"],
                     entry_price=pos["entry_price"],
                     entry_time=datetime.now(PT),
-                    total_contracts=pos["total_contracts"],
-                    remaining_contracts=pos["remaining_contracts"],
+                    total_contracts=pos.get("total_contracts", pos.get("contracts", 0)),
+                    remaining_contracts=pos.get("remaining_contracts", pos.get("contracts", 0)),
                     tp_hits=pos.get("tp_hits", []),
                     realized_pnl=pos.get("realized_pnl", 0.0),
                 )
