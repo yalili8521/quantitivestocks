@@ -64,8 +64,7 @@ def _help_text() -> str:
     lock-status         Show whether a group paper trader lock is present
     paused-models       Show persisted paused models
     unpause             Clear a persisted paused-model state
-    gold-scalper        Run the gold multi-TF NYSE scalper (paper trading)
-    gold-backtest       Backtest the gold scalper on historical data
+    gold-scalper        Start MGC webhook server (TradingView alerts)
     train-pooled-commodity  Train single pooled model for commodity ETFs
     train-pooled-all        Train pooled models for ALL 8 ETF clusters
     train-short-horizon     Train 5-day horizon models alongside 10-day
@@ -227,12 +226,10 @@ def main() -> None:
         batch_bt.main()
 
     elif command == "gold-scalper":
-        from src.gold_scalper.engine import main as gold_main
-        gold_main()
-
-    elif command == "gold-backtest":
-        from src.gold_scalper.backtester import main as gold_bt_main
-        gold_bt_main()
+        from src.gold_scalper.webhook_server import start_server
+        from src.gold_scalper.config import load_config
+        config = load_config()
+        start_server(broker=None, config=config)
 
     elif command == "validate-risk":
         from risk_config import get_risk_config
@@ -302,7 +299,7 @@ def main() -> None:
         print("                      divergence-report, select-symbols, check-positions, stop-paper-trader,")
         print("                      lock-status, model-health, validate-risk, screen-etf-universe,")
         print("                      select-features, batch-backtest,")
-        print("                      paused-models, unpause, gold-scalper, gold-backtest,")
+        print("                      paused-models, unpause, gold-scalper,")
         print("                      read-research, weekly-etf-pipeline")
         print("  Run `python main.py --help` for usage.\n")
         sys.exit(1)

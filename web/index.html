@@ -1655,12 +1655,12 @@ function setTVGroup(group, btn) {
 
     <!-- GOLD SCALPER -->
     <div style="margin-top:64px">
-    <div class="sec-label" style="margin-bottom:8px">GOLD SCALPER &mdash; Multi-TF NYSE &middot; Micro Gold (MGC)</div>
-    <p style="color:var(--text-sec);font-size:13px;margin-bottom:24px">5-timeframe EMA bias alignment &bull; RSI + Engulfing entry &bull; 4-level TP ladder + runner &bull; Paper trading (AMP Futures demo)</p>
+    <div class="sec-label" style="margin-bottom:8px">GOLD MGC &mdash; TradingView Webhook &middot; Micro Gold Futures</div>
+    <p style="color:var(--text-sec);font-size:13px;margin-bottom:24px">TradingView alerts &rarr; Webhook server &rarr; Paper executor &bull; All entries/exits driven by TradingView Pine Script</p>
 
     <div class="strat-grid">
 
-      <!-- Gold Scalper card -->
+      <!-- Gold MGC card -->
       <div class="strat glass" style="grid-column: 1 / -1; max-width: 720px;">
         <div class="strat-head">
           <span class="strat-sym" style="background: linear-gradient(135deg, #f59e0b, #d97706); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">MGC</span>
@@ -1672,99 +1672,42 @@ function setTVGroup(group, btn) {
             <div style="font-size:14px;font-weight:700;color:var(--warning)">Micro Gold</div>
           </div>
           <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:var(--radius-sm)">
-            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Session</div>
-            <div style="font-size:14px;font-weight:700;color:var(--text)">NYSE 6:30-13:00 PT</div>
+            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Signal Source</div>
+            <div style="font-size:14px;font-weight:700;color:var(--accent)">TradingView</div>
           </div>
           <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:var(--radius-sm)">
-            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Base Size</div>
-            <div style="font-size:14px;font-weight:700;color:var(--text)">6 contracts</div>
+            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Execution</div>
+            <div style="font-size:14px;font-weight:700;color:var(--warning)">Paper (Local)</div>
           </div>
         </div>
 
-        <div style="display:flex;gap:12px;margin:8px 0 10px;padding:8px 0;border-top:1px solid var(--border-muted);border-bottom:1px solid var(--border-muted)">
-          <div style="flex:1;text-align:center"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Strategy</div><div style="font-size:13px;font-weight:700;color:var(--text)">TC Baby V1.0</div></div>
-          <div style="flex:1;text-align:center"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Timeframes</div><div style="font-size:13px;font-weight:700;color:var(--accent)">D/4H/1H/15m/5m</div></div>
-          <div style="flex:1;text-align:center"><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Broker</div><div style="font-size:13px;font-weight:700;color:var(--warning)">Paper (Local)</div></div>
-        </div>
-
-        <!-- TP Ladder -->
-        <div style="margin:16px 0 12px">
-          <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Take-Profit Ladder</div>
-          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;font-family:var(--mono);font-size:11px">
-            <div style="text-align:center;padding:8px 4px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:var(--radius-xs)">
-              <div style="color:var(--text-muted);font-size:9px;margin-bottom:2px">TP1</div>
-              <div style="color:var(--positive);font-weight:700">60 pips</div>
-              <div style="color:var(--text-dim);font-size:9px">1 ct</div>
-            </div>
-            <div style="text-align:center;padding:8px 4px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:var(--radius-xs)">
-              <div style="color:var(--text-muted);font-size:9px;margin-bottom:2px">TP2</div>
-              <div style="color:var(--positive);font-weight:700">220 pips</div>
-              <div style="color:var(--text-dim);font-size:9px">2 ct</div>
-            </div>
-            <div style="text-align:center;padding:8px 4px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:var(--radius-xs)">
-              <div style="color:var(--text-muted);font-size:9px;margin-bottom:2px">TP3</div>
-              <div style="color:var(--positive);font-weight:700">400 pips</div>
-              <div style="color:var(--text-dim);font-size:9px">1 ct</div>
-            </div>
-            <div style="text-align:center;padding:8px 4px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:var(--radius-xs)">
-              <div style="color:var(--text-muted);font-size:9px;margin-bottom:2px">TP4</div>
-              <div style="color:var(--positive);font-weight:700">600 pips</div>
-              <div style="color:var(--text-dim);font-size:9px">1 ct</div>
-            </div>
-            <div style="text-align:center;padding:8px 4px;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.15);border-radius:var(--radius-xs)">
-              <div style="color:var(--text-muted);font-size:9px;margin-bottom:2px">Runner</div>
-              <div style="color:var(--accent);font-weight:700">Bias Flip</div>
-              <div style="color:var(--text-dim);font-size:9px">1 ct</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Risk Parameters -->
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0">
-          <div style="text-align:center;padding:8px;background:var(--bg-card);border-radius:var(--radius-xs)">
-            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">Hard Stop</div>
-            <div style="font-size:13px;font-weight:700;color:var(--negative)">300 pips</div>
-          </div>
-          <div style="text-align:center;padding:8px;background:var(--bg-card);border-radius:var(--radius-xs)">
-            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">BE Offset</div>
-            <div style="font-size:13px;font-weight:700;color:var(--text)">+10 pips</div>
-          </div>
-          <div style="text-align:center;padding:8px;background:var(--bg-card);border-radius:var(--radius-xs)">
-            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">Timeout</div>
-            <div style="font-size:13px;font-weight:700;color:var(--text)">120 min</div>
-          </div>
-          <div style="text-align:center;padding:8px;background:var(--bg-card);border-radius:var(--radius-xs)">
-            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">Daily Limit</div>
-            <div style="font-size:13px;font-weight:700;color:var(--negative)">-$1,000</div>
-          </div>
-        </div>
-
-        <!-- Entry Logic -->
+        <!-- How it works -->
         <div style="margin:12px 0;padding:12px;background:var(--bg-card);border-radius:var(--radius-sm);border:1px solid var(--border-muted)">
-          <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Entry Logic</div>
+          <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Signal Flow</div>
           <div style="font-size:12px;color:var(--text-sec);line-height:1.7">
-            <span style="color:var(--accent)">1.</span> 5-TF EMA bias alignment (D/4H/1H/15m/5m must agree)<br>
-            <span style="color:var(--accent)">2.</span> RSI(14) confirmation: &gt;55 for longs, &lt;35 for shorts<br>
-            <span style="color:var(--accent)">3.</span> Engulfing candle pattern on 5m chart<br>
-            <span style="color:var(--accent)">4.</span> Scale: +6ct per $7,500 profit (max 4x = 24ct)
+            <span style="color:var(--accent)">1.</span> TradingView Pine Script generates buy/sell alerts<br>
+            <span style="color:var(--accent)">2.</span> Alert webhook POSTs JSON to Cloudflare tunnel<br>
+            <span style="color:var(--accent)">3.</span> Webhook server routes to Gold executor<br>
+            <span style="color:var(--accent)">4.</span> Paper executor tracks position &amp; P&amp;L using TV prices
           </div>
         </div>
 
-        <!-- SL Ratchet -->
-        <div style="margin:8px 0;padding:12px;background:var(--bg-card);border-radius:var(--radius-sm);border:1px solid var(--border-muted)">
-          <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Stop-Loss Ratchet</div>
-          <div style="font-size:11px;font-family:var(--mono);color:var(--text-sec);line-height:1.8">
-            TP1 hit &rarr; SL moves to BE+10 &nbsp;&bull;&nbsp;
-            TP2 hit &rarr; SL moves to TP1 &nbsp;&bull;&nbsp;
-            TP3 hit &rarr; SL moves to TP2 &nbsp;&bull;&nbsp;
-            TP4 hit &rarr; SL moves to TP3
+        <!-- Risk Controls -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0">
+          <div style="text-align:center;padding:8px;background:var(--bg-card);border-radius:var(--radius-xs)">
+            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">Circuit Breaker</div>
+            <div style="font-size:13px;font-weight:700;color:var(--negative)">-$1,000/day</div>
+          </div>
+          <div style="text-align:center;padding:8px;background:var(--bg-card);border-radius:var(--radius-xs)">
+            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">Cooldown</div>
+            <div style="font-size:13px;font-weight:700;color:var(--text)">30s dedup</div>
           </div>
         </div>
 
         <!-- Status -->
         <div style="margin-top:12px;display:flex;align-items:center;gap:8px">
           <span id="gold-scalper-status" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--warning);box-shadow:0 0 8px var(--warning)"></span>
-          <span style="font-size:11px;color:var(--text-muted)">Paper trading &mdash; awaiting market hours (NYSE Mon-Fri 6:30 AM PT)</span>
+          <span style="font-size:11px;color:var(--text-muted)">Webhook server &mdash; listening for TradingView alerts</span>
         </div>
       </div>
 
