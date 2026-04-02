@@ -414,29 +414,10 @@ def start_server(
     else:
         logger.warning("[WEBHOOK] No ALPACA_CRYPTO_KEY — BTC executor disabled")
 
-    # Initialize Webull executor (BTC + MGC on Webull paper)
-    webull_key = env.get("WEBULL_APP_KEY", os.environ.get("WEBULL_APP_KEY", ""))
-    webull_secret = env.get("WEBULL_APP_SECRET", os.environ.get("WEBULL_APP_SECRET", ""))
-
-    if webull_key and webull_secret:
-        from src.gold_scalper.webull_executor import WebullExecutor
-        _webull_executor = WebullExecutor(
-            app_key=webull_key,
-            app_secret=webull_secret,
-            alerts=alerts,
-            live_orders=False,  # local paper — switch to True for real Webull orders
-        )
-        # Register Webull-routed tickers (MGC/gold futures only — BTC stays on Alpaca)
-        _WEBULL_TICKERS.update({
-            "MGC", "MGCM5", "MGCQ5", "MGCZ5", "MGC1!",
-            "GC", "GCM5", "GCQ5", "GCZ5",
-        })
-        logger.info(
-            "[WEBHOOK] Webull executor initialized (local paper) — "
-            "routing MGC/gold futures to Webull paper tracker"
-        )
-    else:
-        logger.info("[WEBHOOK] No WEBULL_APP_KEY — Webull executor disabled")
+    # Webull executor disabled — MGC routes to Gold executor (default)
+    # To enable later: uncomment and set live_orders=True after token approval
+    # from src.gold_scalper.webull_executor import WebullExecutor
+    logger.info("[WEBHOOK] MGC routes to Gold executor (Webull disabled)")
 
     # Start IBKR heartbeat if using IBKR broker
     _start_ibkr_heartbeat(broker)
@@ -449,8 +430,7 @@ def start_server(
     routes = ["Gold (default)"]
     if _btc_executor:
         routes.append("BTC/Alpaca (ticker=BTCUSD)")
-    if _webull_executor:
-        routes.append("Webull/MGC (ticker=MGC*,GC*)")
+    # Webull disabled — MGC falls through to Gold executor
     logger.info("[WEBHOOK] Routes: %s", " + ".join(routes))
     logger.info(
         "[WEBHOOK] Set TradingView alert webhook URL to: "

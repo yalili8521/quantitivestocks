@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
@@ -22,6 +23,17 @@ from src.gold_scalper.alerts import ScalperAlertEngine
 from src.gold_scalper.config import GoldScalperConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _fetch_yahoo_price(symbol: str = "MGC=F") -> Optional[float]:
+    """Fetch latest price from Yahoo Finance (non-blocking fallback)."""
+    try:
+        import yfinance as yf
+        t = yf.Ticker(symbol)
+        return float(t.fast_info.last_price)
+    except Exception as e:
+        logger.debug("[PRICE_CMP] Yahoo fetch failed: %s", e)
+        return None
 
 PT = ZoneInfo("America/Los_Angeles")
 
@@ -89,11 +101,15 @@ class WebhookExecutor:
         self._equity: float = initial_equity
         self._trade_log: List[Dict] = []
 
+        # Price comparison (TV vs Yahoo)
+        self._price_comparisons: List[Dict] = []
+
         # State persistence — separate folder from signal-mode bot
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))))
         state_dir = os.path.join(project_root, "outputs", "paper_state", "webhook")
         os.makedirs(state_dir, exist_ok=True)
+        self._price_cmp_file = os.path.join(state_dir, "price_comparison.json")
         self._state_file = os.path.join(state_dir, "webhook_executor_state.json")
         self._log_file = os.path.join(state_dir, "webhook_trade_log.json")
         self._load_state()
@@ -210,6 +226,14 @@ class WebhookExecutor:
         """
         now = datetime.now(PT)
         self._reset_daily_if_needed(now)
+
+        # Price comparison: fetch Yahoo in background, don't block the trade
+        if signal.price > 0:
+            threading.Thread(
+                target=self._record_price_comparison,
+                args=(signal.price, signal.action, now),
+                daemon=True,
+            ).start()
 
         result = {"status": "error", "message": "Unknown action"}
 
@@ -461,6 +485,96 @@ class WebhookExecutor:
 
         self.position = None
 
+    def _record_price_comparison(
+        self, tv_price: float, action: str, now: datetime,
+    ) -> None:
+        """Fetch Yahoo price and record comparison (runs in background thread)."""
+        yahoo_price = _fetch_yahoo_price("MGC=F")
+        if yahoo_price is None:
+            return
+
+        diff = tv_price - yahoo_price
+        diff_pips = diff / self.config.pip_value
+
+        entry = {
+            "time": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "action": action,
+            "tv_price": round(tv_price, 2),
+            "yahoo_price": round(yahoo_price, 2),
+            "diff": round(diff, 2),
+            "diff_pips": round(diff_pips, 1),
+        }
+
+        self._price_comparisons.append(entry)
+        # Keep last 500
+        if len(self._price_comparisons) > 500:
+            self._price_comparisons = self._price_comparisons[-500:]
+
+        logger.info(
+            "[PRICE_CMP] TV=$%.2f  Yahoo=$%.2f  diff=$%.2f (%+.0f pips)  [%s]",
+            tv_price, yahoo_price, diff, diff_pips, action,
+        )
+
+        # Save locally
+        try:
+            tmp = self._price_cmp_file + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(self._price_comparisons, f, indent=2)
+            os.replace(tmp, self._price_cmp_file)
+        except OSError as e:
+            logger.debug("[PRICE_CMP] Save failed: %s", e)
+
+        # Sync to Gist
+        self._sync_price_comparison_to_gist()
+
+    def _sync_price_comparison_to_gist(self) -> None:
+        """Upload price comparison data to Gist for dashboard."""
+        gist_id, gh_token = self._get_gist_creds()
+        if not gist_id or not gh_token:
+            return
+        try:
+            import requests
+            requests.patch(
+                f"https://api.github.com/gists/{gist_id}",
+                headers={
+                    "Authorization": f"token {gh_token}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
+                json={"files": {
+                    "price_comparison.json": {
+                        "content": json.dumps(
+                            self._price_comparisons[-100:], indent=2
+                        ),
+                    },
+                }},
+                timeout=10,
+            )
+        except Exception as exc:
+            logger.debug("[PRICE_CMP] Gist sync error: %s", exc)
+
+    def _get_gist_creds(self) -> tuple:
+        """Get Gist ID and GitHub token from env."""
+        gist_id = os.environ.get("KRAKEN_STATE_GIST_ID", "")
+        gh_token = os.environ.get("GITHUB_TOKEN", "")
+        if not gist_id or not gh_token:
+            env_file = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(
+                    os.path.abspath(__file__)))),
+                "secrets", "alpaca.env",
+            )
+            if os.path.exists(env_file):
+                with open(env_file) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, _, v = line.partition("=")
+                            v = v.strip().strip('"').strip("'")
+                            if k.strip() == "KRAKEN_STATE_GIST_ID" and not gist_id:
+                                gist_id = v
+                            elif k.strip() == "GITHUB_TOKEN" and not gh_token:
+                                gh_token = v
+        return gist_id, gh_token
+
     def _reset_daily_if_needed(self, now: datetime) -> None:
         """Reset daily stats on new calendar day."""
         day = now.date().toordinal()
@@ -539,27 +653,7 @@ class WebhookExecutor:
 
     def _sync_to_gist(self, state: dict) -> None:
         """Upload state + trade log to GitHub Gist for the dashboard."""
-        gist_id = os.environ.get("KRAKEN_STATE_GIST_ID", "")
-        gh_token = os.environ.get("GITHUB_TOKEN", "")
-
-        if not gist_id or not gh_token:
-            env_file = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(
-                    os.path.abspath(__file__)))),
-                "secrets", "alpaca.env",
-            )
-            if os.path.exists(env_file):
-                with open(env_file) as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith("#") and "=" in line:
-                            k, _, v = line.partition("=")
-                            v = v.strip().strip('"').strip("'")
-                            if k.strip() == "KRAKEN_STATE_GIST_ID" and not gist_id:
-                                gist_id = v
-                            elif k.strip() == "GITHUB_TOKEN" and not gh_token:
-                                gh_token = v
-
+        gist_id, gh_token = self._get_gist_creds()
         if not gist_id or not gh_token:
             return
 
@@ -595,6 +689,13 @@ class WebhookExecutor:
                     self._trade_log = json.load(f)
             except Exception as e:
                 logger.warning("[WEBHOOK] Trade log load failed: %s", e)
+
+        if os.path.exists(self._price_cmp_file):
+            try:
+                with open(self._price_cmp_file) as f:
+                    self._price_comparisons = json.load(f)
+            except Exception:
+                pass
 
         if not os.path.exists(self._state_file):
             return
