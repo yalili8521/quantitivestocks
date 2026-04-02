@@ -645,6 +645,35 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       </div>
     </div>
 
+    <!-- Price Comparison: TradingView vs Yahoo (MGC) -->
+    <div class="glass" style="padding:0;overflow:hidden;margin-bottom:16px">
+      <div style="padding:18px 24px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border-muted)">
+        <div style="font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted)">MGC Price Comparison &mdash; TradingView vs Yahoo</div>
+        <div style="display:flex;gap:16px;font-family:var(--mono);font-size:12px">
+          <span style="color:var(--text-dim)">Samples: <span id="price-cmp-count" style="color:var(--text)">--</span></span>
+          <span style="color:var(--text-dim)">Avg: <span id="price-cmp-avg" style="color:var(--text)">--</span></span>
+          <span style="color:var(--text-dim)">Max: <span id="price-cmp-max" style="color:var(--text)">--</span></span>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table id="gold-price-cmp-table" style="width:100%;font-family:var(--mono);font-size:12px;border-collapse:collapse">
+          <thead>
+            <tr style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.06em">
+              <th style="padding:10px 24px;text-align:left;font-weight:600">Time</th>
+              <th style="padding:10px 12px;text-align:left;font-weight:600">Action</th>
+              <th style="padding:10px 12px;text-align:right;font-weight:600">TV Price</th>
+              <th style="padding:10px 12px;text-align:right;font-weight:600">Yahoo Price</th>
+              <th style="padding:10px 12px;text-align:right;font-weight:600">Diff ($)</th>
+              <th style="padding:10px 24px;text-align:right;font-weight:600">Diff (pips)</th>
+            </tr>
+          </thead>
+          <tbody id="price-cmp-body">
+            <tr><td colspan="6" style="padding:24px;color:var(--text-dim);text-align:center;font-size:12px">No price comparison data yet &mdash; recorded on each TradingView webhook signal</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <div id="live-footer" style="font-size:10px;color:var(--text-dim);text-align:center">
       Live &bull; Alpaca + Gold + BTC Paper Trading (4 accounts) &bull; Auto-refreshes every 60s &bull; <span id="last-update" class="mono" style="color:var(--text-muted)">--</span>
     </div>
@@ -1708,71 +1737,6 @@ function setTVGroup(group, btn) {
         <div style="margin-top:12px;display:flex;align-items:center;gap:8px">
           <span id="gold-scalper-status" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--warning);box-shadow:0 0 8px var(--warning)"></span>
           <span style="font-size:11px;color:var(--text-muted)">Webhook server &mdash; listening for TradingView alerts</span>
-        </div>
-      </div>
-
-      <!-- Live Position & P&L (fetched from Gist) -->
-      <div class="strat glass" style="grid-column: 1 / -1; max-width: 720px;">
-        <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px">Live Paper Account</div>
-        <div id="gold-live-stats" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px">
-          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:var(--radius-sm)">
-            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Equity</div>
-            <div id="gold-equity" style="font-size:14px;font-weight:700;color:var(--text)">--</div>
-          </div>
-          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:var(--radius-sm)">
-            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">P&amp;L</div>
-            <div id="gold-pnl" style="font-size:14px;font-weight:700;color:var(--text)">--</div>
-          </div>
-          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:var(--radius-sm)">
-            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Trades</div>
-            <div id="gold-trades" style="font-size:14px;font-weight:700;color:var(--text)">--</div>
-          </div>
-          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:var(--radius-sm)">
-            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Position</div>
-            <div id="gold-position" style="font-size:14px;font-weight:700;color:var(--text-muted)">Flat</div>
-          </div>
-        </div>
-
-        <!-- Recent Trade Log -->
-        <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin:16px 0 8px">Recent Trades</div>
-        <div id="gold-trade-log" style="max-height:200px;overflow-y:auto;font-family:var(--mono);font-size:11px;color:var(--text-sec)">
-          <div style="color:var(--text-dim);font-size:11px">Loading...</div>
-        </div>
-      </div>
-
-      <!-- Price Comparison: TradingView vs Yahoo -->
-      <div class="strat glass" style="grid-column: 1 / -1; max-width: 720px;">
-        <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px">Price Comparison &mdash; TradingView vs Yahoo Finance</div>
-        <div id="gold-price-cmp-summary" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
-          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:var(--radius-sm)">
-            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Samples</div>
-            <div id="price-cmp-count" style="font-size:14px;font-weight:700;color:var(--text)">--</div>
-          </div>
-          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:var(--radius-sm)">
-            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Avg Diff</div>
-            <div id="price-cmp-avg" style="font-size:14px;font-weight:700;color:var(--text)">--</div>
-          </div>
-          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:var(--radius-sm)">
-            <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Max Diff</div>
-            <div id="price-cmp-max" style="font-size:14px;font-weight:700;color:var(--text)">--</div>
-          </div>
-        </div>
-        <div style="overflow-x:auto">
-          <table id="gold-price-cmp-table" style="width:100%;font-family:var(--mono);font-size:11px;border-collapse:collapse">
-            <thead>
-              <tr style="border-bottom:1px solid var(--border-muted);color:var(--text-muted);font-size:9px;text-transform:uppercase;letter-spacing:.06em">
-                <th style="padding:6px 8px;text-align:left">Time</th>
-                <th style="padding:6px 8px;text-align:left">Action</th>
-                <th style="padding:6px 8px;text-align:right">TV Price</th>
-                <th style="padding:6px 8px;text-align:right">Yahoo Price</th>
-                <th style="padding:6px 8px;text-align:right">Diff ($)</th>
-                <th style="padding:6px 8px;text-align:right">Diff (pips)</th>
-              </tr>
-            </thead>
-            <tbody id="price-cmp-body">
-              <tr><td colspan="6" style="padding:12px;color:var(--text-dim);text-align:center">Loading...</td></tr>
-            </tbody>
-          </table>
         </div>
       </div>
 
@@ -3073,80 +3037,18 @@ document.addEventListener('DOMContentLoaded', function() {
       });
   })();
 
-  // ── Gold Scalper: fetch live data from GitHub Gist ──
-  (function loadGoldScalperData() {
+  // ── MGC Price Comparison: fetch from GitHub Gist ──
+  (function loadPriceComparison() {
     var GIST_ID = '7cf164f7292cc01f63c680acd7b619ca';
-    var BASE = 'https://gist.githubusercontent.com/raw/' + GIST_ID + '/raw/';
+    var url = 'https://gist.githubusercontent.com/yalili8521/' + GIST_ID + '/raw/price_comparison.json?t=' + Date.now();
 
-    function gistUrl(file) {
-      return 'https://gist.githubusercontent.com/yalili8521/' + GIST_ID + '/raw/' + file + '?t=' + Date.now();
-    }
-
-    // Fetch state
-    fetch(gistUrl('gold_scalper_state.json'))
-      .then(function(r) { return r.ok ? r.json() : Promise.reject(); })
-      .then(function(st) {
-        var eq = st.equity || 0;
-        var init = st.initial_balance || 5000;
-        var pnl = eq - init;
-        document.getElementById('gold-equity').textContent = '$' + eq.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-        var pnlEl = document.getElementById('gold-pnl');
-        pnlEl.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
-        pnlEl.style.color = pnl >= 0 ? 'var(--positive)' : 'var(--negative)';
-        document.getElementById('gold-trades').textContent = st.trade_count || 0;
-        var posEl = document.getElementById('gold-position');
-        if (st.position) {
-          posEl.textContent = st.position.direction + ' @ ' + st.position.entry_price + ' (' + st.position.contracts + 'ct)';
-          posEl.style.color = st.position.direction === 'LONG' ? 'var(--positive)' : 'var(--negative)';
-        } else {
-          posEl.textContent = 'Flat';
-          posEl.style.color = 'var(--text-muted)';
-        }
-        // Update status dot
-        var dot = document.getElementById('gold-scalper-status');
-        if (dot) { dot.style.background = 'var(--positive)'; dot.style.boxShadow = '0 0 8px var(--positive)'; }
-      })
-      .catch(function() {
-        document.getElementById('gold-equity').textContent = 'N/A';
-      });
-
-    // Fetch trade log
-    fetch(gistUrl('gold_scalper_trade_log.json'))
-      .then(function(r) { return r.ok ? r.json() : Promise.reject(); })
-      .then(function(trades) {
-        var container = document.getElementById('gold-trade-log');
-        if (!trades || trades.length === 0) {
-          container.innerHTML = '<div style="color:var(--text-dim);font-size:11px">No trades yet</div>';
-          return;
-        }
-        var recent = trades.slice(-20).reverse();
-        var html = '';
-        recent.forEach(function(t) {
-          var pnlColor = (t.pnl || 0) >= 0 ? 'var(--positive)' : 'var(--negative)';
-          var pnlStr = (t.pnl || 0) >= 0 ? '+$' + (t.pnl || 0).toFixed(2) : '-$' + Math.abs(t.pnl || 0).toFixed(2);
-          html += '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border-muted)">'
-            + '<span style="color:var(--text-dim)">' + (t.time || t.exit_time || '--') + '</span>'
-            + '<span>' + (t.direction || t.action || '--') + '</span>'
-            + '<span>' + (t.entry_price || '--') + ' &rarr; ' + (t.exit_price || '--') + '</span>'
-            + '<span style="color:' + pnlColor + ';font-weight:700">' + pnlStr + '</span>'
-            + '</div>';
-        });
-        container.innerHTML = html;
-      })
-      .catch(function() {
-        document.getElementById('gold-trade-log').innerHTML = '<div style="color:var(--text-dim);font-size:11px">Could not load trades</div>';
-      });
-
-    // Fetch price comparison
-    fetch(gistUrl('price_comparison.json'))
+    fetch(url)
       .then(function(r) { return r.ok ? r.json() : Promise.reject(); })
       .then(function(data) {
         if (!data || data.length === 0) {
-          document.getElementById('price-cmp-body').innerHTML = '<tr><td colspan="6" style="padding:12px;color:var(--text-dim);text-align:center">No price data yet &mdash; comparison recorded on each webhook signal</td></tr>';
           document.getElementById('price-cmp-count').textContent = '0';
           return;
         }
-        // Summary stats
         var diffs = data.filter(function(d) { return d.diff !== null && d.diff !== undefined; }).map(function(d) { return Math.abs(d.diff); });
         document.getElementById('price-cmp-count').textContent = data.length;
         if (diffs.length > 0) {
@@ -3155,25 +3057,22 @@ document.addEventListener('DOMContentLoaded', function() {
           document.getElementById('price-cmp-avg').textContent = '$' + avg.toFixed(2) + ' (' + (avg / 0.10).toFixed(0) + 'p)';
           document.getElementById('price-cmp-max').textContent = '$' + max.toFixed(2) + ' (' + (max / 0.10).toFixed(0) + 'p)';
         }
-        // Table rows (most recent first, max 50)
         var rows = data.slice(-50).reverse();
         var html = '';
         rows.forEach(function(r) {
           var diffColor = Math.abs(r.diff || 0) > 3.0 ? 'var(--negative)' : 'var(--positive)';
           html += '<tr style="border-bottom:1px solid var(--border-muted)">'
-            + '<td style="padding:5px 8px;color:var(--text-dim)">' + (r.time || '--') + '</td>'
-            + '<td style="padding:5px 8px">' + (r.action || '--') + '</td>'
-            + '<td style="padding:5px 8px;text-align:right;color:var(--warning)">' + (r.tv_price != null ? r.tv_price.toFixed(2) : '--') + '</td>'
-            + '<td style="padding:5px 8px;text-align:right;color:var(--accent)">' + (r.yahoo_price != null ? r.yahoo_price.toFixed(2) : '--') + '</td>'
-            + '<td style="padding:5px 8px;text-align:right;color:' + diffColor + '">' + (r.diff != null ? (r.diff >= 0 ? '+' : '') + r.diff.toFixed(2) : '--') + '</td>'
-            + '<td style="padding:5px 8px;text-align:right;color:' + diffColor + '">' + (r.diff_pips != null ? (r.diff_pips >= 0 ? '+' : '') + r.diff_pips.toFixed(0) : '--') + '</td>'
+            + '<td style="padding:8px 24px;color:var(--text-dim)">' + (r.time || '--') + '</td>'
+            + '<td style="padding:8px 12px">' + (r.action || '--') + '</td>'
+            + '<td style="padding:8px 12px;text-align:right;color:var(--warning)">' + (r.tv_price != null ? r.tv_price.toFixed(2) : '--') + '</td>'
+            + '<td style="padding:8px 12px;text-align:right;color:var(--accent)">' + (r.yahoo_price != null ? r.yahoo_price.toFixed(2) : '--') + '</td>'
+            + '<td style="padding:8px 12px;text-align:right;color:' + diffColor + '">' + (r.diff != null ? (r.diff >= 0 ? '+' : '') + r.diff.toFixed(2) : '--') + '</td>'
+            + '<td style="padding:8px 24px;text-align:right;color:' + diffColor + '">' + (r.diff_pips != null ? (r.diff_pips >= 0 ? '+' : '') + r.diff_pips.toFixed(0) : '--') + '</td>'
             + '</tr>';
         });
         document.getElementById('price-cmp-body').innerHTML = html;
       })
-      .catch(function() {
-        document.getElementById('price-cmp-body').innerHTML = '<tr><td colspan="6" style="padding:12px;color:var(--text-dim);text-align:center">No price comparison data available yet</td></tr>';
-      });
+      .catch(function() {});
   })();
 
 });
