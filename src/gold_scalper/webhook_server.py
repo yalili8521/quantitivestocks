@@ -6,7 +6,7 @@ Multi-instrument webhook router:
 - GET /status returns position status for all executors
 
 Usage:
-    python main.py gold-scalper --mode webhook --broker paper
+    python main.py gold-scalper
     # Then set TradingView alert webhook URL to: https://<your-cloudflare-url>/webhook
 
 Gold signal format (Pine Script):
@@ -22,8 +22,6 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
-import time
 from datetime import datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -49,8 +47,6 @@ PT = ZoneInfo("America/Los_Angeles")
 _gold_executor: Optional[WebhookExecutor] = None
 _btc_executor = None  # BTCWebhookExecutor, lazy import
 _webull_executor = None  # WebullExecutor, lazy import
-_ibkr_connected: Optional[bool] = None
-_last_heartbeat: Optional[str] = None
 
 # Tickers that route to BTC executor (Alpaca)
 _BTC_TICKERS = {"BTCUSD", "BTC/USD", "BTC-USD", "XBTUSD"}
@@ -67,7 +63,7 @@ async def webhook(request: Request):
 
     Routes:
     - ticker in BTC_TICKERS → BTC executor (Alpaca crypto paper)
-    - everything else → Gold executor (paper/IBKR)
+    - everything else → Gold executor (paper)
     """
     try:
         body = await request.json()
@@ -235,8 +231,6 @@ async def status():
             "equity": _webull_executor._equity,
         }
 
-    result["ibkr_connected"] = _ibkr_connected
-    result["last_heartbeat"] = _last_heartbeat
     return result
 
 
@@ -244,118 +238,6 @@ async def status():
 async def health():
     """Simple health check for monitoring."""
     return {"ok": True}
-
-
-@app.post("/reconnect")
-async def reconnect():
-    """Force IBKR reconnection (call from phone if connection is stale)."""
-    global _ibkr_connected, _last_heartbeat
-    if _gold_executor is None:
-        return JSONResponse(status_code=503, content={"error": "Executor not initialized"})
-
-    broker = _gold_executor.broker
-    if not hasattr(broker, "ib"):
-        return {"error": "Not using IBKR broker"}
-
-    try:
-        broker._ensure_connected()
-        connected = broker.ib.isConnected()
-        _ibkr_connected = connected
-        _last_heartbeat = datetime.now(PT).strftime("%H:%M:%S")
-        if connected:
-            logger.info("[RECONNECT] Manual reconnect succeeded")
-            return {"status": "connected", "time": _last_heartbeat}
-        else:
-            logger.error("[RECONNECT] Manual reconnect failed — TWS may be down")
-            return JSONResponse(
-                status_code=503,
-                content={"status": "disconnected", "error": "TWS not responding"},
-            )
-    except Exception as e:
-        _ibkr_connected = False
-        logger.error("[RECONNECT] Error: %s", e)
-        return JSONResponse(
-            status_code=503,
-            content={"status": "error", "error": str(e)},
-        )
-
-
-def _start_ibkr_heartbeat(broker, interval: int = 120) -> None:
-    """Background thread that checks IBKR connection every `interval` seconds."""
-    global _ibkr_connected, _last_heartbeat
-
-    if not hasattr(broker, "ib"):
-        return
-
-    def _heartbeat_loop():
-        global _ibkr_connected, _last_heartbeat
-        consecutive_failures = 0
-        alerted = False
-
-        while True:
-            try:
-                connected = broker.ib.isConnected()
-                now_str = datetime.now(PT).strftime("%H:%M:%S")
-                _last_heartbeat = now_str
-
-                if connected:
-                    _ibkr_connected = True
-                    if consecutive_failures > 0:
-                        logger.info(
-                            "[HEARTBEAT] %s IBKR connection restored after %d failures",
-                            now_str, consecutive_failures,
-                        )
-                        if alerted and _gold_executor and _gold_executor.alerts:
-                            _gold_executor.alerts._send(
-                                "IBKR RECOVERED — connection restored at "
-                                f"{now_str} PT after {consecutive_failures} failures"
-                            )
-                    consecutive_failures = 0
-                    alerted = False
-                else:
-                    _ibkr_connected = False
-                    consecutive_failures += 1
-                    logger.warning(
-                        "[HEARTBEAT] %s IBKR disconnected (attempt %d) — reconnecting...",
-                        now_str, consecutive_failures,
-                    )
-                    try:
-                        broker._ensure_connected()
-                        _ibkr_connected = broker.ib.isConnected()
-                    except Exception:
-                        _ibkr_connected = False
-
-                    if _ibkr_connected:
-                        logger.info(
-                            "[HEARTBEAT] %s IBKR reconnected successfully",
-                            now_str,
-                        )
-                        consecutive_failures = 0
-                        alerted = False
-                    elif consecutive_failures >= 3 and not alerted:
-                        logger.error(
-                            "[HEARTBEAT] %s IBKR DOWN for %d checks — "
-                            "TWS may need manual restart!",
-                            now_str, consecutive_failures,
-                        )
-                        if _gold_executor and _gold_executor.alerts:
-                            _gold_executor.alerts._send(
-                                "IBKR DOWN — TWS appears to have exited. "
-                                f"Disconnected for {consecutive_failures * interval // 60} min "
-                                f"({consecutive_failures} failed reconnects). "
-                                "Webhook server is still running but CANNOT execute trades. "
-                                "Please restart TWS manually."
-                            )
-                        alerted = True
-            except Exception as e:
-                _ibkr_connected = False
-                consecutive_failures += 1
-                logger.error("[HEARTBEAT] Error: %s", e)
-            time.sleep(interval)
-
-    t = threading.Thread(target=_heartbeat_loop, daemon=True, name="ibkr-heartbeat")
-    t.start()
-    logger.info("[HEARTBEAT] IBKR connection monitor started (every %ds)", interval)
 
 
 def _load_env():
@@ -384,7 +266,7 @@ def start_server(
     """Start the webhook server with Gold + BTC executors.
 
     Args:
-        broker: IBKRGoldBroker or PaperGoldBroker instance (for gold)
+        broker: unused (kept for interface compatibility)
         config: Gold scalper config
         host: Bind address (0.0.0.0 for external access)
         port: Port number
@@ -418,9 +300,6 @@ def start_server(
     # To enable later: uncomment and set live_orders=True after token approval
     # from src.gold_scalper.webull_executor import WebullExecutor
     logger.info("[WEBHOOK] MGC routes to Gold executor (Webull disabled)")
-
-    # Start IBKR heartbeat if using IBKR broker
-    _start_ibkr_heartbeat(broker)
 
     logger.info(
         "[WEBHOOK] Starting server on %s:%d — "

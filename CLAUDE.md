@@ -246,5 +246,4 @@ python main.py validate-risk
 ## User Goals
 - End goal: **intraday trading** with real-time data
 - Alpaca for both data and execution
-- IBKR for live gold futures trading (planned)
-- Alpaca for both data and execution
+- MGC gold futures: TradingView webhook signals → paper executor

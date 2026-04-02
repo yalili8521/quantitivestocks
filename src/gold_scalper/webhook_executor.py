@@ -1,11 +1,6 @@
-"""Webhook executor — routes TradingView signals to IBKR.
+"""Webhook executor — receives TradingView alerts and tracks paper positions.
 
-接收TradingView webhook信号并路由到IBKR执行：
-- 管理仓位状态（入场价、合约数、TP追踪）
-- 应用风险控制（每日亏损限额、最大仓位、冷却期）
-- 通过Discord发送警报
-
-Signal flow: TradingView → webhook_server → WebhookExecutor → IBKRGoldBroker
+Signal flow: TradingView → webhook_server → WebhookExecutor → paper P&L tracking
 """
 
 from __future__ import annotations
@@ -75,7 +70,7 @@ class WebhookExecutor:
 
     def __init__(
         self,
-        broker,  # IBKRGoldBroker or PaperGoldBroker
+        broker,  # unused — kept for interface compatibility
         config: GoldScalperConfig,
         alerts: Optional[ScalperAlertEngine] = None,
         initial_equity: float = 5000.0,
