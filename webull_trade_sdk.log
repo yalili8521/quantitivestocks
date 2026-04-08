@@ -3810,3 +3810,47 @@
 27144 2026-04-08 13:41:15,780 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a8391a******03689b expires:1776937170799 status:NORMAL
 27144 2026-04-08 13:41:15,781 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
 27144 2026-04-08 13:41:15,781 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a8391a******03689b expires:1776937170799 status:NORMAL
+17028 2026-04-08 13:43:17,695 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+17028 2026-04-08 13:43:17,700 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+17028 2026-04-08 13:43:17,701 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\yalil\OneDrive\Desktop\AI-projects\quantitivestocks\conf\token.txt.
+17028 2026-04-08 13:43:17,702 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\yalil\OneDrive\Desktop\AI-projects\quantitivestocks\conf\token.txt.
+17028 2026-04-08 13:43:17,702 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+17028 2026-04-08 13:43:17,703 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a8391a******03689b expires:1776937170799 status:NORMAL
+17028 2026-04-08 13:43:17,919 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a8391a******03689b expires:1776937170799 status:NORMAL
+17028 2026-04-08 13:43:17,920 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a8391a******03689b expires:1776937170799 status:NORMAL
+17028 2026-04-08 13:43:17,920 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a8391a******03689b expires:1776937170799 status:NORMAL
+17028 2026-04-08 13:43:17,921 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+17028 2026-04-08 13:43:17,921 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a8391a******03689b expires:1776937170799 status:NORMAL
+17028 2026-04-08 13:45:19,674 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+17028 2026-04-08 13:45:19,677 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+17028 2026-04-08 13:45:19,679 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\yalil\OneDrive\Desktop\AI-projects\quantitivestocks\conf\token.txt.
+17028 2026-04-08 13:45:19,679 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\yalil\OneDrive\Desktop\AI-projects\quantitivestocks\conf\token.txt.
+17028 2026-04-08 13:45:19,680 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+17028 2026-04-08 13:45:19,681 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a8391a******03689b expires:1776937170799 status:NORMAL
+17028 2026-04-08 13:45:19,962 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a8391a******03689b expires:1776937170799 status:NORMAL
+17028 2026-04-08 13:45:19,964 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a8391a******03689b expires:1776937170799 status:NORMAL
+17028 2026-04-08 13:45:19,965 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a8391a******03689b expires:1776937170799 status:NORMAL
+17028 2026-04-08 13:45:19,966 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+17028 2026-04-08 13:45:19,967 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a8391a******03689b expires:1776937170799 status:NORMAL
+10312 2026-04-08 13:47:16,472 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+10312 2026-04-08 13:47:16,476 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+10312 2026-04-08 13:47:16,478 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\yalil\OneDrive\Desktop\AI-projects\quantitivestocks\conf\token.txt.
+10312 2026-04-08 13:47:16,478 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\yalil\OneDrive\Desktop\AI-projects\quantitivestocks\conf\token.txt.
+10312 2026-04-08 13:47:16,478 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+10312 2026-04-08 13:47:16,480 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a8391a******03689b expires:1776937170799 status:NORMAL
+10312 2026-04-08 13:47:16,763 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a8391a******03689b expires:1776937170799 status:NORMAL
+10312 2026-04-08 13:47:16,764 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a8391a******03689b expires:1776937170799 status:NORMAL
+10312 2026-04-08 13:47:16,764 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a8391a******03689b expires:1776937170799 status:NORMAL
+10312 2026-04-08 13:47:16,765 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+10312 2026-04-08 13:47:16,766 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a8391a******03689b expires:1776937170799 status:NORMAL
+27136 2026-04-08 13:49:16,009 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+27136 2026-04-08 13:49:16,012 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+27136 2026-04-08 13:49:16,013 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\yalil\OneDrive\Desktop\AI-projects\quantitivestocks\conf\token.txt.
+27136 2026-04-08 13:49:16,013 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\yalil\OneDrive\Desktop\AI-projects\quantitivestocks\conf\token.txt.
+27136 2026-04-08 13:49:16,013 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+27136 2026-04-08 13:49:16,015 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:a8391a******03689b expires:1776937170799 status:NORMAL
+27136 2026-04-08 13:49:16,291 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:a8391a******03689b expires:1776937170799 status:NORMAL
+27136 2026-04-08 13:49:16,293 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:a8391a******03689b expires:1776937170799 status:NORMAL
+27136 2026-04-08 13:49:16,293 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:a8391a******03689b expires:1776937170799 status:NORMAL
+27136 2026-04-08 13:49:16,294 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+27136 2026-04-08 13:49:16,294 webull.core.http.initializer.token.token_manager INFO init_token finished. token:a8391a******03689b expires:1776937170799 status:NORMAL
