@@ -1,0 +1,7 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+RUNE-USD,crypto,high,base,SHORT,2026-02-02,0.4665,2026-02-06,0.4209,6723.1659,306.58,9.7749,23.9751,-1.3998,profit_lock_trail,profit_lock
+RUNE-USD,crypto,high,base,LONG,2026-02-07,0.4194,2026-02-23,0.3846,10762.5082,-374.54,-8.2976,1.7902,-9.5298,disaster_stop,safety
+RUNE-USD,crypto,high,base,LONG,2026-02-24,0.3891,2026-02-26,0.4052,11557.2908,186.56,4.1485,9.8021,-0.3739,profit_lock_trail,profit_lock
+RUNE-USD,crypto,high,base,LONG,2026-02-27,0.3987,2026-03-06,0.422,11300.0676,263.29,5.844,13.1367,-5.8613,profit_lock_trail,profit_lock
+RUNE-USD,crypto,high,base,LONG,2026-03-07,0.42,2026-03-17,0.4428,10755.2025,245.22,5.4286,9.8343,-2.9217,profit_lock_trail,profit_lock
+RUNE-USD,crypto,high,base,LONG,2026-03-18,0.4257,2026-03-26,0.405,10637.1151,-220.19,-4.8626,0.5015,-6.5058,end_of_backtest,time

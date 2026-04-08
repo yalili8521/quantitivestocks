@@ -1,0 +1,7 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+BAT-USD,crypto,ultra,base,SHORT,2026-01-26,0.1739,2026-02-04,0.1214,25876.9408,1358.54,30.1898,34.0753,-1.9649,profit_lock_trail,profit_lock
+BAT-USD,crypto,ultra,base,LONG,2026-02-06,0.1239,2026-02-12,0.1293,36813.0288,198.79,4.3584,10.5827,-5.3495,profit_lock_trail,profit_lock
+BAT-USD,crypto,ultra,base,LONG,2026-02-15,0.1294,2026-02-20,0.1217,35317.464,-271.94,-5.9505,3.5788,-9.4436,strong_signal_override,signal_override
+BAT-USD,crypto,ultra,base,SHORT,2026-02-21,0.1206,2026-03-02,0.1046,37793.0542,604.69,13.267,16.6791,-5.4776,profit_lock_trail,profit_lock
+BAT-USD,crypto,ultra,base,LONG,2026-03-08,0.0959,2026-03-18,0.1017,47810.7751,278.4,6.072,14.4046,-1.2075,profit_lock_trail,profit_lock
+BAT-USD,crypto,ultra,base,LONG,2026-03-19,0.0988,2026-03-26,0.1011,46534.225,107.03,2.3279,15.836,-8.253,profit_lock_trail,profit_lock

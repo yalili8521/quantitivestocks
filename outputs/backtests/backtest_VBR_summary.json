@@ -1,0 +1,22 @@
+{
+  "symbol": "VBR",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 99042.65,
+  "total_return_pct": -0.96,
+  "annualized_return_pct": -5.78,
+  "sharpe_ratio": -0.79,
+  "max_drawdown_pct": -3.25,
+  "total_trades": 32,
+  "win_rate": 0.438,
+  "avg_win_pct": 0.64,
+  "avg_loss_pct": -0.69,
+  "profit_factor": 0.817,
+  "avg_trade_duration_days": 1.2,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

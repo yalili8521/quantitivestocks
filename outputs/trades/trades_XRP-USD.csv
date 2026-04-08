@@ -1,0 +1,10 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+XRP-USD,crypto,high,base,LONG,2026-01-25,1.8339,2026-01-29,1.8042,2453.787,-72.88,-1.6195,5.686,-3.0878,breakeven_ratchet,breakeven
+XRP-USD,crypto,high,base,LONG,2026-01-31,1.6463,2026-02-04,1.5097,2731.4101,-373.11,-8.2974,1.643,-9.047,disaster_stop,safety
+XRP-USD,crypto,high,base,LONG,2026-02-05,1.2141,2026-02-07,1.4235,3689.9189,772.67,17.2473,26.753,-6.642,profit_lock_trail,profit_lock
+XRP-USD,crypto,high,base,LONG,2026-02-08,1.4329,2026-02-15,1.4741,3150.7437,129.81,2.8753,16.1521,-6.1357,profit_lock_trail,profit_lock
+XRP-USD,crypto,high,base,LONG,2026-02-16,1.4874,2026-02-23,1.351,3039.2242,-414.55,-9.1704,0.2674,-10.2806,disaster_stop,safety
+XRP-USD,crypto,high,base,LONG,2026-02-24,1.3496,2026-02-26,1.4013,3335.7197,172.46,3.8308,10.0829,-0.4784,profit_lock_trail,profit_lock
+XRP-USD,crypto,high,base,LONG,2026-02-27,1.3566,2026-03-06,1.3629,3324.2282,20.94,0.4644,8.2834,-6.1736,profit_lock_trail,profit_lock
+XRP-USD,crypto,high,base,LONG,2026-03-07,1.3571,2026-03-18,1.4631,3323.6978,352.31,7.8108,18.0248,-2.0787,profit_lock_trail,profit_lock
+XRP-USD,crypto,high,base,LONG,2026-03-19,1.448,2026-03-26,1.3582,3125.9975,-280.71,-6.2017,1.0764,-7.5132,end_of_backtest,time

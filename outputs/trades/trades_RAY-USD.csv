@@ -1,0 +1,11 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+RAY-USD,crypto,ultra,base,LONG,2026-01-25,0.9438,2026-01-29,0.9391,4767.9593,-22.41,-0.498,13.7666,-2.4617,breakeven_ratchet,breakeven
+RAY-USD,crypto,ultra,base,LONG,2026-01-30,0.9153,2026-01-31,0.7581,4915.3191,-772.69,-17.1747,0.1819,-22.6387,disaster_stop,safety
+RAY-USD,crypto,ultra,base,LONG,2026-02-01,0.7054,2026-02-05,0.5679,6328.6371,-870.19,-19.4925,6.3989,-20.1216,disaster_stop,safety
+RAY-USD,crypto,ultra,base,LONG,2026-02-06,0.631,2026-02-11,0.5666,7012.7768,-451.62,-10.206,0.0,-13.0672,disaster_stop,safety
+RAY-USD,crypto,ultra,base,LONG,2026-02-12,0.5919,2026-02-15,0.6216,7441.6948,221.02,5.0177,14.3877,-2.2335,profit_lock_trail,profit_lock
+RAY-USD,crypto,ultra,base,LONG,2026-02-16,0.6291,2026-02-18,0.6303,7017.4614,8.67,0.1965,18.7283,-0.293,profit_lock_trail,profit_lock
+RAY-USD,crypto,ultra,base,LONG,2026-02-19,0.6391,2026-02-23,0.5674,6908.2699,-495.32,-11.2189,4.3521,-11.1731,disaster_stop,safety
+RAY-USD,crypto,ultra,base,LONG,2026-02-24,0.5895,2026-02-26,0.6099,7451.7146,152.01,3.4606,12.3567,-1.0582,profit_lock_trail,profit_lock
+RAY-USD,crypto,ultra,base,LONG,2026-02-27,0.5933,2026-03-06,0.5866,7415.5173,-49.68,-1.1293,8.4441,-6.6772,breakeven_ratchet,breakeven
+RAY-USD,crypto,ultra,base,LONG,2026-03-07,0.578,2026-03-18,0.6147,7607.9423,279.21,6.3495,15.2087,-3.1962,profit_lock_trail,profit_lock

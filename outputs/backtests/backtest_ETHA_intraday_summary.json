@@ -1,0 +1,22 @@
+{
+  "symbol": "ETHA",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 80540.65,
+  "total_return_pct": -19.46,
+  "annualized_return_pct": -73.81,
+  "sharpe_ratio": -5.257,
+  "max_drawdown_pct": -22.07,
+  "total_trades": 27,
+  "win_rate": 0.185,
+  "avg_win_pct": 2.72,
+  "avg_loss_pct": -2.56,
+  "profit_factor": 0.234,
+  "avg_trade_duration_days": 0.6,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

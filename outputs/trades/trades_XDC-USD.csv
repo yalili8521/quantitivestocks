@@ -1,0 +1,8 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+XDC-USD,crypto,ultra,base,LONG,2026-01-25,0.0394,2026-01-31,0.0348,114213.198,-528.24,-11.7386,0.8198,-13.5939,disaster_stop,safety
+XDC-USD,crypto,ultra,base,LONG,2026-02-01,0.0366,2026-02-05,0.0298,118096.8133,-803.06,-18.5792,7.9454,-18.7732,disaster_stop,safety
+XDC-USD,crypto,ultra,base,LONG,2026-02-06,0.0372,2026-02-20,0.035,119357.3052,-262.59,-5.914,3.293,-7.1317,max_underwater_14d,time
+XDC-USD,crypto,ultra,base,LONG,2026-02-21,0.0356,2026-03-01,0.0321,124389.7579,-435.36,-9.8315,0.5534,-9.618,disaster_stop,safety
+XDC-USD,crypto,ultra,base,LONG,2026-03-04,0.0357,2026-03-08,0.0317,121408.5804,-487.21,-11.2409,0.0,-12.1597,disaster_stop,safety
+XDC-USD,crypto,ultra,base,LONG,2026-03-10,0.0321,2026-03-18,0.032,136659.1719,-13.67,-0.3115,8.0997,-2.785,breakeven_ratchet,breakeven
+XDC-USD,crypto,ultra,base,LONG,2026-03-19,0.0314,2026-03-26,0.0315,139686.1291,13.97,0.3185,6.7102,-3.4777,end_of_backtest,time

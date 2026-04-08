@@ -1,0 +1,2 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+LQD,,,base,LONG,2026-03-02,110.79,2026-03-03,110.6713,151.7415,-18.01,-0.1071,0.0,0.0,max_hold,

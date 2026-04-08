@@ -1,0 +1,22 @@
+{
+  "symbol": "EWU",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 98753.93,
+  "total_return_pct": -1.25,
+  "annualized_return_pct": -7.47,
+  "sharpe_ratio": -0.762,
+  "max_drawdown_pct": -5.19,
+  "total_trades": 41,
+  "win_rate": 0.585,
+  "avg_win_pct": 0.79,
+  "avg_loss_pct": -1.32,
+  "profit_factor": 0.876,
+  "avg_trade_duration_days": 1.4,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

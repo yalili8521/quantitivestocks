@@ -1,0 +1,10 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+TIA-USD,crypto,ultra,base,LONG,2026-01-25,0.4284,2026-01-29,0.4092,10504.2017,-201.68,-4.4818,9.7059,-6.0465,breakeven_ratchet,breakeven
+TIA-USD,crypto,ultra,base,LONG,2026-01-31,0.3723,2026-02-05,0.308,12062.6494,-775.63,-17.271,3.1727,-17.8088,disaster_stop,safety
+TIA-USD,crypto,ultra,base,LONG,2026-02-06,0.3438,2026-02-11,0.3061,12961.0852,-488.63,-10.9657,1.0977,-13.1446,disaster_stop,safety
+TIA-USD,crypto,ultra,base,LONG,2026-02-12,0.3225,2026-02-15,0.3393,13748.9383,230.98,5.2093,13.5293,-2.9225,profit_lock_trail,profit_lock
+TIA-USD,crypto,ultra,base,LONG,2026-02-16,0.3458,2026-02-23,0.2989,12852.5934,-602.79,-13.5628,1.4422,-15.7397,disaster_stop,safety
+TIA-USD,crypto,ultra,base,LONG,2026-02-25,0.3525,2026-03-08,0.3114,12531.3515,-515.04,-11.6596,0.0,-15.1682,disaster_stop,safety
+TIA-USD,crypto,ultra,base,LONG,2026-03-09,0.3232,2026-03-17,0.3705,13595.6828,643.08,14.6349,19.7627,-0.1924,profit_lock_trail,profit_lock
+TIA-USD,crypto,ultra,base,LONG,2026-03-18,0.3494,2026-03-22,0.3113,12659.0243,-482.31,-10.9044,0.0263,-11.7161,disaster_stop,safety
+TIA-USD,crypto,ultra,base,LONG,2026-03-23,0.3292,2026-03-26,0.3146,13369.8639,-195.73,-4.447,2.3518,-5.0958,end_of_backtest,time

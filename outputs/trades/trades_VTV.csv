@@ -1,0 +1,4 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+VTV,swing,medium,base,LONG,2026-01-26,198.3294,2026-02-23,205.1682,22.8002,155.93,3.4482,4.9769,-0.4535,strong_signal_override,signal_override
+VTV,swing,medium,base,SHORT,2026-02-24,206.0878,2026-03-18,196.8189,49.9511,462.99,4.4975,4.6911,-0.8308,strong_signal_override,signal_override
+VTV,swing,medium,base,LONG,2026-03-19,196.5388,2026-03-26,196.2013,18.8324,-6.36,-0.1717,1.064,-1.4393,end_of_backtest,time

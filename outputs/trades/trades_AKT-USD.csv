@@ -1,0 +1,6 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+AKT-USD,crypto,ultra,base,SHORT,2026-01-26,0.4348,2026-02-02,0.3764,10349.586,604.42,13.4315,20.6125,-23.621,profit_lock_trail,profit_lock
+AKT-USD,crypto,ultra,base,LONG,2026-02-13,0.3288,2026-02-15,0.3291,13768.8525,4.13,0.0912,7.6837,-1.917,profit_lock_trail,profit_lock
+AKT-USD,crypto,ultra,base,LONG,2026-02-19,0.3098,2026-02-21,0.3185,12433.8107,108.17,2.8083,19.8825,-0.2915,profit_lock_trail,profit_lock
+AKT-USD,crypto,ultra,base,SHORT,2026-02-22,0.3111,2026-02-25,0.3193,14568.4745,-119.46,-2.6358,5.7772,-6.1681,strong_signal_override,signal_override
+AKT-USD,crypto,ultra,base,LONG,2026-02-26,0.3119,2026-03-09,0.3732,14513.872,889.7,19.6537,40.3508,-8.1507,profit_lock_trail,profit_lock

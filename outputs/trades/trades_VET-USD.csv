@@ -1,0 +1,9 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+VET-USD,crypto,high,base,SHORT,2025-10-11,0.0167,2025-10-12,0.0193,243275.0709,-632.52,-15.5689,0.5988,-16.5389,disaster_stop,safety
+VET-USD,crypto,high,base,SHORT,2025-10-14,0.0191,2025-10-19,0.0176,234111.8752,341.33,7.6335,15.0419,-1.623,profit_lock_trail,profit_lock
+VET-USD,crypto,high,base,SHORT,2025-10-20,0.0178,2025-10-24,0.0174,252072.859,100.83,2.2472,6.7978,-2.3315,profit_lock_trail,profit_lock
+VET-USD,crypto,high,base,SHORT,2025-10-25,0.0173,2025-11-01,0.0163,259620.474,259.62,5.7803,12.526,-4.5376,profit_lock_trail,profit_lock
+VET-USD,crypto,high,base,SHORT,2025-11-09,0.0171,2025-11-18,0.0149,221610.5939,487.54,12.8655,17.2398,-8.4386,profit_lock_trail,profit_lock
+VET-USD,crypto,high,base,SHORT,2025-11-21,0.0128,2025-11-26,0.0139,297383.6852,-327.12,-8.5937,2.5234,-10.6797,disaster_stop,safety
+VET-USD,crypto,high,base,SHORT,2026-02-07,0.0081,2026-02-12,0.0079,480286.0123,96.06,2.4691,8.3333,-0.8519,profit_lock_trail,profit_lock
+VET-USD,crypto,high,base,SHORT,2026-02-13,0.0082,2026-02-25,0.0078,464768.4834,185.91,4.878,13.5366,-8.8537,profit_lock_trail,profit_lock

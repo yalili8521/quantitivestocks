@@ -1,0 +1,7 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+AVAX-USD,crypto,ultra,base,LONG,2026-01-25,11.5078,2026-01-29,11.0034,364.4992,-183.85,-4.3831,6.4689,-6.0619,breakeven_ratchet,breakeven
+AVAX-USD,crypto,ultra,base,LONG,2026-01-31,10.1259,2026-02-05,8.2826,443.5879,-817.67,-18.2038,1.5474,-18.3278,disaster_stop,safety
+AVAX-USD,crypto,ultra,base,LONG,2026-02-06,9.293,2026-02-20,9.1685,479.3857,-59.71,-1.3402,4.5686,-8.8847,max_underwater_14d,time
+AVAX-USD,crypto,ultra,base,LONG,2026-02-22,8.8893,2026-02-27,8.942,500.8544,26.4,0.5928,10.2961,-7.7106,profit_lock_trail,profit_lock
+AVAX-USD,crypto,ultra,base,LONG,2026-02-28,9.1829,2026-03-17,10.1758,484.9702,481.53,10.8125,14.5183,-4.8912,profit_lock_trail,profit_lock
+AVAX-USD,crypto,ultra,base,LONG,2026-03-18,9.6949,2026-03-26,9.0829,461.5934,-282.5,-6.3126,0.889,-8.2678,end_of_backtest,time

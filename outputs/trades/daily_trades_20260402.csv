@@ -1,0 +1,17 @@
+timestamp,group,symbol,side,qty,price,reason,pnl_pct
+2026-04-02 01:00:37,swing,IWF,LONG,3.0,430.11,"breakeven_ratchet (floor=$430.5567, current=$430.1100)",-0.0010
+2026-04-02 01:01:31,intraday,XLB,LONG,77.0,49.52,"breakeven_ratchet (floor=$50.3100, current=$49.5200)",-0.0157
+2026-04-02 01:17:00,swing,IWM,LONG,8.0,245.89,"signal_decay (E[r]=-0.0001, flips=2/2, held=83)",-0.0157
+2026-04-02 06:30:31,intraday,XLB,LONG,76,49.94,entry (LONG),+0.0000
+2026-04-02 06:30:32,intraday,IWF,SHORT,7,423.51,entry (SHORT),+0.0000
+2026-04-02 06:30:34,intraday,XLK,SHORT,17,132.36,entry (SHORT),+0.0000
+2026-04-02 06:34:53,swing,XLRE,SHORT,128,40.81,entry (SHORT),+0.0000
+2026-04-02 06:35:03,intraday,XLB,LONG,80,50.11,entry (LONG),+0.0000
+2026-04-02 06:35:06,intraday,XLI,LONG,16,161.71,entry (LONG),+0.0000
+2026-04-02 07:35:59,intraday,XLK,SHORT,17.0,134.49,"breakeven_ratchet (floor=$134.1947, current=$134.4900)",-0.0142
+2026-04-02 07:39:12,intraday,XLB,LONG,156.0,50.55,"profit_lock_trail (0.42% from peak, PnL=+1.00%, trail=0.29%)",+0.0100
+2026-04-02 07:40:23,swing,XLU,SHORT,80,46.41,entry (SHORT),+0.0000
+2026-04-02 07:49:08,intraday,XLE,LONG,22.0,59.38,"profit_lock_trail (0.31% from peak, PnL=+0.57%, trail=0.30%)",+0.0057
+2026-04-02 07:50:13,intraday,XLB,LONG,77,50.34,entry (LONG),+0.0000
+2026-04-02 10:15:33,intraday,XLB,LONG,77.0,50.19,"signal_decay (E[r]=-0.0001, flips=1/1, held=132)",-0.0028
+2026-04-02 15:36:18,intraday,XLI,LONG,16.0,163.77,"stale_auto_close (8.0h exit-only, P&L=+1.27%)",+0.0127

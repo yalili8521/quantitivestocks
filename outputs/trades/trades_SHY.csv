@@ -1,0 +1,8 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+SHY,swing,medium,base,LONG,2025-04-10,79.8439,2025-05-02,79.989,112.7199,16.36,0.1817,0.6661,-0.2529,profit_lock_trail,profit_lock
+SHY,swing,medium,base,LONG,2025-05-05,80.0353,2025-07-03,80.3925,112.4688,40.17,0.4463,0.7083,-0.35,profit_lock_trail,profit_lock
+SHY,swing,medium,base,LONG,2025-07-07,80.4293,2025-07-24,80.4803,111.9628,5.71,0.0634,0.2683,-0.0593,profit_lock_trail,profit_lock
+SHY,swing,medium,base,LONG,2025-07-25,80.5855,2025-08-15,80.9109,111.7521,36.36,0.4038,0.5847,-0.0834,profit_lock_trail,profit_lock
+SHY,swing,medium,base,LONG,2025-08-18,80.9676,2025-09-25,81.3301,111.2652,40.33,0.4477,0.7862,-0.0592,profit_lock_trail,profit_lock
+SHY,swing,medium,base,LONG,2025-10-17,81.8854,2025-12-09,81.9585,110.0624,8.05,0.0893,0.318,-0.2515,profit_lock_trail,profit_lock
+SHY,swing,medium,base,LONG,2025-12-29,82.3879,2026-03-02,82.781,109.3999,43.01,0.4771,0.715,-0.0953,profit_lock_trail,profit_lock

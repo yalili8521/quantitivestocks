@@ -1,0 +1,11 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+WLD-USD,crypto,ultra,base,SHORT,2026-01-26,0.4585,2026-01-28,0.5847,6155.8521,-776.87,-27.5245,2.0447,-40.9943,disaster_stop,safety
+WLD-USD,crypto,ultra,base,SHORT,2026-01-30,0.4685,2026-02-02,0.3928,9530.5036,721.46,16.158,18.365,-0.1447,strong_signal_override,signal_override
+WLD-USD,crypto,ultra,base,LONG,2026-02-03,0.4085,2026-02-05,0.3452,11009.808,-696.92,-15.4957,2.3946,-16.1863,disaster_stop,safety
+WLD-USD,crypto,ultra,base,SHORT,2026-02-07,0.397,2026-02-12,0.3818,6374.9285,96.9,3.8287,8.8811,-1.6063,profit_lock_trail,profit_lock
+WLD-USD,crypto,ultra,base,SHORT,2026-02-13,0.3955,2026-02-18,0.3791,8646.9537,141.87,4.1484,5.5107,-10.3444,strong_signal_override,signal_override
+WLD-USD,crypto,ultra,base,LONG,2026-02-20,0.3917,2026-02-26,0.3991,11429.3841,84.58,1.8892,10.8568,-7.18,profit_lock_trail,profit_lock
+WLD-USD,crypto,ultra,base,LONG,2026-02-27,0.3899,2026-03-05,0.4078,11491.9101,205.71,4.5909,13.277,-6.7653,profit_lock_trail,profit_lock
+WLD-USD,crypto,ultra,base,LONG,2026-03-07,0.3777,2026-03-18,0.3682,11887.6158,-112.93,-2.5152,6.8801,-8.0818,breakeven_ratchet,breakeven
+WLD-USD,crypto,ultra,base,SHORT,2026-03-19,0.3306,2026-03-23,0.3261,13565.8516,61.05,1.3612,8.5045,-3.84,profit_lock_trail,profit_lock
+WLD-USD,crypto,ultra,base,SHORT,2026-03-24,0.3208,2026-03-26,0.2918,13988.833,405.68,9.0399,9.6816,-1.9227,end_of_backtest,time

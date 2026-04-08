@@ -1,0 +1,11 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+FET-USD,crypto,ultra,base,LONG,2026-01-25,0.2182,2026-01-29,0.2119,20623.2814,-129.93,-2.8873,9.176,-4.5133,breakeven_ratchet,breakeven
+FET-USD,crypto,ultra,base,LONG,2026-01-30,0.2063,2026-02-01,0.1806,21784.5531,-559.86,-12.4576,0.5158,-15.0126,disaster_stop,safety
+FET-USD,crypto,ultra,base,LONG,2026-02-02,0.1856,2026-02-05,0.1475,24078.4454,-917.39,-20.528,0.8685,-20.3443,disaster_stop,safety
+FET-USD,crypto,ultra,base,LONG,2026-02-06,0.1693,2026-02-15,0.1732,26152.8468,102.0,2.3036,8.9539,-10.8742,profit_lock_trail,profit_lock
+FET-USD,crypto,ultra,base,LONG,2026-02-16,0.1734,2026-02-23,0.1534,25560.9388,-511.22,-11.534,0.361,-12.4885,disaster_stop,safety
+FET-USD,crypto,ultra,base,LONG,2026-02-24,0.1531,2026-02-26,0.1615,28799.8821,241.92,5.4866,14.3194,-0.3338,profit_lock_trail,profit_lock
+FET-USD,crypto,ultra,base,LONG,2026-03-01,0.1508,2026-03-13,0.1779,22841.1702,619.0,17.9708,28.244,-7.0371,strong_signal_override,signal_override
+FET-USD,crypto,ultra,base,SHORT,2026-03-14,0.1788,2026-03-15,0.1974,24876.9749,-462.71,-10.4027,0.3853,-14.1286,disaster_stop,safety
+FET-USD,crypto,ultra,base,LONG,2026-03-19,0.213,2026-03-21,0.219,20784.8877,124.71,2.8169,13.6085,-0.2812,profit_lock_trail,profit_lock
+FET-USD,crypto,ultra,base,LONG,2026-03-22,0.206,2026-03-26,0.2402,21518.4126,735.93,16.6019,29.3471,-1.4908,profit_lock_trail,profit_lock

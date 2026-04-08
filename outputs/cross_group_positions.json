@@ -1,82 +1,55 @@
 {
   "intraday": {
-    "updated_at": "2026-03-31T04:32:20.073389+00:00",
+    "updated_at": "2026-04-04T03:47:07.193887+00:00",
     "positions": {
+      "IWF": {
+        "qty": 7.0,
+        "current_price": 430.04,
+        "side": "SHORT"
+      },
       "XLE": {
-        "qty": 58.0,
-        "current_price": 61.99,
+        "qty": 30.0,
+        "current_price": 59.25,
         "side": "LONG"
       }
     }
   },
   "swing": {
-    "updated_at": "2026-03-31T04:27:50.240861+00:00",
+    "updated_at": "2026-04-04T03:43:32.832487+00:00",
     "positions": {
       "ARKK": {
-        "qty": 26.0,
-        "current_price": 64.54,
+        "qty": 22.0,
+        "current_price": 68.56,
         "side": "LONG"
       },
       "IGV": {
         "qty": 22.0,
-        "current_price": 78.5,
+        "current_price": 80.34,
         "side": "LONG"
-      },
-      "PDBC": {
-        "qty": 204.0,
-        "current_price": 17.42,
-        "side": "SHORT"
       },
       "XLP": {
         "qty": 47.0,
-        "current_price": 82.11,
+        "current_price": 81.89,
         "side": "LONG"
       },
       "XLRE": {
-        "qty": 77.0,
-        "current_price": 40.28,
-        "side": "LONG"
+        "qty": 128.0,
+        "current_price": 41.61,
+        "side": "SHORT"
+      },
+      "XLU": {
+        "qty": 80.0,
+        "current_price": 46.34,
+        "side": "SHORT"
       }
     }
   },
   "crypto": {
-    "updated_at": "2026-03-31T04:31:34.986961+00:00",
-    "positions": {
-      "AVAX/USD": {
-        "qty": 323.043324,
-        "current_price": 8.94,
-        "side": "LONG"
-      },
-      "CRV/USD": {
-        "qty": 13376.78682,
-        "current_price": 0.2181,
-        "side": "LONG"
-      },
-      "ATOM/USD": {
-        "qty": 2245.165932,
-        "current_price": 1.6945,
-        "side": "LONG"
-      },
-      "QNT/USD": {
-        "qty": 24.366841,
-        "current_price": 71.37,
-        "side": "LONG"
-      },
-      "FARTCOIN/USD": {
-        "qty": 14626.352705,
-        "current_price": 0.1704,
-        "side": "SHORT"
-      }
-    }
+    "updated_at": "2026-04-04T03:43:12.177717+00:00",
+    "positions": {}
   },
   "crypto_intraday": {
-    "updated_at": "2026-03-31T04:24:46.834079+00:00",
-    "positions": {
-      "LPT/USD": {
-        "qty": 1398.545908,
-        "current_price": 2.061,
-        "side": "LONG"
-      }
-    }
+    "updated_at": "2026-04-01T22:03:08.555360+00:00",
+    "positions": {}
   }
 }

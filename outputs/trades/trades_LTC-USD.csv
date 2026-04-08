@@ -1,0 +1,4 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+LTC-USD,crypto,high,base,LONG,2026-02-06,55.116,2026-02-27,54.4749,55.4433,-35.54,-1.1632,6.1456,-8.6358,max_underwater_21d,time
+LTC-USD,crypto,high,base,LONG,2026-03-01,53.2995,2026-03-05,55.416,53.4599,113.15,3.971,8.162,-0.5729,profit_lock_trail,profit_lock
+LTC-USD,crypto,high,base,LONG,2026-03-06,53.8646,2026-03-18,55.9974,53.2065,113.48,3.9596,9.7901,-3.1906,profit_lock_trail,profit_lock

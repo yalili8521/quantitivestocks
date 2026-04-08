@@ -1,0 +1,178 @@
+// TQQQ 5min Opening Range Breakout (ORB) v1
+// Opening Range: first 15 minutes (9:30-9:45 ET)
+// Long: 5-min close above OR high
+// Short: 5-min close below OR low
+// Stop Loss: midpoint of opening range
+// Take Profit: 2:1 R:R from entry to stop
+// One trade per day max
+// Timeframe: 5-min on TQQQ
+// Webhook: https://gold-scalper.zhuangxiujiyuan.com/webhook
+// Alert template: {{strategy.order.alert_message}}
+
+//@version=6
+strategy("TQQQ ORB v1",
+     overlay        = true,
+     initial_capital = 5000,
+     default_qty_type = strategy.percent_of_equity,
+     default_qty_value = 95,
+     commission_type = strategy.commission.percent,
+     commission_value = 0.0,
+     slippage       = 1,
+     pyramiding     = 0,
+     calc_on_every_tick = false)
+
+// ─── Inputs ───
+or_minutes    = input.int(15,    "Opening Range minutes",    minval=5, maxval=60)
+rr_ratio      = input.float(2.0, "Reward:Risk ratio",        minval=1.0, step=0.5)
+allow_short   = input.bool(true, "Allow shorts")
+one_trade_day = input.bool(true, "Max 1 trade per day")
+use_session   = input.bool(true, "Session filter (RTH only)")
+
+// Extended entry window — how late after OR can we still enter
+entry_end_h   = input.int(11,  "Entry cutoff hour (ET)",   minval=9, maxval=16)
+entry_end_m   = input.int(0,   "Entry cutoff minute (ET)", minval=0, maxval=59)
+
+// ─── Time Helpers (ET) ───
+et_hour   = hour(time, "America/New_York")
+et_minute = minute(time, "America/New_York")
+et_time   = et_hour * 100 + et_minute   // e.g. 0945
+
+// Key time boundaries
+is_rth        = et_time >= 0930 and et_time < 1600
+or_building   = et_time >= 0930 and et_time < (0930 + or_minutes)  // 0930-0944
+or_done       = et_time >= (0930 + or_minutes)                      // >= 0945
+entry_window  = or_done and et_time < (entry_end_h * 100 + entry_end_m)  // 0945-1100
+force_close   = et_time >= 1555 and et_time < 1600
+
+// ─── Track Opening Range ───
+var float or_high  = na
+var float or_low   = na
+var float or_mid   = na
+var bool  or_ready = false
+var int   trade_day = -1
+
+// New day reset — detect when we enter the OR window
+new_or = or_building and not or_building[1]
+if new_or
+    or_high  := high
+    or_low   := low
+    or_mid   := na
+    or_ready := false
+
+// Build the range during OR period
+if or_building
+    if high > or_high
+        or_high := high
+    if low < or_low
+        or_low := low
+
+// Lock in the range once OR is complete
+if or_done and not or_ready
+    or_mid   := (or_high + or_low) / 2.0
+    or_ready := true
+
+// ─── Calculate TP/SL levels ───
+or_range = or_high - or_low
+
+// Long: entry near or_high, SL at or_mid, TP at entry + rr * (entry - sl)
+long_sl_dist  = or_high - or_mid
+long_tp_price = or_high + long_sl_dist * rr_ratio
+
+// Short: entry near or_low, SL at or_mid, TP at entry - rr * (sl - entry)
+short_sl_dist  = or_mid - or_low
+short_tp_price = or_low - short_sl_dist * rr_ratio
+
+// ─── Entry Conditions ───
+// Already traded today? Use month*100+dayofmonth as unique day ID
+today_id = month * 100 + dayofmonth
+var int last_trade_day = -1
+already_traded = one_trade_day and (today_id == last_trade_day)
+
+// Long: 5-min candle closes above OR high
+long_signal  = or_ready and entry_window and close > or_high and not already_traded
+// Short: 5-min candle closes below OR low
+short_signal = or_ready and entry_window and close < or_low and not already_traded and allow_short
+
+// Minimum range filter — reject tiny ranges (< 0.15% of price)
+min_range_pct = input.float(0.15, "Min OR range % of price", minval=0.0, step=0.05)
+range_ok = (or_range / or_mid * 100) >= min_range_pct
+
+// ─── Entry Logic ───
+if long_signal and range_ok and strategy.position_size == 0
+    last_trade_day := today_id
+
+    alert_json = '{"action": "buy", "ticker": "TQQQ", "contracts": 1, "position_size": 1, "price": ' + str.tostring(close, "#.##") + ', "comment": "ORB Long"}'
+    strategy.entry("Long", strategy.long, alert_message = alert_json)
+    strategy.exit("Long TP/SL", "Long", limit=long_tp_price, stop=or_mid,
+         alert_message = '{"action": "sell", "ticker": "TQQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "TP/SL"}')
+
+if short_signal and range_ok and strategy.position_size == 0
+    last_trade_day := today_id
+
+    alert_json = '{"action": "sell", "ticker": "TQQQ", "contracts": 1, "position_size": -1, "price": ' + str.tostring(close, "#.##") + ', "comment": "ORB Short"}'
+    strategy.entry("Short", strategy.short, alert_message = alert_json)
+    strategy.exit("Short TP/SL", "Short", limit=short_tp_price, stop=or_mid,
+         alert_message = '{"action": "buy", "ticker": "TQQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "TP/SL"}')
+
+// ─── Market Close Exit ───
+if force_close and strategy.position_size > 0
+    close_json = '{"action": "sell", "ticker": "TQQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Market Close"}'
+    strategy.close("Long", comment="Market Close", alert_message = close_json)
+
+if force_close and strategy.position_size < 0
+    close_json = '{"action": "buy", "ticker": "TQQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Market Close"}'
+    strategy.close("Short", comment="Market Close", alert_message = close_json)
+
+// ─── Plots ───
+// Opening range box
+or_color_bull = color.new(color.green, 85)
+or_color_bear = color.new(color.red, 85)
+
+plot(or_ready ? or_high : na, "OR High", color=color.new(color.green, 30), style=plot.style_linebr, linewidth=2)
+plot(or_ready ? or_low  : na, "OR Low",  color=color.new(color.red, 30),   style=plot.style_linebr, linewidth=2)
+plot(or_ready ? or_mid  : na, "OR Mid",  color=color.new(color.yellow, 40), style=plot.style_linebr, linewidth=1)
+
+// TP levels
+plot(or_ready and strategy.position_size == 0 ? long_tp_price  : na, "Long TP",  color=color.new(color.lime, 50),  style=plot.style_linebr, linewidth=1)
+plot(or_ready and strategy.position_size == 0 ? short_tp_price : na, "Short TP", color=color.new(color.fuchsia, 50), style=plot.style_linebr, linewidth=1)
+
+// Session background
+bgcolor(or_building ? color.new(color.orange, 90) : entry_window ? color.new(color.blue, 96) : na)
+
+// Entry signals
+plotshape(long_signal  and range_ok and strategy.position_size == 0, "Long",  shape.triangleup,   location.belowbar, color.green, size=size.small)
+plotshape(short_signal and range_ok and strategy.position_size == 0, "Short", shape.triangledown, location.abovebar, color.red,   size=size.small)
+
+// ─── Info Table ───
+var table info = table.new(position.top_right, 2, 8, bgcolor=color.new(color.black, 80))
+if barstate.islast
+    table.cell(info, 0, 0, "Strategy", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 0, "ORB v1",   text_color=color.lime,  text_size=size.small)
+
+    table.cell(info, 0, 1, "OR High", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 1, or_ready ? "$" + str.tostring(or_high, "#.##") : "Building...",
+         text_color=color.green, text_size=size.small)
+
+    table.cell(info, 0, 2, "OR Low", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 2, or_ready ? "$" + str.tostring(or_low, "#.##") : "Building...",
+         text_color=color.red, text_size=size.small)
+
+    table.cell(info, 0, 3, "OR Range", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 3, or_ready ? "$" + str.tostring(or_range, "#.##") + " (" + str.tostring(or_range / or_mid * 100, "#.##") + "%)" : "---",
+         text_color=color.white, text_size=size.small)
+
+    table.cell(info, 0, 4, "SL (Mid)", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 4, or_ready ? "$" + str.tostring(or_mid, "#.##") : "---",
+         text_color=color.yellow, text_size=size.small)
+
+    table.cell(info, 0, 5, "Long TP", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 5, or_ready ? "$" + str.tostring(long_tp_price, "#.##") : "---",
+         text_color=color.lime, text_size=size.small)
+
+    table.cell(info, 0, 6, "Short TP", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 6, or_ready ? "$" + str.tostring(short_tp_price, "#.##") : "---",
+         text_color=color.fuchsia, text_size=size.small)
+
+    table.cell(info, 0, 7, "Position", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 7, strategy.position_size > 0 ? "LONG" : strategy.position_size < 0 ? "SHORT" : "FLAT",
+         text_color=strategy.position_size > 0 ? color.green : strategy.position_size < 0 ? color.red : color.gray, text_size=size.small)

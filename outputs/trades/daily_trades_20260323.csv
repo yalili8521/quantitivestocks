@@ -1,0 +1,64 @@
+timestamp,group,symbol,side,qty,price,reason,pnl_pct
+2026-03-23 02:14:15,crypto_intraday,RAY/USD,SHORT,3215.831424,0.58,"profit_lock+signal_decay (armed, E[r]=+0.0010, PnL=+1.64%)",+0.0164
+2026-03-23 02:15:45,crypto_intraday,GOMINING/USD,LONG,9878.283901,0.30,entry (LONG),+0.0000
+2026-03-23 02:17:31,crypto_intraday,GOMINING/USD,LONG,9878.283901,0.30,disaster_stop (-3.02% <= -3.00%),-0.0302
+2026-03-23 02:19:26,crypto_intraday,ETHFI/USD,LONG,6652.495971,0.52,entry (LONG),+0.0000
+2026-03-23 02:24:34,crypto_intraday,BERA/USD,SHORT,4139.487541,0.50,"max_hold_expired (48 bars = 4.0h, PnL=+2.18%)",+0.0218
+2026-03-23 02:24:49,crypto_intraday,PENDLE/USD,SHORT,2663.373177,1.15,"max_hold_expired (48 bars = 4.0h, PnL=+2.92%)",+0.0292
+2026-03-23 02:26:19,crypto_intraday,KAS/USD,LONG,64503.209912,0.03,entry (LONG),+0.0000
+2026-03-23 02:26:29,crypto_intraday,RAY/USD,LONG,5974.728643,0.58,entry (LONG),+0.0000
+2026-03-23 03:19:44,crypto_intraday,ETHFI/USD,LONG,6652.495971,0.52,"signal_reversal_post_horizon (E[r]=-0.0162, bars=37, PnL=+0.62%)",+0.0062
+2026-03-23 03:19:52,crypto_intraday,KAS/USD,LONG,64503.209912,0.03,"signal_reversal_post_horizon (E[r]=-0.0021, bars=37, PnL=+0.13%)",+0.0013
+2026-03-23 03:21:22,crypto_intraday,GOMINING/USD,LONG,7448.919936,0.30,entry (LONG),+0.0000
+2026-03-23 03:21:39,crypto_intraday,PENDLE/USD,SHORT,2810.40987,1.15,entry (SHORT),+0.0000
+2026-03-23 04:07:55,swing,EWJ,SHORT,69.0,83.71,"profit_lock_trail (4.29% from peak, PnL=+0.53%, trail=2.50%)",+0.0053
+2026-03-23 04:21:21,crypto_intraday,RAY/USD,LONG,5974.728643,0.58,"signal_reversal_post_horizon (E[r]=-0.0245, bars=43, PnL=-0.57%)",-0.0057
+2026-03-23 04:22:51,crypto_intraday,PENDLE/USD,SHORT,2810.40987,1.19,disaster_stop (-3.45% <= -3.00%),-0.0345
+2026-03-23 04:22:57,crypto_intraday,BERA/USD,SHORT,7086.121577,0.52,entry (SHORT),+0.0000
+2026-03-23 04:24:45,crypto_intraday,ETHFI/USD,LONG,4010.337907,0.55,entry (LONG),+0.0000
+2026-03-23 04:28:10,crypto_intraday,BERA/USD,SHORT,7086.121577,0.52,"profit_lock_trail (0.76% from peak, PnL=+0.01%, trail=0.40%)",+0.0001
+2026-03-23 04:29:54,crypto_intraday,BERA/USD,SHORT,6591.831295,0.52,entry (SHORT),+0.0000
+2026-03-23 04:33:28,crypto_intraday,ETHFI/USD,LONG,4010.337907,0.55,"profit_lock_trail (0.60% from peak, PnL=+0.66%, trail=0.40%)",+0.0066
+2026-03-23 04:35:12,crypto_intraday,ETHFI/USD,LONG,3982.741721,0.55,entry (LONG),+0.0000
+2026-03-23 05:25:16,crypto_intraday,GOMINING/USD,LONG,7448.919936,0.31,"breakeven_ratchet (floor=$0.3119, current=$0.3118)",-0.0002
+2026-03-23 05:27:01,crypto_intraday,GOMINING/USD,LONG,8114.470184,0.30,entry (LONG),+0.0000
+2026-03-23 06:24:56,crypto_intraday,BERA/USD,SHORT,6591.831295,0.52,"breakeven_ratchet (floor=$0.5183, current=$0.5195)",-0.0022
+2026-03-23 06:26:41,crypto_intraday,BERA/USD,SHORT,3222.535249,0.52,entry (SHORT),+0.0000
+2026-03-23 06:33:57,crypto_intraday,ETHFI/USD,LONG,3982.741721,0.54,"signal_reversal_post_horizon (E[r]=-0.0028, bars=12, PnL=-2.01%)",-0.0201
+2026-03-23 06:35:45,crypto_intraday,PENDLE/USD,SHORT,2833.305539,1.19,entry (SHORT),+0.0000
+2026-03-23 06:38:04,swing,USO,LONG,103,112.74,entry (LONG),+0.0000
+2026-03-23 06:43:42,swing,XLE,SHORT,79.0,58.95,"profit_lock_trail (1.71% from peak, PnL=+0.92%, trail=1.50%)",+0.0092
+2026-03-23 06:48:49,swing,XLE,SHORT,197,58.81,entry (SHORT),+0.0000
+2026-03-23 08:06:52,swing,USO,LONG,103.0,108.19,disaster_stop (-4.01% <= -4.00%),-0.0401
+2026-03-23 08:12:02,swing,PDBC,SHORT,703,16.44,entry (SHORT),+0.0000
+2026-03-23 09:00:19,crypto_intraday,GOMINING/USD,LONG,8114.470184,0.31,"signal_reversal_post_horizon (E[r]=-0.0073, bars=20, PnL=+0.27%)",+0.0027
+2026-03-23 09:02:08,crypto_intraday,RAY/USD,LONG,6406.56605,0.60,entry (LONG),+0.0000
+2026-03-23 09:10:47,crypto_intraday,BERA/USD,SHORT,3222.535249,0.50,"profit_lock+signal_decay (armed, E[r]=+0.0521, PnL=+3.23%)",+0.0323
+2026-03-23 09:12:45,crypto_intraday,KAS/USD,SHORT,71034.137237,0.04,entry (SHORT),+0.0000
+2026-03-23 09:36:47,crypto_intraday,KAS/USD,SHORT,71034.137237,0.04,"profit_lock_trail (0.46% from peak, PnL=+0.40%, trail=0.40%)",+0.0040
+2026-03-23 09:38:17,crypto_intraday,GOMINING/USD,SHORT,9908.204523,0.30,entry (SHORT),+0.0000
+2026-03-23 11:04:38,crypto_intraday,RAY/USD,LONG,6406.56605,0.60,"signal_reversal_post_horizon (E[r]=-0.0040, bars=12, PnL=-0.05%)",-0.0005
+2026-03-23 11:06:09,crypto_intraday,BERA/USD,SHORT,7847.861063,0.51,entry (SHORT),+0.0000
+2026-03-23 11:36:00,crypto_intraday,GOMINING/USD,SHORT,9908.204523,0.31,"profit_lock_trail (1.60% from peak, PnL=+1.81%, trail=0.40%)",+0.0181
+2026-03-23 11:37:44,crypto_intraday,ETHFI/USD,LONG,7229.482258,0.55,entry (LONG),+0.0000
+2026-03-23 12:11:26,crypto_intraday,BERA/USD,SHORT,7847.861063,0.50,"profit_lock_trail (0.46% from peak, PnL=+0.90%, trail=0.40%)",+0.0090
+2026-03-23 12:13:16,crypto_intraday,BERA/USD,SHORT,7417.232372,0.50,entry (SHORT),+0.0000
+2026-03-23 13:40:37,crypto_intraday,BERA/USD,SHORT,7417.232372,0.50,"breakeven_ratchet (floor=$0.5024, current=$0.5037)",-0.0025
+2026-03-23 13:42:15,crypto_intraday,GOMINING/USD,SHORT,9707.549511,0.30,entry (SHORT),+0.0000
+2026-03-23 14:10:18,crypto_intraday,GOMINING/USD,SHORT,9707.549511,0.30,"profit_lock_trail (1.03% from peak, PnL=+2.42%, trail=0.40%)",+0.0242
+2026-03-23 14:12:09,crypto_intraday,GOMINING/USD,LONG,9992.070138,0.30,entry (LONG),+0.0000
+2026-03-23 14:21:48,crypto_intraday,ETHFI/USD,LONG,7229.482258,0.54,"signal_reversal_post_horizon (E[r]=-0.0004, bars=17, PnL=-2.47%)",-0.0247
+2026-03-23 14:23:34,crypto_intraday,BERA/USD,SHORT,6833.742838,0.51,entry (SHORT),+0.0000
+2026-03-23 14:40:26,swing,HYG,LONG,47.0,79.35,"stale_auto_close (8.0h exit-only, P&L=-0.49%)",-0.0049
+2026-03-23 14:40:29,swing,SPY,LONG,5.0,655.86,"stale_auto_close (8.0h exit-only, P&L=-0.47%)",-0.0047
+2026-03-23 14:40:31,swing,TLT,SHORT,66.0,86.33,"stale_auto_close (8.0h exit-only, P&L=+0.79%)",+0.0079
+2026-03-23 14:42:25,crypto_intraday,PENDLE/USD,SHORT,2833.305539,1.23,disaster_stop (-3.08% <= -3.00%),-0.0308
+2026-03-23 14:43:59,crypto_intraday,ETHFI/USD,LONG,6299.788684,0.54,entry (LONG),+0.0000
+2026-03-23 15:14:06,crypto_intraday,GOMINING/USD,LONG,9992.070138,0.30,"breakeven_ratchet (floor=$0.3048, current=$0.3044)",-0.0012
+2026-03-23 15:15:56,crypto_intraday,GOMINING/USD,LONG,9937.77597,0.30,entry (LONG),+0.0000
+2026-03-23 16:24:54,crypto_intraday,GOMINING/USD,LONG,9937.77597,0.30,"breakeven_ratchet (floor=$0.3134, current=$0.3041)",-0.0295
+2026-03-23 16:26:44,crypto_intraday,BERA/USD,SHORT,6833.742838,0.51,"signal_reversal_post_horizon (E[r]=+0.0132, bars=12, PnL=-0.01%)",-0.0001
+2026-03-23 17:20:09,crypto_intraday,ETHFI/USD,LONG,6299.788684,0.53,"signal_reversal_post_horizon (E[r]=-0.0039, bars=15, PnL=-1.10%)",-0.0110
+2026-03-23 23:04:12,crypto_intraday,GOMINING/USD,LONG,9321.611735,0.30,entry (LONG),+0.0000
+2026-03-23 23:04:17,crypto_intraday,ETHFI/USD,SHORT,7123.183371,0.52,entry (SHORT),+0.0000
+2026-03-23 23:04:27,crypto_intraday,PENDLE/USD,SHORT,2428.126536,1.22,entry (SHORT),+0.0000

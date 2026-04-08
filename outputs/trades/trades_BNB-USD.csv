@@ -1,0 +1,8 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+BNB-USD,crypto,high,base,LONG,2026-01-26,879.1839,2026-01-31,780.0943,2.8482,-282.23,-11.2706,3.2055,-12.9087,disaster_stop,safety
+BNB-USD,crypto,high,base,LONG,2026-02-01,758.8366,2026-02-04,697.5128,4.628,-283.81,-8.0813,3.0703,-9.4217,disaster_stop,safety
+BNB-USD,crypto,high,base,LONG,2026-02-05,606.8461,2026-02-08,639.9335,6.1791,204.45,5.4524,10.143,-4.9645,profit_lock_trail,profit_lock
+BNB-USD,crypto,high,base,LONG,2026-02-09,636.2724,2026-02-24,583.8177,7.0469,-369.64,-8.2441,0.7369,-9.1049,disaster_stop,safety
+BNB-USD,crypto,high,base,LONG,2026-02-25,629.3872,2026-03-06,626.9598,5.441,-13.21,-0.3857,5.6747,-6.3299,breakeven_ratchet,breakeven
+BNB-USD,crypto,high,base,LONG,2026-03-07,620.3763,2026-03-18,651.7331,5.5009,172.49,5.0545,10.518,-1.7686,profit_lock_trail,profit_lock
+BNB-USD,crypto,high,base,LONG,2026-03-19,639.5858,2026-03-26,628.1036,3.9543,-45.4,-1.7953,1.9354,-2.9018,end_of_backtest,time

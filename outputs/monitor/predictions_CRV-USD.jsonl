@@ -1,0 +1,3 @@
+{"timestamp": "2026-03-24T22:39:05.352407+00:00", "symbol": "CRV-USD", "predicted_return": 0.086642, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-25T06:12:43.407233+00:00", "symbol": "CRV-USD", "predicted_return": 0.086642, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-27T00:04:51.827033+00:00", "symbol": "CRV-USD", "predicted_return": 0.07055, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}

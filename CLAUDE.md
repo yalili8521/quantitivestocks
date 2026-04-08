@@ -16,7 +16,7 @@ quantitivestocks/
         signals_engine.py       ← signal engine, adapters, indicators
         ml_model.py             ← ReturnLSTM (regression), training, prediction
         backtester.py           ← walk-forward backtester (with cost model)
-        paper_trader.py         ← Alpaca paper trading loop (5 groups, dynamic selection)
+        paper_trader.py         ← Alpaca paper trading loop (2 groups, dynamic selection)
         risk_config.py          ← centralized risk params, portfolio constraints
         risk_overlay.py         ← cross-group correlation-based scaling (refreshed every 30min)
         cost_model.py           ← per-symbol spread/slippage/fee model
@@ -24,7 +24,6 @@ quantitivestocks/
         oos_feedback.py         ← composite scoring (James-Stein + fee-aware + correlation penalty)
         etf_selector.py         ← ETFSelectorML + ETFIntradaySelectorML (LambdaRank)
         etf_screener.py         ← ETF universe discovery (Alpaca API + yfinance validation)
-        coin_selector.py        ← CoinSelector (LambdaRank for crypto)
         alerts.py               ← Slack webhook alerts on position entry
     config/
         trading.json            ← production trading parameters (v4.0)
@@ -49,9 +48,6 @@ python main.py train    --symbol SPY --epochs 50
 python main.py train    --symbol SPY --mode intraday --interval 5min
 python main.py train-intraday --symbols XLV,XLF,XLE,USO,SPY,PDBC,XLY --provider yahoo --walk-forward
 python main.py train-swing    --symbols FBTC,EWH,SMH,IAU,IBIT,EWW,EWU,GDXJ,MCHI,SLV --provider yahoo --train-recent
-python main.py train-crypto
-python main.py train-crypto-intraday --walk-forward
-
 # Selectors (LambdaRank)
 python main.py train-intraday-etf-selector   # trains ETFIntradaySelectorML
 python main.py screen-etf-universe            # refreshes ETF universe (Alpaca + yfinance)
@@ -64,9 +60,6 @@ python main.py backtest --symbol SPY --start 2024-01-01 --stress-cost-mult 2.0
 # Trading
 python main.py trade    --group intraday --mode intraday --interval 5min
 python main.py trade    --group swing
-python main.py trade    --group crypto
-python main.py trade    --group crypto_intraday
-
 # Monitoring
 python main.py model-health
 python main.py validate-risk
@@ -81,14 +74,11 @@ python main.py validate-risk
 - **`src/risk_config.py`**: Centralized risk parameters, horizon validation, portfolio constraints
   - Swing: position_pct=45%, max_position=12%, max_sector=35%, max_exposure=75% (from trading.json)
   - Intraday: position_pct=10%, max_position=10%, max_sector=30%, max_exposure=30% (from trading.json)
-  - Crypto: position_pct=15%, max_position=6%, max_exposure=40%, kelly_cap=10%
-  - Crypto intraday: position_pct=12%, max_position=4%, max_exposure=12%
   - **IMPORTANT**: risk_config.py hardcoded defaults diverge from trading.json — JSON overrides win at runtime
   - `validate_model_mode()`: fails fast if LSTM used with intraday or LightGBM with daily
-  - `check_position_allowed()`: per-position, sector, total exposure, BTC beta caps
+  - `check_position_allowed()`: per-position, sector, total exposure caps
 - **`src/cost_model.py`**: Per-symbol spread + slippage + fee model
-  - Liquid ETFs (SPY): ~3bps RT, Mid ETFs (SMH): ~7bps, Low (EWT): ~12bps
-  - Crypto major: ~40bps RT, Crypto alt: ~80bps RT (Kraken taker = 26bps/side); extended hours 3x multiplier
+  - Liquid ETFs (SPY): ~3bps RT, Mid ETFs (SMH): ~7bps, Low (EWT): ~12bps; extended hours 3x multiplier
   - `simulate_fill()`: realistic fill price for backtester
   - `validate_cost_threshold()`: ensures cost_threshold > estimated_costs × 1.5x
 - **`src/model_monitor.py`**: Rolling IC, hit rate, calibration mapping
@@ -116,49 +106,43 @@ python main.py validate-risk
 - `train-meta` CLI command exists for backward compatibility but has no effect on trading
 
 ## Dynamic Symbol Selection (paper_trader.py) — Unified Architecture (v4, 2026-03-26)
-- **All 4 ML groups use the SAME composite scoring pipeline** (previously only crypto had it)
+- **All ML groups use the SAME composite scoring pipeline**
 - **SYMBOL_GROUPS are broad universe pools** — NOT hardcoded trading lists
   - ETF pool: ~59 symbols (from `screen-etf-universe` + Alpaca API validation)
-  - Crypto pool: ~73 symbols (from Layer 0 universe screener: CMC top-250 × Kraken pairs)
 - **3-layer selection pipeline**:
-  1. **Layer 0: Universe screening** — ETF screener (Alpaca API + yfinance) or crypto screener (CMC + Kraken)
+  1. **Layer 0: Universe screening** — ETF screener (Alpaca API + yfinance)
   2. **Layer 1: LambdaRank selector** — cross-sectional ranking by ML features
      - `ETFSelectorML` (swing ETFs, 10 features)
      - `ETFIntradaySelectorML` (intraday ETFs, 10 features including intraday_activity)
-     - `CoinSelector` (crypto, 11 features)
   3. **Layer 2: Composite scoring** (`oos_feedback.py:compute_composite_scores`)
      - `composite = w_selector × rank_norm(selector_score) + w_sharpe × rank_norm(blended_sharpe)`
      - James-Stein shrinkage: cold symbols 30/70 prior/data → live symbols 70/30
-     - SPY correlation penalty for ETFs (mirrors BTC penalty for crypto)
+     - SPY correlation penalty for ETFs
      - Fee-aware adjustment via `cost_model` — expensive symbols penalized
 - **Top-K selection per group**:
   - `swing`: top-10 from composite ranking
   - `intraday`: top-8 from composite ranking
-  - `crypto`: top-6 from composite ranking
-  - `crypto_intraday`: top-7 from composite ranking
 - **Background auto-training**: untrained top-ranked symbols get trained via `_spawn_background_train`
 - **OOS Sharpe registries**:
   - ETF swing: `data/models/swing/promoted_symbols.json`
   - ETF intraday: `data/models/intraday/promoted_symbols.json`
-  - Crypto swing: `config/trading.json:oos_sharpe_registry`
-  - Crypto intraday: `config/trading.json:oos_sharpe_registry_intraday`
 - **Re-ranking frequency**: every 30 minutes in paper_trader run_loop
 
 ## Position Sizing — Alpha-Weighted Risk Budget (v4, 2026-03-27)
 - **Unified system**: composite score IS the position weight. Selector + sizer are one integrated pipeline.
 - **Formula**: `sizing_pct = weight × total_risk_budget / realized_vol`
   - `weight` = `composite_score ^ concentration / sum(all_scores ^ concentration)` (normalized to 1.0)
-  - `total_risk_budget`: swing=10%, intraday=5%, crypto=8%, crypto_intraday=4%
+  - `total_risk_budget`: swing=10%, intraday=5%
   - `concentration=1.5`: rank #1 gets ~1.8x the capital of rank #5
 - **Vol-targeted**: high-vol assets get fewer dollars, low-vol get more — equal risk contribution
 - **E[r] only gates direction**: LONG if E[r] > cost_threshold, SHORT if < -cost_threshold, SKIP otherwise
 - **Safety stages still apply**: VIX scaling, drawdown throttle, auto de-risk, post-loss reduction, max_position_pct cap
 - **Legacy fallback**: if `total_risk_budget=0`, falls through to old 12-stage sizing pipeline
-- **BTC/SPY correlation penalty**: embedded in composite score, NOT double-counted in sizing
+- **SPY correlation penalty**: embedded in composite score, NOT double-counted in sizing
 - **Config**: `total_risk_budget` and `concentration` per group in `config/trading.json`
 
 ## Regime Filter
-- SPY SMA(200) + VIX < 30 (swing/crypto only; intraday skips VIX gate) + rolling 20-trade win-rate cooldown (7d)
+- SPY SMA(200) + VIX < 30 (swing only; intraday skips VIX gate) + rolling 20-trade win-rate cooldown (7d)
 - Applied in both backtester.py and paper_trader.py
 
 ## Scheduled Task
@@ -173,7 +157,7 @@ python main.py validate-risk
 - alpaca-py TimeFrame: `TimeFrame(5, TimeFrameUnit.Minute)` not `TimeFrame(5, "Min")`
 - Retry with backoff: always `raise RuntimeError(...) from last_exc`
 - Dynamic Kelly: rolling 60-trade window, min 20 trades (in both paper_trader + backtester)
-- Bar counter restoration: group-aware intervals (300s for ETF 5min, 60s for crypto_intraday 1min)
+- Bar counter restoration: group-aware intervals (300s for ETF 5min)
 - Watchdog: PID-based tree kill via `Stop-Process` (not `taskkill /IM python.exe` which kills all Python)
 - Gold scalper: staleness check on price data (rejects bars >5min/30min old)
 - Risk overlay: `update_overlay()` called every 30min in paper_trader run_loop
@@ -182,7 +166,6 @@ python main.py validate-risk
 ### Audit Fixes (2026-03-26)
 - **Backtester VIX leakage**: `_fetch_vix_for_training(include_live=False)` in backtester (was True, leaking future VIX)
 - **LSTM window off-by-one**: `features_norm.iloc[window_start+1:idx_pos+1]` (was `[window_start:idx_pos]`, missing current bar)
-- **Kraken fees**: `_KRAKEN_FEE_BPS = 26.0` (was 13.0 — Kraken charges 26bps/side, not 13bps)
 - **Regime cooldown re-arm**: reset `_regime_cooldown_until = None` after expiry (was permanently disabled after first use)
 - **Atomic state writes**: all JSON state files use tmpfile + `os.replace()` (was non-atomic truncate-then-write)
 - **post_loss_size_mult**: wired into sizing logic (was defined but never applied)
@@ -193,12 +176,11 @@ python main.py validate-risk
 
 ## API Keys
 - **All keys live in `secrets/alpaca.env`** — load with `source secrets/alpaca.env` or read programmatically
-- **3 separate Alpaca paper accounts** (each group has its own key pair):
+- **2 separate Alpaca paper accounts** (each group has its own key pair):
   - `ALPACA_INTRADAY_KEY/SECRET` — intraday ETF trading
   - `ALPACA_SWING_KEY/SECRET` — swing ETF trading (different account!)
-  - Crypto uses Kraken paper (local state in `outputs/paper_state/`)
 - **IMPORTANT**: When checking positions, use the correct account's key for each group. The intraday key does NOT show swing positions and vice versa.
-- Other keys in env file: `FRED_API_KEY`, `CMC_API_KEY`, `ALERT_WEBHOOK_URL`, `KRAKEN_API_KEY/SECRET`
+- Other keys in env file: `FRED_API_KEY`, `ALERT_WEBHOOK_URL`
 
 ## Vercel Site
 - Live: `https://quantitative-stocks.vercel.app`
@@ -211,9 +193,9 @@ python main.py validate-risk
 - **Script**: `scripts/weekly_pipeline.py` (orchestrator), `outputs/weekly_pipeline.ps1` (PowerShell wrapper)
 - **Task Scheduler**: `QuantStocks-WeeklyRetrain` (S4U, Sunday 2:00 AM)
 - **Pipeline steps**:
-  1. Screen universes (ETF: Alpaca+yfinance, Crypto: CMC+Kraken)
+  1. Screen universes (ETF: Alpaca+yfinance)
   2. Define OOS cutoff (today - 30 days)
-  3. Retrain ALL models on data before cutoff (258 models: 59 swing + 59 intraday + 65 crypto swing + 65 crypto intraday + 10 selectors)
+  3. Retrain ALL models on data before cutoff (59 swing + 59 intraday + selectors)
   4. Backtest ALL models on OOS data (cutoff → today)
   5. Update OOS Sharpe registries from backtest results
   6. Refresh LambdaRank selectors
@@ -224,26 +206,45 @@ python main.py validate-risk
 
 ## Cross-Group Exposure Coordination (v4, 2026-03-26)
 - **Theme caps enforced cross-group**: `check_theme_cap()` merges positions from all groups via `risk_overlay.publish_positions()` / `get_all_group_positions()`
-- **Theme caps**: tech=30%, commodities=25%, crypto=15%, emerging=10%, broad=20%
+- **Theme caps**: tech=30%, commodities=25%, emerging=10%, broad=20%
 - **Sleeve budgets enforced**: `check_sleeve_budget()` caps each group's exposure as % of total portfolio
-- **Sleeve budgets**: swing=60%, intraday=15%, crypto=25%, crypto_intraday=12%
-- **SYMBOL_SECTOR**: Expanded to cover all 59 ETFs + 73 crypto pairs (previously only ~25 symbols mapped)
+- **Sleeve budgets**: swing=60%, intraday=15%
+- **SYMBOL_SECTOR**: Expanded to cover all 59 ETFs (previously only ~25 symbols mapped)
 - **Shared state file**: `outputs/cross_group_positions.json` (atomic writes, 15-min staleness filter)
 
 ## Audit Fixes (2026-03-26, session 2)
-- **Kraken fees**: `_KRAKEN_FEE_BPS = 26.0` per side (was 13.0 — RT is now 52bps, not 26bps)
 - **Regime cooldown re-arm**: reset `_regime_cooldown_until = None` after expiry (was permanently disabled)
-- **Crypto intraday target_return**: 4% → 1% (was crushing position sizes — E[r]/target_return ratio was ~0.1)
 - **wk_ret consistency**: `WEEK_DAYS = 3` in signals_engine.py (matches ml_model.py `pct_change(3)`)
 - **Gold scalper TP restore**: Recalculates remaining contracts on restart based on pips passed (was [0,0,0,0])
 - **Gold scalper staleness**: Reverted — Yahoo futures have normal ~10min delay, not a bug
 - **Watchdog $pid**: Renamed to `$procId` to avoid PowerShell read-only variable conflict
 - **Session filter minute overflow**: Clamped to 59 (was `minute + 4` crash when minute >= 56)
 - **Dashboard win rate**: Live Win Rate, PF, Avg Win/Loss, Net P&L per group tab
-- **Retrain script**: Symbol lists synced to active paper_trader groups + crypto_intraday step added
+- **Retrain script**: Symbol lists synced to active paper_trader groups
 - **FRED API key**: Removed hardcoded fallback from retrain_all.py
+
+## Gold Scalper Webhook
+- **Task Scheduler**: `QuantStocks-Webhook` (S4U, boot/logon triggers, restart on failure)
+- **Script**: `outputs/run_gold_webhook.ps1` — starts Cloudflare tunnel + webhook server
+- **Webhook URL**: `https://gold-scalper.zhuangxiujiyuan.com/webhook`
+- **Launch**: `python main.py gold-scalper --mode webhook --broker paper --webhook-port 8000`
+- **Sizing**: equity-based (ignores TV contracts), scales per $10K profit above initial $5K
+- **State**: `outputs/paper_state/webhook/webhook_executor_state.json`
+
+## QQQ Options Trading
+- **Executor**: `src/gold_scalper/qqq_options_executor.py`
+- **Alpaca account**: third account (`ALPACA_CRYPTO_KEY/SECRET`), options level 3
+- **Routing**: `ticker=QQQ` in webhook → QQQ options executor
+- **Strategy**: MA Accumulation (Pine Script `QQQ_MA_Accumulation_v2.pine`)
+  - MA5/10/20 stack + steady grind detection on 1-min
+  - 6-level TP (buys 10 ATM 0DTE contracts, scales out 3/2/2/1/1/1)
+  - Morning session only (9:30-11:00 ET)
+  - Breakeven stop after TP1
+- **State**: `outputs/paper_state/webhook/qqq_options_state.json`
 
 ## User Goals
 - End goal: **intraday trading** with real-time data
-- Alpaca for both data and execution
+- Alpaca for ETF data and execution
 - MGC gold futures: TradingView webhook signals → paper executor
+- QQQ 0DTE options: MA accumulation strategy → webhook → Alpaca options
+- BTC trader: planned (crypto moved to separate worktree)

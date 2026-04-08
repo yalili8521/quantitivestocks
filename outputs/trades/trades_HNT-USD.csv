@@ -1,0 +1,9 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+HNT-USD,crypto,ultra,base,SHORT,2026-01-25,1.1265,2026-02-01,0.9706,3994.6738,622.77,13.8393,16.481,-4.9984,strong_signal_override,signal_override
+HNT-USD,crypto,ultra,base,LONG,2026-02-03,0.8935,2026-02-05,0.7487,5067.7388,-733.81,-16.2059,2.2614,-15.9521,disaster_stop,safety
+HNT-USD,crypto,ultra,base,LONG,2026-02-06,0.864,2026-02-19,1.3746,5202.5501,2656.57,59.1006,96.2787,-7.9454,profit_lock_trail,profit_lock
+HNT-USD,crypto,ultra,base,SHORT,2026-02-26,1.4027,2026-03-01,1.2829,2951.394,353.58,8.5407,11.5842,-0.8252,strong_signal_override,signal_override
+HNT-USD,crypto,ultra,base,LONG,2026-03-02,1.2965,2026-03-08,1.1591,3571.5079,-490.83,-10.6,0.4331,-11.4709,disaster_stop,safety
+HNT-USD,crypto,ultra,base,LONG,2026-03-09,1.1411,2026-03-16,1.2523,4038.5354,449.09,9.745,13.412,-1.4935,strong_signal_override,signal_override
+HNT-USD,crypto,ultra,base,SHORT,2026-03-17,1.3038,2026-03-23,1.3419,3550.0702,-135.26,-2.9222,12.4332,-6.8988,breakeven_ratchet,breakeven
+HNT-USD,crypto,ultra,base,SHORT,2026-03-25,1.2403,2026-03-26,1.2036,3726.9168,136.78,2.959,4.6668,-0.4711,end_of_backtest,time

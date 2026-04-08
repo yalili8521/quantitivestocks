@@ -1,0 +1,22 @@
+{
+  "symbol": "MTUM",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 100518.94,
+  "total_return_pct": 0.52,
+  "annualized_return_pct": 3.26,
+  "sharpe_ratio": 0.657,
+  "max_drawdown_pct": -2.35,
+  "total_trades": 32,
+  "win_rate": 0.531,
+  "avg_win_pct": 1.26,
+  "avg_loss_pct": -0.97,
+  "profit_factor": 1.131,
+  "avg_trade_duration_days": 1.3,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

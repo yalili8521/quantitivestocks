@@ -1,0 +1,22 @@
+{
+  "symbol": "QUAL",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 99161.84,
+  "total_return_pct": -0.84,
+  "annualized_return_pct": -5.08,
+  "sharpe_ratio": -3.317,
+  "max_drawdown_pct": -0.91,
+  "total_trades": 24,
+  "win_rate": 0.417,
+  "avg_win_pct": 0.47,
+  "avg_loss_pct": -0.62,
+  "profit_factor": 0.45,
+  "avg_trade_duration_days": 1.0,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

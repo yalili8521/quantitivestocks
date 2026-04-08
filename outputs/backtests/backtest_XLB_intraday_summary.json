@@ -1,0 +1,22 @@
+{
+  "symbol": "XLB",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 102244.54,
+  "total_return_pct": 2.24,
+  "annualized_return_pct": 14.73,
+  "sharpe_ratio": 2.339,
+  "max_drawdown_pct": -1.65,
+  "total_trades": 43,
+  "win_rate": 0.512,
+  "avg_win_pct": 0.89,
+  "avg_loss_pct": -0.6,
+  "profit_factor": 1.527,
+  "avg_trade_duration_days": 0.9,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

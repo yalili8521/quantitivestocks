@@ -1,0 +1,118 @@
+timestamp,group,symbol,side,qty,price,reason,pnl_pct
+2026-03-31 00:02:36,crypto_intraday,INJ/USD,SHORT,1335.626537,2.89,entry (SHORT),+0.0000
+2026-03-31 00:33:52,crypto_intraday,SEI/USD,LONG,55143.41122,0.05,entry (LONG),+0.0000
+2026-03-31 01:26:14,crypto_intraday,ALGO/USD,SHORT,31701.839409,0.09,entry (SHORT),+0.0000
+2026-03-31 02:01:10,crypto_intraday,SEI/USD,LONG,55143.41122,0.05,"breakeven_ratchet (floor=$0.0511, current=$0.0509)",-0.0048
+2026-03-31 02:03:25,crypto_intraday,INJ/USD,SHORT,1335.626537,2.88,"signal_reversal_post_horizon (E[r]=+0.0054, bars=13, PnL=+0.50%)",+0.0050
+2026-03-31 02:03:29,crypto_intraday,AR/USD,SHORT,2269.978965,1.70,"signal_reversal_post_horizon (E[r]=+0.0066, bars=22, PnL=-0.17%)",-0.0017
+2026-03-31 02:34:31,crypto_intraday,AR/USD,SHORT,1191.369114,1.69,entry (SHORT),+0.0000
+2026-03-31 02:35:23,crypto_intraday,LPT/USD,LONG,1124.863812,2.04,entry (LONG),+0.0000
+2026-03-31 03:12:23,crypto_intraday,ALGO/USD,SHORT,31701.839409,0.09,"profit_lock_trail (1.37% from peak, PnL=+0.71%, trail=0.30%)",+0.0071
+2026-03-31 03:28:16,crypto_intraday,FIL/USD,SHORT,2623.778932,0.82,"profit_lock+signal_decay (armed, E[r]=+0.0007, PnL=+0.91%)",+0.0091
+2026-03-31 03:47:03,crypto_intraday,SEI/USD,SHORT,21563.981476,0.05,entry (SHORT),+0.0000
+2026-03-31 04:05:47,crypto_intraday,LTC/USD,LONG,63.553885,53.21,entry (LONG),+0.0000
+2026-03-31 04:06:44,crypto_intraday,INJ/USD,LONG,1044.212319,2.84,entry (LONG),+0.0000
+2026-03-31 05:16:54,crypto,FARTCOIN/USD,SHORT,14626.352705,0.17,"profit_lock_trail (0.98% from peak, PnL=+4.19%, trail=0.94%)",+0.0419
+2026-03-31 06:10:17,crypto_intraday,INJ/USD,LONG,1044.212319,2.86,"signal_reversal_post_horizon (E[r]=-0.0207, bars=14, PnL=+0.51%)",+0.0051
+2026-03-31 06:11:11,crypto_intraday,LPT/USD,LONG,1124.863812,2.06,"profit_lock_trail (0.39% from peak, PnL=+0.54%, trail=0.30%)",+0.0054
+2026-03-31 06:23:49,intraday,XLE,LONG,58.0,62.00,"breakeven_ratchet (floor=$62.0300, current=$62.0000)",-0.0005
+2026-03-31 06:24:25,intraday,XLE,LONG,58,61.96,entry (LONG),+0.0000
+2026-03-31 06:30:06,intraday,USO,LONG,10,129.35,entry (LONG),+0.0000
+2026-03-31 06:30:08,intraday,XLB,LONG,91,49.47,entry (LONG),+0.0000
+2026-03-31 06:30:40,intraday,XLU,LONG,85,45.83,entry (LONG),+0.0000
+2026-03-31 06:30:42,intraday,XLK,SHORT,21,129.16,entry (SHORT),+0.0000
+2026-03-31 06:31:13,intraday,EWH,LONG,127,22.58,entry (LONG),+0.0000
+2026-03-31 06:36:45,intraday,XLE,LONG,58.0,62.47,"profit_lock_trail (0.25% from peak, PnL=+0.77%, trail=0.15%)",+0.0077
+2026-03-31 06:46:50,crypto_intraday,FIL/USD,SHORT,2826.320163,0.83,entry (SHORT),+0.0000
+2026-03-31 06:52:09,intraday,USO,LONG,10.0,128.08,"breakeven_ratchet (floor=$128.1100, current=$128.0800)",-0.0080
+2026-03-31 06:52:46,intraday,USO,LONG,8,127.83,entry (LONG),+0.0000
+2026-03-31 07:05:38,crypto_intraday,SEI/USD,SHORT,21563.981476,0.05,"profit_lock_trail (0.48% from peak, PnL=+0.55%, trail=0.30%)",+0.0055
+2026-03-31 07:42:09,crypto_intraday,SEI/USD,LONG,50459.084539,0.05,entry (LONG),+0.0000
+2026-03-31 07:50:44,intraday,XLB,LONG,91.0,49.42,"breakeven_ratchet (floor=$49.4229, current=$49.4200)",-0.0001
+2026-03-31 07:51:01,intraday,XLB,LONG,91,49.42,entry (LONG),+0.0000
+2026-03-31 07:52:05,intraday,XLB,LONG,91.0,49.38,"breakeven_ratchet (floor=$49.4229, current=$49.3800)",-0.0010
+2026-03-31 07:52:52,intraday,XLB,LONG,76,49.37,entry (LONG),+0.0000
+2026-03-31 08:00:22,crypto_intraday,LTC/USD,LONG,63.553885,53.75,"profit_lock_trail (0.57% from peak, PnL=+1.00%, trail=0.30%)",+0.0100
+2026-03-31 08:06:51,intraday,USO,LONG,8.0,129.63,"profit_lock_trail (0.37% from peak, PnL=+1.38%, trail=0.29%)",+0.0138
+2026-03-31 08:07:21,intraday,USO,LONG,10,129.83,entry (LONG),+0.0000
+2026-03-31 08:19:55,crypto_intraday,ALGO/USD,SHORT,32733.151428,0.09,entry (SHORT),+0.0000
+2026-03-31 08:57:56,intraday,XLB,LONG,76.0,49.37,"breakeven_ratchet (floor=$49.3700, current=$49.3700)",+0.0000
+2026-03-31 08:59:05,intraday,XLB,LONG,91,49.40,entry (LONG),+0.0000
+2026-03-31 08:59:07,intraday,XLB,LONG,75,49.41,entry (LONG),+0.0000
+2026-03-31 09:39:02,intraday,USO,LONG,10.0,129.78,"breakeven_ratchet (floor=$129.8400, current=$129.7800)",-0.0005
+2026-03-31 09:43:16,intraday,XLK,SHORT,21.0,132.23,disaster_stop (-2.41% <= -2.25%),-0.0241
+2026-03-31 09:44:18,intraday,XLB,LONG,166.0,49.95,"profit_lock_trail (0.29% from peak, PnL=+1.10%, trail=0.15%)",+0.0110
+2026-03-31 10:00:54,intraday,USO,LONG,8,126.29,entry (LONG),+0.0000
+2026-03-31 10:00:55,intraday,XLB,LONG,74,49.71,entry (LONG),+0.0000
+2026-03-31 10:00:56,intraday,XLU,LONG,85,45.71,entry (LONG),+0.0000
+2026-03-31 10:01:01,intraday,USO,LONG,8.0,126.17,"breakeven_ratchet (floor=$127.8625, current=$126.1700)",-0.0007
+2026-03-31 10:01:01,intraday,XLB,LONG,74.0,49.71,"profit_lock_trail (0.74% from peak, PnL=+0.00%, trail=0.30%)",+0.0000
+2026-03-31 10:02:00,intraday,USO,LONG,8,126.28,entry (LONG),+0.0000
+2026-03-31 10:02:01,intraday,XLB,LONG,74,49.71,entry (LONG),+0.0000
+2026-03-31 10:02:02,intraday,XLU,LONG,85,45.72,entry (LONG),+0.0000
+2026-03-31 10:03:07,intraday,XLU,LONG,85,45.73,entry (LONG),+0.0000
+2026-03-31 10:04:12,intraday,XLU,LONG,85,45.71,entry (LONG),+0.0000
+2026-03-31 10:06:21,intraday,XLU,LONG,85,45.68,entry (LONG),+0.0000
+2026-03-31 10:07:26,intraday,XLU,LONG,85,45.63,entry (LONG),+0.0000
+2026-03-31 10:08:31,intraday,XLU,LONG,85,45.63,entry (LONG),+0.0000
+2026-03-31 10:09:36,intraday,XLU,LONG,84,45.61,entry (LONG),+0.0000
+2026-03-31 10:10:42,intraday,XLU,LONG,84,45.51,entry (LONG),+0.0000
+2026-03-31 10:10:45,intraday,XLE,LONG,56,60.88,entry (LONG),+0.0000
+2026-03-31 10:11:31,crypto_intraday,FIL/USD,SHORT,2826.320163,0.83,"breakeven_ratchet (floor=$0.8306, current=$0.8320)",-0.0017
+2026-03-31 10:11:49,intraday,XLE,LONG,56.0,60.74,"breakeven_ratchet (floor=$61.9900, current=$60.7450)",-0.0018
+2026-03-31 10:12:53,intraday,XLU,LONG,84,45.53,entry (LONG),+0.0000
+2026-03-31 10:12:54,intraday,XLE,LONG,54,60.59,entry (LONG),+0.0000
+2026-03-31 10:16:04,crypto,FARTCOIN/USD,SHORT,14626.352705,0.17,"breakeven_ratchet (floor=$0.1722, current=$0.1727)",-0.0028
+2026-03-31 10:18:26,crypto_intraday,INJ/USD,LONG,819.904633,2.90,entry (LONG),+0.0000
+2026-03-31 10:20:52,crypto_intraday,AR/USD,SHORT,1191.369114,1.73,"max_hold_expired (48 bars = 4.0h, PnL=-1.88%)",-0.0188
+2026-03-31 10:25:44,crypto_intraday,AR/USD,LONG,1369.425933,1.73,entry (LONG),+0.0000
+2026-03-31 10:30:03,crypto_intraday,LPT/USD,LONG,1279.517863,2.11,entry (LONG),+0.0000
+2026-03-31 10:31:04,crypto_intraday,ALGO/USD,SHORT,32733.151428,0.09,disaster_stop (-2.41% <= -2.25%),-0.0241
+2026-03-31 11:01:42,intraday,USO,LONG,8.0,127.22,"profit_lock_trail (0.51% from peak, PnL=+0.73%, trail=0.43%)",+0.0073
+2026-03-31 11:02:47,intraday,USO,LONG,10,126.87,entry (LONG),+0.0000
+2026-03-31 11:02:47,intraday,USO,LONG,8,126.88,entry (LONG),+0.0000
+2026-03-31 11:17:43,intraday,USO,LONG,18.0,126.17,"breakeven_ratchet (floor=$126.3000, current=$126.1700)",-0.0058
+2026-03-31 11:17:47,intraday,USO,LONG,8,126.16,entry (LONG),+0.0000
+2026-03-31 11:26:31,crypto_intraday,SEI/USD,LONG,50459.084539,0.05,"signal_reversal_post_horizon (E[r]=-0.0172, bars=12, PnL=+0.03%)",+0.0003
+2026-03-31 11:29:36,intraday,USO,LONG,8.0,126.01,"breakeven_ratchet (floor=$126.1350, current=$126.0100)",-0.0010
+2026-03-31 11:30:41,intraday,USO,LONG,10,125.92,entry (LONG),+0.0000
+2026-03-31 11:30:42,intraday,XLU,LONG,84,45.44,entry (LONG),+0.0000
+2026-03-31 11:44:22,crypto_intraday,SEI/USD,SHORT,58420.689369,0.05,entry (SHORT),+0.0000
+2026-03-31 11:46:19,crypto,BAT/USD,LONG,21259.796793,0.09,entry (LONG),+0.0000
+2026-03-31 11:46:27,crypto,FARTCOIN/USD,SHORT,14095.42192,0.17,entry (SHORT),+0.0000
+2026-03-31 12:03:26,crypto_intraday,NEAR/USD,SHORT,1977.1387,1.19,entry (SHORT),+0.0000
+2026-03-31 12:13:25,intraday,XLE,LONG,54.0,60.80,"signal_decay (E[r]=-0.0000, flips=1/1, held=111)",+0.0035
+2026-03-31 12:13:29,intraday,XLE,LONG,54.0,60.80,"signal_decay (E[r]=-0.0000, flips=1/1, held=112)",+0.0034
+2026-03-31 12:18:49,intraday,USO,LONG,10.0,127.21,"profit_lock_trail (0.40% from peak, PnL=+1.00%, trail=0.38%)",+0.0100
+2026-03-31 12:19:51,intraday,USO,LONG,10,127.14,entry (LONG),+0.0000
+2026-03-31 12:19:52,intraday,XLE,SHORT,54.0,60.90,"signal_decay (E[r]=+0.0002, flips=6/1, held=6)",-0.0018
+2026-03-31 12:19:56,intraday,XLE,SHORT,54.0,60.90,"signal_decay (E[r]=+0.0001, flips=6/1, held=6)",-0.0018
+2026-03-31 13:41:19,intraday,USO,LONG,10.0,125.90,"breakeven_ratchet (floor=$125.9580, current=$125.9000)",-0.0095
+2026-03-31 14:13:10,crypto_intraday,SEI/USD,SHORT,58420.689369,0.05,disaster_stop (-2.51% <= -2.25%),-0.0251
+2026-03-31 14:18:50,crypto_intraday,INJ/USD,LONG,819.904633,2.89,"signal_reversal_post_horizon (E[r]=-0.0291, bars=23, PnL=-0.50%)",-0.0050
+2026-03-31 14:18:54,crypto_intraday,AR/USD,LONG,1369.425933,1.75,"profit_lock_trail (1.19% from peak, PnL=+1.11%, trail=0.30%)",+0.0111
+2026-03-31 14:20:10,swing,XLRE,LONG,77.0,40.83,"signal_decay (E[r]=-0.0001, flips=2/2, held=312)",+0.0109
+2026-03-31 14:25:20,swing,IWM,LONG,7,248.00,entry (LONG),+0.0000
+2026-03-31 14:25:26,swing,IWM,LONG,7,248.00,entry (LONG),+0.0000
+2026-03-31 14:32:23,crypto,RUNE/USD,LONG,2381.830095,0.41,entry (LONG),+0.0000
+2026-03-31 14:52:11,crypto_intraday,NEAR/USD,SHORT,1977.1387,1.19,"profit_lock_trail (0.51% from peak, PnL=+0.29%, trail=0.30%)",+0.0029
+2026-03-31 14:55:56,intraday,XLB,LONG,74.0,49.99,"profit_lock_trail (0.32% from peak, PnL=+0.56%, trail=0.15%)",+0.0056
+2026-03-31 15:13:54,intraday,XLE,LONG,54.0,60.87,"breakeven_ratchet (floor=$60.8800, current=$60.8700)",-0.0002
+2026-03-31 15:13:58,intraday,XLE,LONG,55,61.24,entry (LONG),+0.0000
+2026-03-31 15:18:13,intraday,XLE,LONG,55.0,60.88,"breakeven_ratchet (floor=$60.8800, current=$60.8800)",-0.0011
+2026-03-31 15:19:07,intraday,XLE,LONG,56,61.24,entry (LONG),+0.0000
+2026-03-31 15:29:00,crypto_intraday,XLM/USD,LONG,17327.490983,0.17,entry (LONG),+0.0000
+2026-03-31 15:52:16,crypto_intraday,AR/USD,SHORT,834.643432,1.75,entry (SHORT),+0.0000
+2026-03-31 15:52:21,crypto_intraday,INJ/USD,SHORT,1347.624084,2.87,entry (SHORT),+0.0000
+2026-03-31 17:04:51,crypto_intraday,LPT/USD,LONG,1279.517863,2.10,"signal_reversal_post_horizon (E[r]=-0.0126, bars=21, PnL=-0.43%)",-0.0043
+2026-03-31 17:05:25,crypto_intraday,NEAR/USD,SHORT,1826.357333,1.19,entry (SHORT),+0.0000
+2026-03-31 17:23:34,crypto_intraday,LPT/USD,SHORT,1031.70229,2.10,entry (SHORT),+0.0000
+2026-03-31 17:42:52,swing,PDBC,SHORT,204.0,18.14,disaster_stop (-5.22% <= -3.00%),-0.0522
+2026-03-31 17:42:56,swing,PDBC,SHORT,47.0,18.14,disaster_stop (-5.22% <= -3.00%),-0.0522
+2026-03-31 18:17:41,crypto_intraday,AR/USD,SHORT,834.643432,1.75,"signal_reversal_post_horizon (E[r]=+0.0284, bars=14, PnL=-0.05%)",-0.0005
+2026-03-31 18:20:04,crypto_intraday,INJ/USD,SHORT,1347.624084,2.88,"signal_reversal_post_horizon (E[r]=+0.0025, bars=14, PnL=-0.64%)",-0.0064
+2026-03-31 19:22:22,intraday,XLE,LONG,56.0,60.99,"signal_decay (E[r]=+0.0000, flips=1/1, held=37)",-0.0007
+2026-03-31 19:23:28,swing,PDBC,LONG,47.0,17.39,legacy_trailing_stop (4.19%),-0.0419
+2026-03-31 19:25:02,intraday,XLE,LONG,68,61.24,entry (LONG),+0.0000
+2026-03-31 20:05:26,crypto_intraday,AR/USD,SHORT,1364.764957,1.73,entry (SHORT),+0.0000
+2026-03-31 22:16:53,crypto_intraday,AR/USD,SHORT,1364.764957,1.72,"signal_reversal_post_horizon (E[r]=+0.0022, bars=12, PnL=+0.07%)",+0.0007

@@ -1,0 +1,2 @@
+{"timestamp": "2026-03-23T09:26:19.206503+00:00", "symbol": "KAS-USD", "predicted_return": 0.007846416957616757, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}
+{"timestamp": "2026-03-23T16:12:45.616487+00:00", "symbol": "KAS-USD", "predicted_return": -0.009337345830195218, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}

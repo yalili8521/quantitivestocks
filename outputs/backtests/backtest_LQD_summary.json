@@ -1,0 +1,22 @@
+{
+  "symbol": "LQD",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 99981.99,
+  "total_return_pct": -0.02,
+  "annualized_return_pct": -0.11,
+  "sharpe_ratio": -0.461,
+  "max_drawdown_pct": -0.1,
+  "total_trades": 1,
+  "win_rate": 0.0,
+  "avg_win_pct": 0.0,
+  "avg_loss_pct": -0.11,
+  "profit_factor": 0.0,
+  "avg_trade_duration_days": 1.0,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

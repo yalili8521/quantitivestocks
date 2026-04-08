@@ -1,0 +1,262 @@
+// TQQQ MA Accumulation v3-5m v1.1 — Pure Runner (3x Leveraged)
+// Morning entry (9:30-11:00), single trailing stop exits 100%
+// v1.3 LOCKED: BE 1.50%, Trail 0.75%, SL 1.50%, Cooldown 8 bars
+// Settings scaled for 3x leveraged ETF
+// Market close backstop at 16:00 ET
+// Timeframe: 5-min
+// Webhook: https://gold-scalper.zhuangxiujiyuan.com/webhook
+// Alert template: {{strategy.order.alert_message}}
+
+//@version=6
+strategy("TQQQ MA Accumulation v3-5m v1.3",
+     overlay        = true,
+     initial_capital = 5000,
+     default_qty_type = strategy.percent_of_equity,
+     default_qty_value = 95,
+     commission_type = strategy.commission.percent,
+     commission_value = 0,
+     slippage       = 1,
+     pyramiding     = 0,
+     calc_on_every_tick = false)
+
+// ─── Inputs ───
+ma_fast_len   = input.int(5,   "Fast MA (5)",   minval=2)
+ma_mid_len    = input.int(10,  "Mid MA (10)",   minval=3)
+ma_slow_len   = input.int(20,  "Slow MA (20)",  minval=5)
+
+// Accumulation
+acc_lookback  = input.int(10,  "Accumulation lookback bars", minval=3)
+acc_min_bars  = input.int(6,   "Min bars rising (of lookback)", minval=2)
+max_bar_size  = input.float(1.05, "Max single bar % (reject spikes)", minval=0.01, step=0.05)
+
+// Session — entries only during this window
+use_session       = input.bool(true, "Morning entry only")
+session_start     = input.int(9,   "Session start hour (ET)")
+session_start_min = input.int(30,  "Session start minute")
+session_end       = input.int(11,  "Session end hour (ET)")
+session_end_min   = input.int(0,   "Session end minute")
+
+// ─── Stop Loss & Trailing ───
+be_trigger_pct = input.float(1.50, "BE trigger % (activates trail)", minval=0.01, step=0.10)
+sl_pct         = input.float(1.50, "Initial Stop Loss %", minval=0.01, step=0.10)
+trail_pct      = input.float(0.75, "Trailing Stop %", minval=0.01, step=0.05)
+
+// Other
+allow_short   = input.bool(true, "Allow shorts")
+cooldown_bars = input.int(8, "Bars between trades", minval=0)
+
+// ─── Calculations ───
+ma_fast = ta.sma(close, ma_fast_len)
+ma_mid  = ta.sma(close, ma_mid_len)
+ma_slow = ta.sma(close, ma_slow_len)
+
+// ─── Session Filter (entry window only) ───
+in_session = true
+if use_session
+    h = hour(time, "America/New_York")
+    m = minute(time, "America/New_York")
+    t = h * 60 + m
+    s = session_start * 60 + session_start_min
+    e = session_end * 60 + session_end_min
+    in_session := t >= s and t < e
+
+// Force close at market close (16:00 ET)
+force_close = false
+if use_session
+    h = hour(time, "America/New_York")
+    m = minute(time, "America/New_York")
+    t = h * 60 + m
+    force_close := t >= 960 and t < 970  // 16:00-16:10 ET
+
+// ─── MA Stack ───
+bull_stack = ma_fast > ma_mid and ma_mid > ma_slow
+bear_stack = ma_fast < ma_mid and ma_mid < ma_slow
+price_above = close > ma_fast
+price_below = close < ma_fast
+
+// ─── Accumulation: Steady Grind ───
+bars_rising = 0
+for i = 0 to acc_lookback - 1
+    if close[i] > close[i + 1]
+        bars_rising += 1
+
+bars_falling = 0
+for i = 0 to acc_lookback - 1
+    if close[i] < close[i + 1]
+        bars_falling += 1
+
+no_spike = true
+for i = 0 to acc_lookback - 1
+    bar_move = math.abs(close[i] - open[i]) / open[i] * 100
+    if bar_move > max_bar_size
+        no_spike := false
+
+accumulating = bars_rising >= acc_min_bars and no_spike
+distributing = bars_falling >= acc_min_bars and no_spike
+
+mas_rising  = ma_fast > ma_fast[1] and ma_mid > ma_mid[1]
+mas_falling = ma_fast < ma_fast[1] and ma_mid < ma_mid[1]
+
+// ─── Cooldown ───
+var int bars_since_exit = 999
+if strategy.position_size == 0
+    bars_since_exit += 1
+else
+    bars_since_exit := 0
+
+cooled_off = bars_since_exit >= cooldown_bars
+
+// ─── Entry Signals ───
+long_entry  = bull_stack and price_above and accumulating and mas_rising and in_session and cooled_off
+short_entry = allow_short and bear_stack and price_below and distributing and mas_falling and in_session and cooled_off
+
+long_trigger  = long_entry and not long_entry[1]
+short_trigger = short_entry and not short_entry[1]
+
+// ─── State ───
+var float entry_price  = na
+var int   entry_bar    = 0
+var float stop_level   = na
+var float peak_price   = na
+var bool  is_trailing  = false
+
+// ─── Long Entry ───
+if long_trigger and strategy.position_size <= 0
+    entry_price  := close
+    entry_bar    := bar_index
+    stop_level   := close * (1 - sl_pct / 100)
+    peak_price   := close
+    is_trailing  := false
+
+    alert_json = '{"action": "buy", "ticker": "TQQQ", "contracts": 1, "position_size": 1, "price": ' + str.tostring(close, "#.##") + ', "comment": "Long Entry"}'
+    strategy.entry("Long", strategy.long, alert_message = alert_json)
+
+// ─── Short Entry ───
+if short_trigger and strategy.position_size >= 0
+    entry_price  := close
+    entry_bar    := bar_index
+    stop_level   := close * (1 + sl_pct / 100)
+    peak_price   := close
+    is_trailing  := false
+
+    alert_json = '{"action": "sell", "ticker": "TQQQ", "contracts": 1, "position_size": -1, "price": ' + str.tostring(close, "#.##") + ', "comment": "Short Entry"}'
+    strategy.entry("Short", strategy.short, alert_message = alert_json)
+
+// ─── Track Peak Price ───
+if strategy.position_size > 0
+    if close > peak_price
+        peak_price := close
+if strategy.position_size < 0
+    if close < peak_price
+        peak_price := close
+
+// ─── BE Trigger: activate trailing stop ───
+if strategy.position_size > 0 and not is_trailing
+    if close >= entry_price * (1 + be_trigger_pct / 100)
+        is_trailing := true
+        floor_level = entry_price * (1 + 0.05 / 100)
+        new_stop = peak_price * (1 - trail_pct / 100)
+        stop_level := math.max(floor_level, new_stop)
+
+if strategy.position_size < 0 and not is_trailing
+    if close <= entry_price * (1 - be_trigger_pct / 100)
+        is_trailing := true
+        floor_level = entry_price * (1 - 0.05 / 100)
+        new_stop = peak_price * (1 + trail_pct / 100)
+        stop_level := math.min(floor_level, new_stop)
+
+// ─── Update trailing stop ───
+if is_trailing and strategy.position_size > 0
+    new_stop = peak_price * (1 - trail_pct / 100)
+    if new_stop > stop_level
+        stop_level := new_stop
+
+if is_trailing and strategy.position_size < 0
+    new_stop = peak_price * (1 + trail_pct / 100)
+    if new_stop < stop_level
+        stop_level := new_stop
+
+// ─── Stop Loss / Trail Stop exit ───
+if strategy.position_size > 0 and close <= stop_level
+    exit_comment = is_trailing ? "Trail Stop" : "Stop Loss"
+    exit_json = '{"action": "sell", "ticker": "TQQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "' + exit_comment + '"}'
+    strategy.close("Long", comment=exit_comment, alert_message = exit_json)
+
+if strategy.position_size < 0 and close >= stop_level
+    exit_comment = is_trailing ? "Trail Stop" : "Stop Loss"
+    exit_json = '{"action": "buy", "ticker": "TQQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "' + exit_comment + '"}'
+    strategy.close("Short", comment=exit_comment, alert_message = exit_json)
+
+// ─── Market Close Exit (safety backstop) ───
+if force_close and strategy.position_size > 0
+    close_json = '{"action": "sell", "ticker": "TQQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Market Close"}'
+    strategy.close("Long", comment="Market Close", alert_message = close_json)
+
+if force_close and strategy.position_size < 0
+    close_json = '{"action": "buy", "ticker": "TQQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Market Close"}'
+    strategy.close("Short", comment="Market Close", alert_message = close_json)
+
+// ─── Reset on flat ───
+if strategy.position_size == 0
+    is_trailing := false
+
+// ─── Plots ───
+plot(ma_fast, "MA5",  color=color.new(color.lime, 0),   linewidth=2)
+plot(ma_mid,  "MA10", color=color.new(color.blue, 0),   linewidth=2)
+plot(ma_slow, "MA20", color=color.new(color.orange, 0), linewidth=2)
+
+// Show active stop level
+stop_color = is_trailing ? color.new(color.blue, 0) : color.new(color.red, 0)
+plot(strategy.position_size != 0 ? stop_level : na, "Stop", color=stop_color, style=plot.style_linebr, linewidth=2)
+
+plot(strategy.position_size > 0 ? peak_price : na, "Peak", color=color.new(color.yellow, 50), style=plot.style_linebr, linewidth=1)
+plot(strategy.position_size < 0 ? peak_price : na, "Trough", color=color.new(color.yellow, 50), style=plot.style_linebr, linewidth=1)
+
+// BE trigger level
+plot(strategy.position_size > 0 and not is_trailing ? entry_price * (1 + be_trigger_pct/100) : na, "BE Trigger", color=color.new(color.green, 40), style=plot.style_linebr, linewidth=1)
+plot(strategy.position_size < 0 and not is_trailing ? entry_price * (1 - be_trigger_pct/100) : na, "BE Trigger", color=color.new(color.red, 40), style=plot.style_linebr, linewidth=1)
+
+bgcolor(in_session ? color.new(color.blue, 96) : na)
+bg = bull_stack and accumulating and in_session ? color.new(color.green, 88) :
+     bear_stack and distributing and in_session ? color.new(color.red, 88) : na
+bgcolor(bg)
+
+plotshape(long_trigger  and strategy.position_size[1] <= 0, "Long",  shape.triangleup,   location.belowbar, color.green, size=size.small)
+plotshape(short_trigger and strategy.position_size[1] >= 0, "Short", shape.triangledown, location.abovebar, color.red,   size=size.small)
+
+// ─── Info Table ───
+bars_held = strategy.position_size != 0 ? bar_index - entry_bar : 0
+
+var table info = table.new(position.top_right, 2, 7, bgcolor=color.new(color.black, 80))
+if barstate.islast
+    table.cell(info, 0, 0, "MA Stack", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 0, bull_stack ? "BULL" : bear_stack ? "BEAR" : "NONE",
+         text_color=bull_stack ? color.green : bear_stack ? color.red : color.gray, text_size=size.small)
+
+    table.cell(info, 0, 1, "Grind", text_color=color.white, text_size=size.small)
+    string acc_text = accumulating ? "BUYING " : distributing ? "SELLING " : ""
+    acc_text += str.tostring(bars_rising) + "up/" + str.tostring(bars_falling) + "dn"
+    table.cell(info, 1, 1, acc_text,
+         text_color=accumulating ? color.green : distributing ? color.red : color.gray, text_size=size.small)
+
+    table.cell(info, 0, 2, "Entry Window", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 2, in_session ? "OPEN" : "CLOSED",
+         text_color=in_session ? color.green : color.gray, text_size=size.small)
+
+    table.cell(info, 0, 3, "Position", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 3, strategy.position_size > 0 ? "LONG" : strategy.position_size < 0 ? "SHORT" : "FLAT",
+         text_color=strategy.position_size > 0 ? color.green : strategy.position_size < 0 ? color.red : color.gray, text_size=size.small)
+
+    table.cell(info, 0, 4, "Bars Held", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 4, strategy.position_size != 0 ? str.tostring(bars_held) : "---",
+         text_color=color.white, text_size=size.small)
+
+    table.cell(info, 0, 5, "Stop", text_color=color.white, text_size=size.small)
+    string stop_text = strategy.position_size != 0 ? "$" + str.tostring(stop_level, "#.##") : "---"
+    table.cell(info, 1, 5, stop_text,
+         text_color=is_trailing ? color.new(color.blue, 0) : color.yellow, text_size=size.small)
+
+    table.cell(info, 0, 6, "Mode", text_color=color.white, text_size=size.small)
+    string mode_text = not is_trailing ? "FIXED SL" : "TRAILING"
+    mode_color = not is_trailing ? color.yellow : color.blue
+    table.cell(info, 1, 6, mode_text, text_color=mode_color, text_size=size.small)

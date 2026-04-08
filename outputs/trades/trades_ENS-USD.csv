@@ -1,0 +1,9 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+ENS-USD,crypto,ultra,base,LONG,2026-01-25,8.6281,2026-01-29,8.3563,299.2457,-81.33,-3.1502,6.4076,-5.0161,breakeven_ratchet,breakeven
+ENS-USD,crypto,ultra,base,LONG,2026-02-02,6.7675,2026-02-05,5.4392,478.4768,-635.56,-19.6276,3.6127,-20.4187,disaster_stop,safety
+ENS-USD,crypto,ultra,base,LONG,2026-02-06,6.1279,2026-02-15,6.7055,423.8877,244.84,9.4257,16.8788,-11.7238,profit_lock_trail,profit_lock
+ENS-USD,crypto,ultra,base,LONG,2026-02-16,6.8356,2026-02-23,6.0519,655.2106,-513.49,-11.465,3.0196,-13.145,disaster_stop,safety
+ENS-USD,crypto,ultra,base,LONG,2026-02-24,6.0092,2026-02-26,6.2173,741.4715,154.3,3.463,15.2737,-0.1963,profit_lock_trail,profit_lock
+ENS-USD,crypto,ultra,base,LONG,2026-02-27,6.0694,2026-03-13,6.0372,584.9348,-18.83,-0.5305,6.9942,-7.7014,max_underwater_14d,time
+ENS-USD,crypto,ultra,base,LONG,2026-03-14,6.0083,2026-03-18,6.304,445.2032,131.65,4.9215,15.572,-0.7673,profit_lock_trail,profit_lock
+ENS-USD,crypto,ultra,base,LONG,2026-03-22,5.8602,2026-03-26,5.8409,412.2459,-7.96,-0.3293,5.8723,-1.1217,breakeven_ratchet,breakeven

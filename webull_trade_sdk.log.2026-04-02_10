@@ -1,0 +1,198 @@
+64156 2026-04-02 10:10:53,781 webull.core.client ERROR ServerException occurred. Host:us-openapi-alb.uat.webullbroker.com SDK-Version:2.0.2 Request:{
+  "_version": "v2",
+  "_action_name": "/openapi/config",
+  "_protocol_type": "https",
+  "_accept_format": "JSON",
+  "_params": {},
+  "_method": "GET",
+  "_header": {
+    "x-version": "v2",
+    "Accept-Encoding": "gzip",
+    "x-app-key": "1641c88f481543a9f7ccf425d19d94ed",
+    "x-timestamp": "2026-04-02T17:10:52Z",
+    "x-signature-version": "1.0",
+    "x-signature-algorithm": "HMAC-SHA1",
+    "x-signature-nonce": "a8bb18ac-ca3b-5439-9fad-ddf9e0e9595f",
+    "x-signature": "sCIdADfkMPovRPurCjJ5Io4cB/Y=",
+    "User-Agent": "WebullApiSDK (Windows 11;AMD64) Python/3.12.12 Core/2.0.2 python-requests/2.33.1"
+  },
+  "_body_params": null,
+  "_uri_pattern": null,
+  "_uri_params": null,
+  "_content": null,
+  "_extra_user_agent": {},
+  "string_to_sign": "",
+  "_request_connect_timeout": null,
+  "_request_read_timeout": null,
+  "endpoint": "us-openapi-alb.uat.webullbroker.com",
+  "_signer_spec": "<module 'webull.core.auth.algorithm.sha_hmac1' from 'C:\\\\Users\\\\yalil\\\\OneDrive\\\\Desktop\\\\AI-projects\\\\quantitivestocks\\\\.venv\\\\Lib\\\\site-packages\\\\webull\\\\core\\\\auth\\\\algorithm\\\\sha_hmac1.py'>"
+} Response:{'error_code': 'UNAUTHORIZED'} ServerException:HTTP Status: 401, Code: UNAUTHORIZED, Msg: , RequestID: 8e2122c5-003e-48f1-a5a5-55c07378e347
+64156 2026-04-02 10:10:53,782 webull.core.client ERROR get_response exception. {
+  "error_code": "UNAUTHORIZED",
+  "error_msg": "",
+  "http_status": 401,
+  "request_id": "8e2122c5-003e-48f1-a5a5-55c07378e347"
+}
+46516 2026-04-02 10:11:10,561 webull.core.client ERROR ServerException occurred. Host:us-openapi-alb.uat.webullbroker.com SDK-Version:2.0.2 Request:{
+  "_version": "v2",
+  "_action_name": "/openapi/config",
+  "_protocol_type": "https",
+  "_accept_format": "JSON",
+  "_params": {},
+  "_method": "GET",
+  "_header": {
+    "x-version": "v2",
+    "Accept-Encoding": "gzip",
+    "x-app-key": "1641c88f481543a9f7ccf425d19d94ed",
+    "x-timestamp": "2026-04-02T17:11:09Z",
+    "x-signature-version": "1.0",
+    "x-signature-algorithm": "HMAC-SHA1",
+    "x-signature-nonce": "742cde81-e632-5ddb-acae-c31d42fb0846",
+    "x-signature": "rAGtj3P7LNd3mqJBsdZwZi9s2Do=",
+    "User-Agent": "WebullApiSDK (Windows 11;AMD64) Python/3.12.12 Core/2.0.2 python-requests/2.33.1"
+  },
+  "_body_params": null,
+  "_uri_pattern": null,
+  "_uri_params": null,
+  "_content": null,
+  "_extra_user_agent": {},
+  "string_to_sign": "",
+  "_request_connect_timeout": null,
+  "_request_read_timeout": null,
+  "endpoint": "us-openapi-alb.uat.webullbroker.com",
+  "_signer_spec": "<module 'webull.core.auth.algorithm.sha_hmac1' from 'C:\\\\Users\\\\yalil\\\\OneDrive\\\\Desktop\\\\AI-projects\\\\quantitivestocks\\\\.venv\\\\Lib\\\\site-packages\\\\webull\\\\core\\\\auth\\\\algorithm\\\\sha_hmac1.py'>"
+} Response:{'error_code': 'UNAUTHORIZED'} ServerException:HTTP Status: 401, Code: UNAUTHORIZED, Msg: , RequestID: 27dde820-d17d-41d0-9fd8-fefa3adf5b19
+46516 2026-04-02 10:11:10,561 webull.core.client ERROR get_response exception. {
+  "error_code": "UNAUTHORIZED",
+  "error_msg": "",
+  "http_status": 401,
+  "request_id": "27dde820-d17d-41d0-9fd8-fefa3adf5b19"
+}
+60364 2026-04-02 10:11:28,873 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+60364 2026-04-02 10:11:28,875 webull.core.http.initializer.token.token_storage INFO storage_token uses the default configuration, conf.
+60364 2026-04-02 10:11:28,878 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\yalil\OneDrive\Desktop\AI-projects\quantitivestocks\conf\token.txt.
+60364 2026-04-02 10:11:28,878 webull.core.http.initializer.token.token_manager INFO load_token_from_local file not exists, file:C:\Users\yalil\OneDrive\Desktop\AI-projects\quantitivestocks\conf\token.txt.
+60364 2026-04-02 10:11:29,378 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:11:29,380 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server started check_token loop. token:c7e4dc******4f7011 duration_seconds:300 interval_seconds:5
+60364 2026-04-02 10:11:29,547 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:11:29,547 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 0s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:11:34,593 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:11:34,593 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 5s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:11:39,603 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:11:39,603 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 10s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:11:44,614 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:11:44,615 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 15s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:11:49,693 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:11:49,693 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 20s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:11:54,597 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:11:54,597 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 25s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:11:59,564 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:11:59,564 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 30s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:12:04,688 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:12:04,689 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 35s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:12:09,628 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:12:09,629 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 40s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:12:14,545 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:12:14,545 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 45s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:12:19,773 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:12:19,773 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 50s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:12:24,572 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:12:24,572 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 55s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:12:29,626 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:12:29,626 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 60s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:12:34,593 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:12:34,594 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 65s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:12:39,713 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:12:39,713 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 70s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:12:44,571 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:12:44,571 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 75s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:12:49,691 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:12:49,691 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 80s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:12:54,603 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:12:54,603 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 85s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:12:59,575 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:12:59,575 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 90s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:13:04,723 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:13:04,724 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 95s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:13:09,697 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:13:09,697 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 100s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:13:14,571 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:13:14,571 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 105s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:13:19,663 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:13:19,663 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 110s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:13:24,771 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:13:24,771 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 115s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:13:29,863 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:13:29,863 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 120s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:13:34,662 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:13:34,662 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 125s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:13:39,659 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:13:39,659 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 130s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:13:44,645 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:13:44,646 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 135s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:13:49,654 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:13:49,654 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 140s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:13:54,785 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:13:54,785 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 145s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:13:59,661 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:13:59,661 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 150s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:14:04,649 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:14:04,649 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 155s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:14:09,767 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:14:09,768 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 160s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:14:14,781 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:14:14,781 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 165s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:14:19,779 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:14:19,779 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 170s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:14:24,679 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:14:24,679 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 175s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:14:29,738 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:14:29,738 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 180s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:14:34,751 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:14:34,751 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 185s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:14:39,717 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:14:39,717 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 190s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:14:44,581 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:14:44,582 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 195s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:14:49,709 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:14:49,710 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 200s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:14:54,604 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:14:54,604 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 205s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:14:59,604 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:14:59,604 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 210s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:15:04,743 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:15:04,743 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 215s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:15:09,584 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:15:09,584 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 220s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:15:14,780 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:15:14,780 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 225s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:15:19,650 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:15:19,650 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 230s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:15:24,590 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:15:24,590 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 235s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:15:29,826 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:15:29,826 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 240s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:15:34,709 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:15:34,710 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 245s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:15:39,659 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:15:39,659 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 250s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:15:44,773 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:15:44,773 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 255s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:15:49,682 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:15:49,682 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 260s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:15:54,824 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:15:54,824 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 265s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:15:59,808 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:15:59,808 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 270s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:16:04,821 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:16:04,821 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 275s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:16:09,662 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:16:09,662 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 280s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:16:14,724 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:16:14,725 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 285s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:16:19,683 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:16:19,683 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 290s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:16:24,839 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:PENDING
+60364 2026-04-02 10:16:24,839 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server status not verified, check_token loop will start, waiting 5 seconds... (elapsed 295s / 300s). For more details, please visit the OpenAPI official website.
+60364 2026-04-02 10:16:29,786 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server result of current check_token loop. token:c7e4dc******4f7011 expires:1775150249128 status:EXPIRED
+60364 2026-04-02 10:16:29,786 webull.core.http.initializer.token.token_manager ERROR fetch_token_from_server check_token status invalidate. status:EXPIRED

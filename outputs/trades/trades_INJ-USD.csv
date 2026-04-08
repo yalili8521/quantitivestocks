@@ -1,0 +1,11 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+INJ-USD,crypto,high,base,LONG,2026-01-25,4.2904,2026-01-29,4.0669,1048.8533,-234.42,-5.2093,5.6138,-6.8267,breakeven_ratchet,breakeven
+INJ-USD,crypto,high,base,LONG,2026-01-30,3.9941,2026-01-31,3.6049,1124.0207,-437.47,-9.7444,0.043,-15.3546,disaster_stop,safety
+INJ-USD,crypto,high,base,LONG,2026-02-01,3.5324,2026-02-04,3.4998,1265.3621,-41.25,-0.9229,7.0988,-2.6037,breakeven_ratchet,breakeven
+INJ-USD,crypto,high,base,LONG,2026-02-05,2.981,2026-02-08,3.1866,1498.7953,308.15,6.897,13.2879,-9.1711,profit_lock_trail,profit_lock
+INJ-USD,crypto,high,base,LONG,2026-02-09,3.1555,2026-02-14,3.2681,1420.306,159.93,3.5684,5.2346,-6.5499,strong_signal_override,signal_override
+INJ-USD,crypto,high,base,SHORT,2026-02-15,3.1379,2026-02-19,3.3004,1430.5658,-232.47,-5.1786,5.5659,-15.4708,breakeven_ratchet,breakeven
+INJ-USD,crypto,high,base,SHORT,2026-02-20,3.4325,2026-02-21,3.7888,1304.7375,-464.88,-10.3802,0.9179,-16.6198,disaster_stop,safety
+INJ-USD,crypto,high,base,SHORT,2026-02-22,3.5011,2026-02-25,3.2619,1273.1975,304.55,6.8321,10.9783,-1.2943,profit_lock_trail,profit_lock
+INJ-USD,crypto,high,base,SHORT,2026-02-26,3.1869,2026-03-02,3.0952,1403.0238,128.66,2.8774,9.8415,-3.2092,profit_lock_trail,profit_lock
+INJ-USD,crypto,high,base,LONG,2026-03-04,3.1261,2026-03-07,2.8224,1432.1634,-434.95,-9.715,0.0,-9.8894,disaster_stop,safety

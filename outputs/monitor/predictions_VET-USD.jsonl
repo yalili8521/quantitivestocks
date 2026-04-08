@@ -1,0 +1,2 @@
+{"timestamp": "2026-03-20T23:55:34.659654+00:00", "symbol": "VET-USD", "predicted_return": -0.005044588000480434, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}
+{"timestamp": "2026-03-21T02:28:25.821348+00:00", "symbol": "VET-USD", "predicted_return": -0.0055531500239216665, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}

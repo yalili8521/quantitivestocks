@@ -1,0 +1,5 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+GOMINING-USD,crypto,high,base,LONG,2026-02-05,0.291,2026-02-09,0.323,13675.9207,437.63,10.9966,15.0247,-7.6704,strong_signal_override,signal_override
+GOMINING-USD,crypto,high,base,SHORT,2026-02-10,0.3081,2026-02-19,0.3348,14669.5661,-391.68,-8.666,4.6774,-10.6569,disaster_stop,safety
+GOMINING-USD,crypto,high,base,SHORT,2026-02-20,0.3257,2026-02-28,0.3004,13822.7444,349.72,7.7679,11.3767,-1.9644,profit_lock_trail,profit_lock
+GOMINING-USD,crypto,high,base,SHORT,2026-03-01,0.3017,2026-03-13,0.2959,14974.4947,86.85,1.9224,8.183,-1.6815,profit_lock_trail,profit_lock

@@ -1,0 +1,42 @@
+[
+  {
+    "time": "2026-04-02 13:19:16",
+    "action": "EXIT",
+    "tv_price": 3150.5,
+    "yahoo_price": 4699.9,
+    "diff": -1549.4,
+    "diff_pips": -15494.0
+  },
+  {
+    "time": "2026-04-02 13:20:31",
+    "action": "ENTRY",
+    "tv_price": 4692.5,
+    "yahoo_price": 4701.4,
+    "diff": -8.9,
+    "diff_pips": -89.0
+  },
+  {
+    "time": "2026-04-02 13:21:13",
+    "action": "ENTRY",
+    "tv_price": 4692.5,
+    "yahoo_price": 4702.3,
+    "diff": -9.8,
+    "diff_pips": -98.0
+  },
+  {
+    "time": "2026-04-08 02:16:49",
+    "action": "ENTRY",
+    "tv_price": 44.0,
+    "yahoo_price": 4824.7,
+    "diff": -4780.7,
+    "diff_pips": -47807.0
+  },
+  {
+    "time": "2026-04-08 02:20:15",
+    "action": "EXIT",
+    "tv_price": 44.0,
+    "yahoo_price": 4824.9,
+    "diff": -4780.9,
+    "diff_pips": -47809.0
+  }
+]

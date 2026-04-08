@@ -1,0 +1,4 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+HYG,swing,medium,base,LONG,2026-01-27,80.4046,2026-03-06,79.6621,111.9339,-83.11,-0.9235,0.2612,-0.9385,disaster_stop,safety
+HYG,swing,medium,base,SHORT,2026-03-12,79.3222,2026-03-24,79.1977,113.367,14.11,0.157,0.5953,-0.6276,strong_signal_override,signal_override
+HYG,swing,medium,base,LONG,2026-03-25,79.4478,2026-03-26,78.8924,83.7569,-46.52,-0.6991,0.0,-0.8154,end_of_backtest,time

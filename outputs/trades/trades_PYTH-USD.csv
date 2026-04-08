@@ -1,0 +1,10 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+PYTH-USD,crypto,ultra,base,LONG,2026-01-26,0.0586,2026-01-29,0.0604,76791.8089,138.23,3.0717,15.3294,-1.7014,profit_lock_trail,profit_lock
+PYTH-USD,crypto,ultra,base,LONG,2026-01-31,0.053,2026-02-05,0.0399,85023.0214,-1113.8,-24.717,2.1038,-24.5509,disaster_stop,safety
+PYTH-USD,crypto,ultra,base,LONG,2026-02-06,0.0477,2026-02-14,0.0582,93419.2676,980.9,22.0126,30.9686,-11.4612,strong_signal_override,signal_override
+PYTH-USD,crypto,ultra,base,SHORT,2026-02-15,0.0571,2026-02-25,0.0542,78813.3042,228.56,5.0788,13.8126,-1.5061,profit_lock_trail,profit_lock
+PYTH-USD,crypto,ultra,base,SHORT,2026-02-26,0.0519,2026-03-04,0.0508,86907.9924,95.6,2.1195,11.8902,-2.9114,profit_lock_trail,profit_lock
+PYTH-USD,crypto,ultra,base,SHORT,2026-03-05,0.0491,2026-03-08,0.0458,91951.665,303.44,6.721,7.7923,-2.055,strong_signal_override,signal_override
+PYTH-USD,crypto,ultra,base,LONG,2026-03-09,0.0468,2026-03-18,0.0469,96762.4268,9.68,0.2137,8.4551,-2.8697,profit_lock_trail,profit_lock
+PYTH-USD,crypto,ultra,base,LONG,2026-03-20,0.0435,2026-03-22,0.0384,104113.0346,-531.6,-11.7379,0.5954,-11.8828,disaster_stop,safety
+PYTH-USD,crypto,ultra,base,LONG,2026-03-23,0.0404,2026-03-26,0.039,111509.7761,-156.11,-3.4653,1.7649,-5.4004,end_of_backtest,time

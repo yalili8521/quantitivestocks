@@ -1,0 +1,22 @@
+{
+  "symbol": "EWJ",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 98176.84,
+  "total_return_pct": -1.82,
+  "annualized_return_pct": -10.77,
+  "sharpe_ratio": -4.097,
+  "max_drawdown_pct": -2.05,
+  "total_trades": 26,
+  "win_rate": 0.385,
+  "avg_win_pct": 0.53,
+  "avg_loss_pct": -0.56,
+  "profit_factor": 0.354,
+  "avg_trade_duration_days": 0.4,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

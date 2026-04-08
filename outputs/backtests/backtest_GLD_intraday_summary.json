@@ -1,0 +1,22 @@
+{
+  "symbol": "GLD",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 98793.58,
+  "total_return_pct": -1.21,
+  "annualized_return_pct": -7.24,
+  "sharpe_ratio": -0.496,
+  "max_drawdown_pct": -7.2,
+  "total_trades": 31,
+  "win_rate": 0.484,
+  "avg_win_pct": 1.29,
+  "avg_loss_pct": -1.66,
+  "profit_factor": 0.868,
+  "avg_trade_duration_days": 0.5,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

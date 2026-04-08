@@ -1,0 +1,6 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+CIBR,swing,medium,base,SHORT,2026-01-26,72.0648,2026-02-05,64.9727,41.0232,290.94,9.8413,10.2891,-1.3255,strong_signal_override,signal_override
+CIBR,swing,medium,base,SHORT,2026-02-06,67.1065,2026-02-11,67.6437,41.7813,-22.44,-0.8005,0.4791,-3.373,strong_signal_override,signal_override
+CIBR,swing,medium,base,LONG,2026-02-12,65.1228,2026-02-20,63.8776,184.762,-230.07,-1.9121,3.096,-2.0312,profit_lock_trail,profit_lock
+CIBR,swing,medium,base,LONG,2026-02-23,61.2914,2026-03-16,64.4774,195.8613,624.01,5.1981,8.6286,-1.1607,profit_lock_trail,profit_lock
+CIBR,swing,medium,base,SHORT,2026-03-18,64.9373,2026-03-25,63.3922,29.4438,45.49,2.3794,3.0141,-1.2515,strong_signal_override,signal_override

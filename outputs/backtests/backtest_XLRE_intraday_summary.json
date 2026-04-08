@@ -1,0 +1,22 @@
+{
+  "symbol": "XLRE",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 100092.94,
+  "total_return_pct": 0.09,
+  "annualized_return_pct": 0.58,
+  "sharpe_ratio": 0.126,
+  "max_drawdown_pct": -2.24,
+  "total_trades": 35,
+  "win_rate": 0.486,
+  "avg_win_pct": 0.74,
+  "avg_loss_pct": -0.72,
+  "profit_factor": 1.02,
+  "avg_trade_duration_days": 1.3,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

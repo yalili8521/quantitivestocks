@@ -1,0 +1,11 @@
+{
+  "equity": 5000.0,
+  "initial_equity": 5000.0,
+  "daily_pnl": 0.0,
+  "daily_trades": 0,
+  "daily_wins": 0,
+  "daily_losses": 0,
+  "last_reset_date": "2026-04-08",
+  "circuit_breaker": false,
+  "position": null
+}

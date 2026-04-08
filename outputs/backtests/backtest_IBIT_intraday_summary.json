@@ -1,0 +1,22 @@
+{
+  "symbol": "IBIT",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 90597.32,
+  "total_return_pct": -9.4,
+  "annualized_return_pct": -45.74,
+  "sharpe_ratio": -3.26,
+  "max_drawdown_pct": -15.75,
+  "total_trades": 27,
+  "win_rate": 0.296,
+  "avg_win_pct": 2.19,
+  "avg_loss_pct": -1.97,
+  "profit_factor": 0.453,
+  "avg_trade_duration_days": 1.0,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

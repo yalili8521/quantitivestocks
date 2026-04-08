@@ -1,0 +1,22 @@
+{
+  "symbol": "URNM",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 88564.05,
+  "total_return_pct": -11.44,
+  "annualized_return_pct": -52.85,
+  "sharpe_ratio": -4.377,
+  "max_drawdown_pct": -13.51,
+  "total_trades": 28,
+  "win_rate": 0.25,
+  "avg_win_pct": 2.2,
+  "avg_loss_pct": -1.91,
+  "profit_factor": 0.394,
+  "avg_trade_duration_days": 0.5,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

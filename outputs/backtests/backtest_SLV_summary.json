@@ -1,0 +1,22 @@
+{
+  "symbol": "SLV",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 85609.16,
+  "total_return_pct": -14.39,
+  "annualized_return_pct": -61.78,
+  "sharpe_ratio": -2.795,
+  "max_drawdown_pct": -21.09,
+  "total_trades": 28,
+  "win_rate": 0.143,
+  "avg_win_pct": 7.06,
+  "avg_loss_pct": -2.42,
+  "profit_factor": 0.457,
+  "avg_trade_duration_days": 0.4,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

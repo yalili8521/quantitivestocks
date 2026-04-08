@@ -1,0 +1,22 @@
+{
+  "symbol": "EWZ",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 104299.21,
+  "total_return_pct": 4.3,
+  "annualized_return_pct": 29.77,
+  "sharpe_ratio": 1.747,
+  "max_drawdown_pct": -5.01,
+  "total_trades": 43,
+  "win_rate": 0.558,
+  "avg_win_pct": 1.67,
+  "avg_loss_pct": -1.65,
+  "profit_factor": 1.268,
+  "avg_trade_duration_days": 1.2,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

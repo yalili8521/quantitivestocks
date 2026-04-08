@@ -1,0 +1,9 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+XLM-USD,crypto,high,base,LONG,2026-01-25,0.2034,2026-01-29,0.1982,22123.8938,-115.04,-2.5565,4.0251,-4.1396,breakeven_ratchet,breakeven
+XLM-USD,crypto,high,base,LONG,2026-01-30,0.1919,2026-02-01,0.1746,23422.7358,-405.21,-9.0151,0.1131,-11.7968,disaster_stop,safety
+XLM-USD,crypto,high,base,LONG,2026-02-02,0.1791,2026-02-05,0.1464,24994.9102,-817.33,-18.258,1.3378,-19.7962,disaster_stop,safety
+XLM-USD,crypto,high,base,LONG,2026-02-06,0.1643,2026-02-15,0.1703,27022.5709,162.68,3.664,12.6007,-8.1692,profit_lock_trail,profit_lock
+XLM-USD,crypto,high,base,LONG,2026-02-16,0.17,2026-02-22,0.1546,26159.5813,-402.86,-9.0588,0.1112,-9.4553,disaster_stop,safety
+XLM-USD,crypto,high,base,LONG,2026-02-23,0.1516,2026-02-27,0.1586,29215.0411,204.51,4.6174,11.4334,-2.252,profit_lock_trail,profit_lock
+XLM-USD,crypto,high,base,LONG,2026-02-28,0.1595,2026-03-18,0.1697,27825.7239,283.82,6.395,13.9361,-7.7342,profit_lock_trail,profit_lock
+XLM-USD,crypto,high,base,LONG,2026-03-19,0.1657,2026-03-26,0.1738,26861.6474,217.58,4.8884,9.8835,-6.3585,end_of_backtest,time

@@ -1,0 +1,10 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+SEI-USD,crypto,high,base,LONG,2026-01-26,0.1058,2026-01-30,0.0951,41693.4747,-446.12,-10.1134,1.5643,-12.6144,disaster_stop,safety
+SEI-USD,crypto,high,base,LONG,2026-01-31,0.0878,2026-02-05,0.0721,51024.1981,-801.08,-17.8815,5.1936,-18.1344,disaster_stop,safety
+SEI-USD,crypto,high,base,LONG,2026-02-06,0.0796,2026-02-10,0.0721,55827.5879,-418.82,-9.4246,0.0,-10.4987,disaster_stop,safety
+SEI-USD,crypto,high,base,LONG,2026-02-11,0.0709,2026-02-15,0.0752,62412.259,268.37,6.0649,11.0409,-0.2595,profit_lock_trail,profit_lock
+SEI-USD,crypto,high,base,LONG,2026-02-16,0.0765,2026-02-19,0.07,58001.3848,-377.01,-8.4967,0.0418,-9.2993,disaster_stop,safety
+SEI-USD,crypto,high,base,LONG,2026-02-20,0.0718,2026-02-24,0.0657,61561.8459,-375.53,-8.4958,0.0334,-9.8538,disaster_stop,safety
+SEI-USD,crypto,high,base,LONG,2026-02-25,0.0714,2026-03-07,0.0645,61670.0533,-425.52,-9.6639,0.7661,-11.3711,disaster_stop,safety
+SEI-USD,crypto,high,base,LONG,2026-03-08,0.063,2026-03-18,0.0646,69588.7818,111.34,2.5397,11.5111,-2.4714,profit_lock_trail,profit_lock
+SEI-USD,crypto,high,base,LONG,2026-03-19,0.0642,2026-03-26,0.0586,68366.1004,-382.85,-8.7227,0.6495,-9.7409,disaster_stop,safety

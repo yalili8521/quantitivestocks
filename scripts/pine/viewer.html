@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Pine Script Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1e1e1e; color: #d4d4d4; font-family: 'Consolas', 'Courier New', monospace; padding: 20px; }
+  h1 { color: #569cd6; margin-bottom: 10px; font-size: 18px; }
+  .toolbar { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; }
+  select { background: #2d2d2d; color: #d4d4d4; border: 1px solid #555; padding: 8px 12px; font-size: 14px; border-radius: 4px; }
+  button { background: #0e639c; color: white; border: none; padding: 8px 20px; font-size: 14px; cursor: pointer; border-radius: 4px; }
+  button:hover { background: #1177bb; }
+  button.copied { background: #16825d; }
+  #status { color: #16825d; font-size: 14px; }
+  pre { background: #1a1a1a; border: 1px solid #333; border-radius: 6px; padding: 15px; overflow-x: auto;
+        max-height: 75vh; overflow-y: auto; line-height: 1.5; font-size: 13px; white-space: pre; }
+  .line-num { color: #858585; user-select: none; display: inline-block; width: 40px; text-align: right; margin-right: 15px; }
+</style>
+</head>
+<body>
+<h1>Pine Script Viewer</h1>
+<div class="toolbar">
+  <select id="fileSelect"></select>
+  <button id="copyBtn" onclick="copyScript()">Copy to Clipboard</button>
+  <button onclick="loadScript()">Refresh</button>
+  <span id="status"></span>
+</div>
+<pre id="code">Loading...</pre>
+
+<script>
+const FILES = [
+  'QQQ_MA_Accumulation_v3.pine',
+  'QQQ_MA_Accumulation_v2.pine',
+  'BTC_Trend_Follower_v2.pine',
+  'BTC_Trend_Follower_v1.pine',
+  'BTC_MA_Accumulation_v1.pine',
+];
+
+let rawContent = '';
+
+const select = document.getElementById('fileSelect');
+FILES.forEach(f => {
+  const opt = document.createElement('option');
+  opt.value = f;
+  opt.textContent = f;
+  select.appendChild(opt);
+});
+
+select.addEventListener('change', loadScript);
+
+async function loadScript() {
+  const file = select.value;
+  const code = document.getElementById('code');
+  const status = document.getElementById('status');
+  try {
+    const resp = await fetch('/file/' + encodeURIComponent(file));
+    if (!resp.ok) throw new Error('File not found');
+    rawContent = await resp.text();
+    const lines = rawContent.split('\n');
+    code.innerHTML = lines.map((line, i) => {
+      const num = `<span class="line-num">${i + 1}</span>`;
+      const escaped = line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return num + escaped;
+    }).join('\n');
+    status.textContent = `Loaded ${file} (${lines.length} lines)`;
+  } catch (e) {
+    code.textContent = 'Error loading file: ' + e.message;
+    status.textContent = '';
+  }
+}
+
+async function copyScript() {
+  const btn = document.getElementById('copyBtn');
+  try {
+    await navigator.clipboard.writeText(rawContent);
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy to Clipboard'; btn.classList.remove('copied'); }, 2000);
+  } catch (e) {
+    // Fallback
+    const ta = document.createElement('textarea');
+    ta.value = rawContent;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy to Clipboard'; btn.classList.remove('copied'); }, 2000);
+  }
+}
+
+loadScript();
+</script>
+</body>
+</html>

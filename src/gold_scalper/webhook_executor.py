@@ -280,10 +280,16 @@ class WebhookExecutor:
             logger.warning("[WEBHOOK] %s", msg)
             return {"status": "rejected", "message": msg}
 
-        # Cap contracts at max scale
+        # Calculate contracts from real account equity (ignore TV's contracts)
+        extra_lots = max(0, int((self._equity - self._initial_equity) // self.config.scale_per_profit))
+        scale_mult = 1 + extra_lots
         contracts = min(
-            signal.contracts,
+            self.config.base_contracts * scale_mult,
             self.config.base_contracts * self.config.max_scale_mult,
+        )
+        logger.info(
+            "[WEBHOOK] Sizing: equity=$%.2f, scale=%dx, contracts=%d (TV sent %d)",
+            self._equity, scale_mult, contracts, signal.contracts,
         )
 
         if contracts < 1:

@@ -1,0 +1,22 @@
+{
+  "symbol": "EWC",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 99987.05,
+  "total_return_pct": -0.01,
+  "annualized_return_pct": -0.08,
+  "sharpe_ratio": 0.033,
+  "max_drawdown_pct": -2.86,
+  "total_trades": 40,
+  "win_rate": 0.5,
+  "avg_win_pct": 0.98,
+  "avg_loss_pct": -0.86,
+  "profit_factor": 0.998,
+  "avg_trade_duration_days": 1.4,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

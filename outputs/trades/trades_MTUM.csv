@@ -1,0 +1,5 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+MTUM,swing,medium,base,SHORT,2026-01-27,259.896,2026-02-05,243.9114,11.4888,183.64,6.1504,6.8731,-0.7577,strong_signal_override,signal_override
+MTUM,swing,medium,base,LONG,2026-02-09,257.2895,2026-02-23,249.439,17.3146,-135.93,-3.0512,0.5242,-3.926,strong_signal_override,signal_override
+MTUM,swing,medium,base,SHORT,2026-02-24,251.826,2026-03-10,248.1445,42.9891,158.26,1.4619,5.4758,-1.8799,profit_lock_trail,profit_lock
+MTUM,swing,medium,base,SHORT,2026-03-11,248.4802,2026-03-26,238.2934,26.4678,269.62,4.0996,4.1493,-0.4064,end_of_backtest,time

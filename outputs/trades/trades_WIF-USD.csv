@@ -1,0 +1,10 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+WIF-USD,crypto,ultra,base,LONG,2026-01-25,0.3185,2026-01-31,0.2536,9823.7233,-637.56,-20.3768,5.097,-25.5381,disaster_stop,safety
+WIF-USD,crypto,ultra,base,SHORT,2026-02-01,0.2452,2026-02-06,0.2351,18235.3581,184.18,4.1191,24.522,-7.4339,strong_signal_override,signal_override
+WIF-USD,crypto,ultra,base,LONG,2026-02-07,0.2343,2026-02-11,0.2069,19119.0687,-523.86,-11.6944,0.0,-12.8442,disaster_stop,safety
+WIF-USD,crypto,ultra,base,LONG,2026-02-12,0.2162,2026-02-15,0.2301,20610.6567,286.49,6.4292,21.5495,-1.7345,profit_lock_trail,profit_lock
+WIF-USD,crypto,ultra,base,LONG,2026-02-16,0.2366,2026-02-22,0.2106,18888.064,-491.09,-10.989,0.7194,-11.3567,disaster_stop,safety
+WIF-USD,crypto,ultra,base,LONG,2026-02-23,0.2006,2026-02-27,0.2036,22167.5818,66.5,1.4955,13.1969,-4.001,profit_lock_trail,profit_lock
+WIF-USD,crypto,ultra,base,SHORT,2026-03-03,0.2036,2026-03-11,0.1662,18182.6073,680.03,18.3694,20.306,-9.1248,strong_signal_override,signal_override
+WIF-USD,crypto,ultra,base,LONG,2026-03-12,0.1703,2026-03-18,0.1801,26308.9305,257.83,5.7546,13.6782,-3.7434,profit_lock_trail,profit_lock
+WIF-USD,crypto,ultra,base,LONG,2026-03-19,0.1733,2026-03-26,0.1864,25920.4449,339.56,7.5591,16.1789,-3.1558,profit_lock_trail,profit_lock

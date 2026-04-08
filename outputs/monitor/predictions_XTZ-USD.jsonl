@@ -1,0 +1,4 @@
+{"timestamp": "2026-03-20T23:34:52.925745+00:00", "symbol": "XTZ-USD", "predicted_return": 0.033753, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-21T15:54:28.362787+00:00", "symbol": "XTZ-USD", "predicted_return": 0.033753, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-21T15:54:32.411173+00:00", "symbol": "XTZ-USD", "predicted_return": 0.033753, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-24T08:18:56.429373+00:00", "symbol": "XTZ-USD", "predicted_return": 0.033753, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}

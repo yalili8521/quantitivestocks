@@ -1,0 +1,8 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+MANA-USD,crypto,ultra,base,LONG,2026-01-25,0.1415,2026-01-29,0.1252,27914.4197,-455.01,-11.5194,4.8806,-13.0071,disaster_stop,safety
+MANA-USD,crypto,ultra,base,LONG,2026-01-30,0.1255,2026-02-01,0.1116,35693.4245,-496.14,-11.0757,0.0,-13.6048,disaster_stop,safety
+MANA-USD,crypto,ultra,base,LONG,2026-02-02,0.1144,2026-02-05,0.0906,38961.5257,-927.28,-20.8042,1.3086,-20.5262,disaster_stop,safety
+MANA-USD,crypto,ultra,base,LONG,2026-02-06,0.1026,2026-02-15,0.1027,40215.7515,5.59,0.1355,6.1881,-8.1725,profit_lock_trail,profit_lock
+MANA-USD,crypto,ultra,base,SHORT,2026-02-17,0.1008,2026-02-25,0.1002,43806.7687,26.28,0.5952,11.9712,-2.875,profit_lock_trail,profit_lock
+MANA-USD,crypto,ultra,base,LONG,2026-03-07,0.0915,2026-03-18,0.0918,48272.1866,14.48,0.3279,8.9126,-3.2186,profit_lock_trail,profit_lock
+MANA-USD,crypto,ultra,base,LONG,2026-03-21,0.0851,2026-03-26,0.0833,51910.185,-93.44,-2.1152,5.2697,-3.1492,breakeven_ratchet,breakeven

@@ -1,0 +1,7 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+USO,swing,ultra,base,LONG,2026-01-26,73.5057,2026-02-02,75.3036,94.8214,170.48,2.4459,9.3521,0.0,profit_lock_trail,profit_lock
+USO,swing,ultra,base,LONG,2026-02-03,77.4971,2026-03-09,104.2935,22.5031,603.0,34.5773,60.0963,-2.9899,profit_lock_trail,profit_lock
+USO,swing,ultra,base,LONG,2026-03-10,105.8971,2026-03-13,119.848,58.8994,821.7,13.174,14.4035,-4.6338,strong_signal_override,signal_override
+USO,swing,ultra,base,LONG,2026-03-16,115.0703,2026-03-19,117.3189,11.9191,26.8,1.9541,8.7944,-0.3392,profit_lock_trail,profit_lock
+USO,swing,ultra,base,SHORT,2026-03-20,121.3875,2026-03-24,114.5801,84.9218,578.1,5.608,12.3056,0.0,profit_lock_trail,profit_lock
+USO,swing,ultra,base,SHORT,2026-03-25,113.3503,2026-03-26,117.301,38.2135,-150.97,-3.4854,0.0,-4.9314,end_of_backtest,time

@@ -1,0 +1,11 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+ENA-USD,crypto,ultra,base,LONG,2026-01-25,0.1632,2026-01-29,0.1566,27573.5294,-181.99,-4.0441,7.8382,-5.8235,breakeven_ratchet,breakeven
+ENA-USD,crypto,ultra,base,LONG,2026-01-30,0.1538,2026-02-01,0.1364,29205.531,-508.18,-11.3134,0.0,-16.7835,disaster_stop,safety
+ENA-USD,crypto,ultra,base,LONG,2026-02-03,0.1369,2026-02-05,0.114,32643.8476,-749.14,-16.7633,3.0139,-17.4324,disaster_stop,safety
+ENA-USD,crypto,ultra,base,LONG,2026-02-06,0.1274,2026-02-10,0.1145,34813.4322,-450.38,-10.1546,0.5903,-10.9451,disaster_stop,safety
+ENA-USD,crypto,ultra,base,LONG,2026-02-11,0.1116,2026-02-15,0.1214,39560.6102,387.69,8.7814,16.9086,-0.233,profit_lock_trail,profit_lock
+ENA-USD,crypto,ultra,base,LONG,2026-02-18,0.1152,2026-02-22,0.0999,38475.7841,-588.68,-13.2812,0.151,-13.8646,disaster_stop,safety
+ENA-USD,crypto,ultra,base,LONG,2026-02-23,0.0986,2026-02-26,0.105,44684.7845,285.98,6.4909,20.7546,-4.3844,profit_lock_trail,profit_lock
+ENA-USD,crypto,ultra,base,LONG,2026-02-27,0.1029,2026-03-06,0.1045,42942.5556,68.71,1.5549,16.3353,-7.4257,profit_lock_trail,profit_lock
+ENA-USD,crypto,ultra,base,LONG,2026-03-07,0.101,2026-03-18,0.108,43780.9984,306.47,6.9307,19.0386,-3.4248,profit_lock_trail,profit_lock
+ENA-USD,crypto,ultra,base,LONG,2026-03-19,0.1032,2026-03-26,0.0965,42981.3164,-287.97,-6.4922,5.9325,-11.5291,end_of_backtest,time

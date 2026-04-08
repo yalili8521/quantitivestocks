@@ -1,0 +1,4 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+XLF,swing,medium,base,LONG,2026-01-26,53.1555,2026-02-23,50.4529,112.3534,-303.65,-5.0843,1.7991,-5.2196,disaster_stop,safety
+XLF,swing,medium,base,LONG,2026-02-24,50.737,2026-03-06,50.2938,235.7956,-104.5,-0.8735,3.2593,-2.4468,profit_lock_trail,profit_lock
+XLF,swing,medium,base,LONG,2026-03-09,50.0901,2026-03-26,49.0328,214.315,-226.6,-2.1108,0.6801,-3.6299,end_of_backtest,time

@@ -1,0 +1,7 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+EWJ,swing,medium,base,LONG,2026-01-26,84.6596,2026-02-05,86.0699,141.7441,199.9,1.6658,4.2292,0.0,profit_lock_trail,profit_lock
+EWJ,swing,medium,base,LONG,2026-02-06,89.4313,2026-02-12,93.3373,51.8049,202.35,4.3676,5.4217,0.0,strong_signal_override,signal_override
+EWJ,swing,medium,base,SHORT,2026-02-13,93.8172,2026-03-05,85.9201,125.5389,991.39,8.4175,10.6241,0.0,strong_signal_override,signal_override
+EWJ,swing,medium,base,LONG,2026-03-06,84.7997,2026-03-12,84.1605,40.7749,-26.06,-0.7538,3.939,-2.2166,strong_signal_override,signal_override
+EWJ,swing,medium,base,SHORT,2026-03-13,83.3308,2026-03-18,84.1795,19.3912,-16.46,-1.0185,0.0,-2.7711,strong_signal_override,signal_override
+EWJ,swing,medium,base,LONG,2026-03-19,84.1094,2026-03-26,82.6811,75.6292,-108.02,-1.6981,1.3442,-3.8752,end_of_backtest,time

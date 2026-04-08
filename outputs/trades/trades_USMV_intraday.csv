@@ -1,0 +1,11 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+USMV,,,base,SHORT,2026-01-26,95.445,2026-01-26,95.4634,154.5075,-2.84,-0.0193,0.0,0.0,signal_decay,
+USMV,,,base,SHORT,2026-01-30,94.665,2026-01-30,94.5881,106.1719,8.16,0.0812,0.0,0.0,signal_decay,
+USMV,,,base,SHORT,2026-02-02,95.7,2026-02-02,95.3842,127.845,40.37,0.33,0.0,0.0,signal_decay,
+USMV,,,base,SHORT,2026-02-06,95.8499,2026-02-06,95.6185,237.2037,54.89,0.2414,0.0,0.0,signal_decay,
+USMV,,,base,LONG,2026-03-03,96.025,2026-03-03,96.4462,112.3961,47.34,0.4386,0.0,0.0,signal_decay,
+USMV,,,base,LONG,2026-03-09,95.635,2026-03-09,96.0764,133.2732,58.83,0.4615,0.0,0.0,signal_decay,
+USMV,,,base,SHORT,2026-03-10,96.26,2026-03-10,96.5038,105.4194,-25.7,-0.2533,0.0,0.0,signal_decay,
+USMV,,,base,SHORT,2026-03-16,95.52,2026-03-16,95.7435,113.3895,-25.34,-0.234,0.0,0.0,signal_decay,
+USMV,,,base,SHORT,2026-03-20,93.17,2026-03-23,93.1326,131.0726,4.9,0.0401,0.0,0.0,max_hold,
+USMV,,,base,LONG,2026-03-25,92.445,2026-03-25,92.4777,115.9167,3.79,0.0354,0.0,0.0,signal_decay,

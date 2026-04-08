@@ -1,0 +1,7 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+EGLD-USD,crypto,high,base,SHORT,2026-01-31,4.7217,2026-02-06,4.5394,854.7662,155.82,3.8609,20.3265,-7.8517,profit_lock_trail,profit_lock
+EGLD-USD,crypto,high,base,SHORT,2026-02-07,4.8755,2026-02-12,4.6679,924.4205,191.91,4.258,9.8788,-1.4501,profit_lock_trail,profit_lock
+EGLD-USD,crypto,high,base,SHORT,2026-02-13,5.1818,2026-02-20,4.6122,871.4439,496.36,10.992,15.8655,-3.5543,profit_lock_trail,profit_lock
+EGLD-USD,crypto,high,base,SHORT,2026-02-22,4.4483,2026-02-25,4.6117,1020.1614,-166.69,-3.6733,6.264,-7.4233,breakeven_ratchet,breakeven
+EGLD-USD,crypto,high,base,SHORT,2026-02-26,4.4579,2026-03-04,4.283,1016.2819,177.75,3.9234,7.7766,-5.7853,profit_lock_trail,profit_lock
+EGLD-USD,crypto,high,base,SHORT,2026-03-05,4.1359,2026-03-23,4.1255,1097.3383,11.41,0.2515,6.3847,-8.1871,profit_lock_trail,profit_lock

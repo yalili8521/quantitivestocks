@@ -1,0 +1,6 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+ARKK,swing,high,base,SHORT,2026-01-26,79.892,2026-02-05,66.3532,150.2028,2033.57,16.9464,17.4135,-0.9989,strong_signal_override,signal_override
+ARKK,swing,high,base,SHORT,2026-02-06,70.3854,2026-02-11,70.8948,23.4668,-11.95,-0.7237,1.4639,-4.2404,strong_signal_override,signal_override
+ARKK,swing,high,base,LONG,2026-02-12,68.474,2026-02-23,69.9755,178.7919,268.46,2.1928,6.2885,-0.0058,profit_lock_trail,profit_lock
+ARKK,swing,high,base,LONG,2026-02-24,72.0952,2026-03-10,72.8645,19.1541,14.74,1.0671,4.9723,-3.0379,strong_signal_override,signal_override
+ARKK,swing,high,base,LONG,2026-03-11,73.0956,2026-03-26,67.3664,54.6232,-312.95,-7.838,0.5601,-7.8604,disaster_stop,safety

@@ -1,0 +1,22 @@
+{
+  "symbol": "QQQ",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 100081.71,
+  "total_return_pct": 0.08,
+  "annualized_return_pct": 0.51,
+  "sharpe_ratio": 0.209,
+  "max_drawdown_pct": -1.22,
+  "total_trades": 27,
+  "win_rate": 0.444,
+  "avg_win_pct": 0.68,
+  "avg_loss_pct": -0.53,
+  "profit_factor": 1.047,
+  "avg_trade_duration_days": 0.8,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

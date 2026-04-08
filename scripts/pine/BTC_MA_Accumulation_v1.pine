@@ -1,0 +1,238 @@
+// BTC MA Accumulation v1 — Multi-MA Stack + Steady Buying Detection
+// Based on observation: when 1-min bars are above MA5/MA10/MA20
+// and price grinds up slowly (accumulation), strong up signal
+// Timeframe: 1-min (designed for), works on any
+// Webhook: https://gold-scalper.zhuangxiujiyuan.com/webhook
+// Alert template: {{strategy.order.alert_message}}
+
+//@version=6
+strategy("BTC MA Accumulation v1",
+     overlay        = true,
+     initial_capital = 5000,
+     default_qty_type = strategy.percent_of_equity,
+     default_qty_value = 90,
+     margin_long    = 100,
+     margin_short   = 100,
+     commission_type = strategy.commission.percent,
+     commission_value = 0.075,
+     slippage       = 1,
+     pyramiding     = 0,
+     calc_on_every_tick = false)
+
+// ─── Inputs ───
+// MA lengths
+ma_fast_len   = input.int(5,   "Fast MA",   minval=2)
+ma_mid_len    = input.int(10,  "Mid MA",    minval=3)
+ma_slow_len   = input.int(20,  "Slow MA",   minval=5)
+
+// Accumulation detection
+acc_lookback  = input.int(10,  "Accumulation lookback bars", minval=3)
+acc_min_bars  = input.int(6,   "Min bars rising (of lookback)", minval=2)
+max_bar_size  = input.float(0.3, "Max single bar % move (reject spikes)", minval=0.05, step=0.05)
+
+// Risk management
+stop_ma       = input.string("MA20", "Stop Loss MA", options=["MA10", "MA20"])
+trail_ma      = input.string("MA10", "Trailing Stop MA", options=["MA5", "MA10", "MA20"])
+min_profit_trail = input.float(0.1, "Min % profit before trailing", minval=0.0, step=0.05)
+
+// TP
+use_tp        = input.bool(true, "Use Take Profit")
+tp_pct        = input.float(0.8, "Take Profit %", minval=0.1, step=0.1)
+tp1_close_pct = input.float(50,  "TP1 close %", minval=10, step=10)
+
+// Short side
+allow_short   = input.bool(true, "Allow shorts (bear stack)")
+
+// ─── Calculations ───
+ma_fast = ta.sma(close, ma_fast_len)
+ma_mid  = ta.sma(close, ma_mid_len)
+ma_slow = ta.sma(close, ma_slow_len)
+
+// ─── MA Stack Detection ───
+bull_stack = ma_fast > ma_mid and ma_mid > ma_slow       // MA5 > MA10 > MA20
+bear_stack = ma_fast < ma_mid and ma_mid < ma_slow       // MA5 < MA10 < MA20
+
+price_above_all = close > ma_fast and close > ma_mid and close > ma_slow
+price_below_all = close < ma_fast and close < ma_mid and close < ma_slow
+
+// ─── Accumulation: Steady Grind Detection ───
+// Count bars where close > close[1] in the lookback window
+bars_rising = 0
+for i = 0 to acc_lookback - 1
+    if close[i] > close[i + 1]
+        bars_rising += 1
+
+bars_falling = 0
+for i = 0 to acc_lookback - 1
+    if close[i] < close[i + 1]
+        bars_falling += 1
+
+// Check no single bar moved too much (reject spikes/FOMO)
+no_spike = true
+for i = 0 to acc_lookback - 1
+    bar_move = math.abs(close[i] - open[i]) / open[i] * 100
+    if bar_move > max_bar_size
+        no_spike := false
+
+// Accumulation: mostly rising bars + no spikes
+accumulating = bars_rising >= acc_min_bars and no_spike
+distributing = bars_falling >= acc_min_bars and no_spike
+
+// ─── MAs are rising/falling (slope confirmation) ───
+ma_fast_rising  = ma_fast > ma_fast[1]
+ma_mid_rising   = ma_mid > ma_mid[1]
+ma_slow_rising  = ma_slow > ma_slow[1]
+
+ma_fast_falling = ma_fast < ma_fast[1]
+ma_mid_falling  = ma_mid < ma_mid[1]
+ma_slow_falling = ma_slow < ma_slow[1]
+
+mas_rising  = ma_fast_rising and ma_mid_rising
+mas_falling = ma_fast_falling and ma_mid_falling
+
+// ─── Entry Conditions ───
+long_signal  = bull_stack and price_above_all and accumulating and mas_rising
+short_signal = allow_short and bear_stack and price_below_all and distributing and mas_falling
+
+// Only enter on fresh signal (wasn't true previous bar)
+long_entry  = long_signal and not long_signal[1]
+short_entry = short_signal and not short_signal[1]
+
+// ─── State Variables ───
+var float entry_price = na
+var bool  tp1_hit     = false
+var int   trade_dir   = 0
+
+// ─── Helper: get MA value by name ───
+get_ma(name) =>
+    name == "MA5" ? ma_fast : name == "MA10" ? ma_mid : ma_slow
+
+stop_ma_val  = get_ma(stop_ma)
+trail_ma_val = get_ma(trail_ma)
+
+// ─── Long Entry ───
+if long_entry and strategy.position_size <= 0
+    entry_price := close
+    tp1_hit     := false
+    trade_dir   := 1
+
+    alert_json = '{"action": "buy", "ticker": "BTCUSD", "contracts": 1, "position_size": 1, "price": ' + str.tostring(close, "#.##") + ', "comment": "Long: MA Stack + Accumulation"}'
+    strategy.entry("Long", strategy.long, alert_message = alert_json)
+
+// ─── Short Entry ───
+if short_entry and strategy.position_size >= 0
+    entry_price := close
+    tp1_hit     := false
+    trade_dir   := -1
+
+    alert_json = '{"action": "sell", "ticker": "BTCUSD", "contracts": 1, "position_size": -1, "price": ' + str.tostring(close, "#.##") + ', "comment": "Short: MA Stack + Distribution"}'
+    strategy.entry("Short", strategy.short, alert_message = alert_json)
+
+// ─── TP1: Partial close ───
+if use_tp and strategy.position_size > 0 and not tp1_hit
+    tp_price = entry_price * (1 + tp_pct / 100)
+    if close >= tp_price
+        tp1_hit := true
+        tp_json = '{"action": "sell", "ticker": "BTCUSD", "contracts": 1, "position_size": 0.5, "price": ' + str.tostring(close, "#.##") + ', "comment": "Long TP1"}'
+        strategy.close("Long", comment="TP1", qty_percent=tp1_close_pct, alert_message = tp_json)
+
+if use_tp and strategy.position_size < 0 and not tp1_hit
+    tp_price = entry_price * (1 - tp_pct / 100)
+    if close <= tp_price
+        tp1_hit := true
+        tp_json = '{"action": "buy", "ticker": "BTCUSD", "contracts": 1, "position_size": -0.5, "price": ' + str.tostring(close, "#.##") + ', "comment": "Short TP1"}'
+        strategy.close("Short", comment="TP1", qty_percent=tp1_close_pct, alert_message = tp_json)
+
+// ─── Stop / Trailing Stop ───
+// Long: stop when price closes below stop MA
+// After profit, trail using trail MA
+if strategy.position_size > 0
+    in_profit = close > entry_price * (1 + min_profit_trail / 100)
+    active_stop = in_profit ? trail_ma_val : stop_ma_val
+
+    if close < active_stop
+        sl_json = '{"action": "sell", "ticker": "BTCUSD", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Long Stop (' + (in_profit ? trail_ma : stop_ma) + ')"}'
+        strategy.close("Long", alert_message = sl_json)
+        trade_dir := 0
+
+// Short: stop when price closes above stop MA
+if strategy.position_size < 0
+    in_profit = close < entry_price * (1 - min_profit_trail / 100)
+    active_stop = in_profit ? trail_ma_val : stop_ma_val
+
+    if close > active_stop
+        sl_json = '{"action": "buy", "ticker": "BTCUSD", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Short Stop (' + (in_profit ? trail_ma : stop_ma) + ')"}'
+        strategy.close("Short", alert_message = sl_json)
+        trade_dir := 0
+
+// ─── MA Stack Break Exit ───
+// If the stack breaks, exit regardless
+if strategy.position_size > 0 and not bull_stack
+    exit_json = '{"action": "sell", "ticker": "BTCUSD", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Bull Stack Broken"}'
+    strategy.close("Long", alert_message = exit_json)
+    trade_dir := 0
+
+if strategy.position_size < 0 and not bear_stack
+    exit_json = '{"action": "buy", "ticker": "BTCUSD", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Bear Stack Broken"}'
+    strategy.close("Short", alert_message = exit_json)
+    trade_dir := 0
+
+// ─── Reset on flat ───
+if strategy.position_size == 0
+    trade_dir := 0
+
+// ─── Plots ───
+plot(ma_fast, "MA5",  color=color.new(color.lime, 0),   linewidth=2)
+plot(ma_mid,  "MA10", color=color.new(color.blue, 0),   linewidth=2)
+plot(ma_slow, "MA20", color=color.new(color.orange, 0), linewidth=2)
+
+// Background: green when bull stack + accumulating, red when bear + distributing
+bg_col = bull_stack and accumulating ? color.new(color.green, 90) :
+         bear_stack and distributing ? color.new(color.red, 90) :
+         bull_stack ? color.new(color.green, 95) :
+         bear_stack ? color.new(color.red, 95) : na
+bgcolor(bg_col)
+
+// Entry markers
+plotshape(long_entry  and strategy.position_size[1] <= 0, "Long",  shape.triangleup,   location.belowbar, color.green, size=size.small)
+plotshape(short_entry and strategy.position_size[1] >= 0, "Short", shape.triangledown, location.abovebar, color.red,   size=size.small)
+
+// ─── Info Table ───
+var table info = table.new(position.top_right, 2, 8, bgcolor=color.new(color.black, 80))
+if barstate.islast
+    table.cell(info, 0, 0, "MA Stack",   text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 0, bull_stack ? "BULL" : bear_stack ? "BEAR" : "NONE",
+         text_color=bull_stack ? color.green : bear_stack ? color.red : color.gray, text_size=size.small)
+
+    table.cell(info, 0, 1, "Price vs MAs", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 1, price_above_all ? "ABOVE ALL" : price_below_all ? "BELOW ALL" : "MIXED",
+         text_color=price_above_all ? color.green : price_below_all ? color.red : color.gray, text_size=size.small)
+
+    table.cell(info, 0, 2, "Accumulation", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 2, accumulating ? "YES (" + str.tostring(bars_rising) + "/" + str.tostring(acc_lookback) + ")" :
+         str.tostring(bars_rising) + "/" + str.tostring(acc_lookback),
+         text_color=accumulating ? color.green : color.gray, text_size=size.small)
+
+    table.cell(info, 0, 3, "No Spikes", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 3, no_spike ? "CLEAN" : "SPIKE!",
+         text_color=no_spike ? color.green : color.red, text_size=size.small)
+
+    table.cell(info, 0, 4, "MAs Rising", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 4, mas_rising ? "YES" : mas_falling ? "FALLING" : "MIXED",
+         text_color=mas_rising ? color.green : mas_falling ? color.red : color.gray, text_size=size.small)
+
+    table.cell(info, 0, 5, "Position", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 5, strategy.position_size > 0 ? "LONG" : strategy.position_size < 0 ? "SHORT" : "FLAT",
+         text_color=strategy.position_size > 0 ? color.green : strategy.position_size < 0 ? color.red : color.gray, text_size=size.small)
+
+    table.cell(info, 0, 6, "Stop MA", text_color=color.white, text_size=size.small)
+    string stop_label = "---"
+    if strategy.position_size > 0
+        stop_label := close > entry_price * (1 + min_profit_trail / 100) ? trail_ma : stop_ma
+    if strategy.position_size < 0
+        stop_label := close < entry_price * (1 - min_profit_trail / 100) ? trail_ma : stop_ma
+    table.cell(info, 1, 6, stop_label, text_color=color.yellow, text_size=size.small)
+
+    table.cell(info, 0, 7, "TP1", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 7, tp1_hit ? "HIT" : "PENDING",
+         text_color=tp1_hit ? color.green : color.gray, text_size=size.small)

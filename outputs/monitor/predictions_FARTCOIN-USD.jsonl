@@ -1,0 +1,4 @@
+{"timestamp": "2026-03-21T04:07:50.274473+00:00", "symbol": "FARTCOIN-USD", "predicted_return": -0.119704, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-21T04:08:31.337421+00:00", "symbol": "FARTCOIN-USD", "predicted_return": -0.121193, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-27T03:23:50.126449+00:00", "symbol": "FARTCOIN-USD", "predicted_return": -0.034729, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-31T18:46:26.986182+00:00", "symbol": "FARTCOIN-USD", "predicted_return": -0.038882, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}

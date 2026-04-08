@@ -1,0 +1,9 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+EIGEN-USD,crypto,ultra,base,LONG,2026-01-31,0.2634,2026-02-05,0.1987,16753.6526,-1083.96,-24.5634,0.7661,-24.8588,disaster_stop,safety
+EIGEN-USD,crypto,ultra,base,LONG,2026-02-06,0.2249,2026-02-10,0.1968,19792.0042,-556.16,-12.4944,0.0316,-12.7932,disaster_stop,safety
+EIGEN-USD,crypto,ultra,base,LONG,2026-02-11,0.1981,2026-02-15,0.2079,22343.2345,218.96,4.947,12.2741,-0.9707,profit_lock_trail,profit_lock
+EIGEN-USD,crypto,ultra,base,LONG,2026-02-16,0.2137,2026-02-21,0.1908,17760.2471,-406.71,-10.716,0.1348,-11.606,disaster_stop,safety
+EIGEN-USD,crypto,ultra,base,LONG,2026-02-23,0.185,2026-02-27,0.1859,23879.7091,21.49,0.4865,11.1341,-3.4189,profit_lock_trail,profit_lock
+EIGEN-USD,crypto,ultra,base,LONG,2026-02-28,0.1853,2026-03-06,0.183,23846.2672,-54.85,-1.2412,8.9072,-6.4317,breakeven_ratchet,breakeven
+EIGEN-USD,crypto,ultra,base,LONG,2026-03-07,0.1767,2026-03-17,0.2175,24992.8988,1019.71,23.09,34.5597,-1.9643,profit_lock_trail,profit_lock
+EIGEN-USD,crypto,ultra,base,LONG,2026-03-18,0.2038,2026-03-26,0.1854,21894.6623,-402.86,-9.0285,0.6673,-9.9632,end_of_backtest,time

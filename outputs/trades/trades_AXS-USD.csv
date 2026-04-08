@@ -1,0 +1,10 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+AXS-USD,crypto,ultra,base,SHORT,2026-01-25,2.0274,2026-01-26,2.4804,2219.5916,-1005.47,-22.3439,6.5806,-25.4069,disaster_stop,safety
+AXS-USD,crypto,ultra,base,SHORT,2026-01-27,2.6314,2026-02-06,1.3775,1692.9215,2122.75,47.6514,54.7002,-0.3712,profit_lock_trail,profit_lock
+AXS-USD,crypto,ultra,base,SHORT,2026-02-07,1.3245,2026-02-09,1.4787,3435.4682,-529.8,-11.6433,5.2557,-19.7843,disaster_stop,safety
+AXS-USD,crypto,ultra,base,SHORT,2026-02-10,1.5668,2026-02-14,1.5069,2888.9688,173.05,3.8231,15.3499,-2.9315,profit_lock_trail,profit_lock
+AXS-USD,crypto,ultra,base,SHORT,2026-02-15,1.4022,2026-02-20,1.3463,3233.6497,180.76,3.9866,13.9168,-0.3738,profit_lock_trail,profit_lock
+AXS-USD,crypto,ultra,base,SHORT,2026-02-21,1.3357,2026-02-25,1.386,3400.7321,-171.06,-3.7658,10.8487,-8.1475,breakeven_ratchet,breakeven
+AXS-USD,crypto,ultra,base,SHORT,2026-02-26,1.3569,2026-03-12,1.1401,3341.9267,724.53,15.9776,19.5007,-4.291,profit_lock_trail,profit_lock
+AXS-USD,crypto,ultra,base,SHORT,2026-03-13,1.1538,2026-03-16,1.2871,2925.1908,-389.93,-11.5531,0.4233,-12.8737,disaster_stop,safety
+AXS-USD,crypto,ultra,base,SHORT,2026-03-24,1.1196,2026-03-26,1.0666,2836.4086,150.33,4.7337,6.0838,-1.4656,end_of_backtest,time

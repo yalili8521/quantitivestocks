@@ -1,0 +1,1558 @@
+{
+  "swing": {
+    "ARKK": {
+      "sharpe": 4.739,
+      "pf": 7.131,
+      "wr": 60.0,
+      "trades": 5
+    },
+    "BND": {
+      "sharpe": 4.098,
+      "pf": 9.718,
+      "wr": 66.7,
+      "trades": 3
+    },
+    "CIBR": {
+      "sharpe": 2.267,
+      "pf": 3.804,
+      "wr": 60.0,
+      "trades": 5
+    },
+    "EEM": {
+      "sharpe": -0.641,
+      "pf": 0.0,
+      "wr": 0.0,
+      "trades": 2
+    },
+    "EMB": {
+      "sharpe": 4.329,
+      "pf": 27.597,
+      "wr": 66.7,
+      "trades": 3
+    },
+    "ETHA": {
+      "sharpe": 2.56,
+      "pf": 3.618,
+      "wr": 66.7,
+      "trades": 9
+    },
+    "EWA": {
+      "sharpe": 0.621,
+      "pf": 1.84,
+      "wr": 66.7,
+      "trades": 3
+    },
+    "EWC": {
+      "sharpe": 0.731,
+      "pf": 1.97,
+      "wr": 80.0,
+      "trades": 5
+    },
+    "EWG": {
+      "sharpe": -3.75,
+      "pf": 0.0,
+      "wr": 0.0,
+      "trades": 2
+    },
+    "EWH": {
+      "sharpe": 2.372,
+      "pf": 5.794,
+      "wr": 60.0,
+      "trades": 5
+    },
+    "EWJ": {
+      "sharpe": 3.588,
+      "pf": 9.258,
+      "wr": 50.0,
+      "trades": 6
+    },
+    "EWT": {
+      "sharpe": 2.702,
+      "pf": 16.718,
+      "wr": 75.0,
+      "trades": 4
+    },
+    "EWU": {
+      "sharpe": -0.78,
+      "pf": 0.468,
+      "wr": 60.0,
+      "trades": 5
+    },
+    "EWW": {
+      "sharpe": 1.895,
+      "pf": 999.0,
+      "wr": 100.0,
+      "trades": 3
+    },
+    "EWY": {
+      "sharpe": 0.339,
+      "pf": 1.18,
+      "wr": 50.0,
+      "trades": 6
+    },
+    "EWZ": {
+      "sharpe": 0.731,
+      "pf": 3.578,
+      "wr": 66.7,
+      "trades": 6
+    },
+    "FBTC": {
+      "sharpe": 1.074,
+      "pf": 1.602,
+      "wr": 57.1,
+      "trades": 7
+    },
+    "GDX": {
+      "sharpe": -1.351,
+      "pf": 0.309,
+      "wr": 50.0,
+      "trades": 6
+    },
+    "GDXJ": {
+      "sharpe": -1.59,
+      "pf": 0.198,
+      "wr": 28.6,
+      "trades": 7
+    },
+    "GLD": {
+      "sharpe": -1.162,
+      "pf": 0.456,
+      "wr": 40.0,
+      "trades": 5
+    },
+    "HYG": {
+      "sharpe": -1.757,
+      "pf": 0.109,
+      "wr": 33.3,
+      "trades": 3
+    },
+    "IAU": {
+      "sharpe": -1.172,
+      "pf": 0.454,
+      "wr": 40.0,
+      "trades": 5
+    },
+    "IBIT": {
+      "sharpe": 1.116,
+      "pf": 1.634,
+      "wr": 71.4,
+      "trades": 7
+    },
+    "IEF": {
+      "sharpe": 3.067,
+      "pf": 9.175,
+      "wr": 66.7,
+      "trades": 3
+    },
+    "IGV": {
+      "sharpe": 4.723,
+      "pf": 13.222,
+      "wr": 50.0,
+      "trades": 4
+    },
+    "INDA": {
+      "sharpe": -1.142,
+      "pf": 0.577,
+      "wr": 20.0,
+      "trades": 5
+    },
+    "IWB": {
+      "sharpe": 0.427,
+      "pf": 1.327,
+      "wr": 33.3,
+      "trades": 3
+    },
+    "IWF": {
+      "sharpe": 2.773,
+      "pf": 3.133,
+      "wr": 75.0,
+      "trades": 4
+    },
+    "IWM": {
+      "sharpe": 2.885,
+      "pf": 8.64,
+      "wr": 60.0,
+      "trades": 5
+    },
+    "LQD": {
+      "sharpe": 2.193,
+      "pf": 5.834,
+      "wr": 75.0,
+      "trades": 4
+    },
+    "MCHI": {
+      "sharpe": -2.564,
+      "pf": 0.077,
+      "wr": 20.0,
+      "trades": 5
+    },
+    "MTUM": {
+      "sharpe": 1.761,
+      "pf": 4.499,
+      "wr": 75.0,
+      "trades": 4
+    },
+    "PDBC": {
+      "sharpe": 4.129,
+      "pf": 5.772,
+      "wr": 66.7,
+      "trades": 3
+    },
+    "QQQ": {
+      "sharpe": -0.305,
+      "pf": 0.795,
+      "wr": 25.0,
+      "trades": 4
+    },
+    "QUAL": {
+      "sharpe": -0.892,
+      "pf": 0.233,
+      "wr": 50.0,
+      "trades": 4
+    },
+    "SHY": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "SLV": {
+      "sharpe": -1.337,
+      "pf": 0.569,
+      "wr": 33.3,
+      "trades": 9
+    },
+    "SMH": {
+      "sharpe": -0.844,
+      "pf": 0.19,
+      "wr": 33.3,
+      "trades": 3
+    },
+    "SOXX": {
+      "sharpe": 1.019,
+      "pf": 1.788,
+      "wr": 40.0,
+      "trades": 5
+    },
+    "SPY": {
+      "sharpe": -0.008,
+      "pf": 0.981,
+      "wr": 25.0,
+      "trades": 4
+    },
+    "TIP": {
+      "sharpe": -1.946,
+      "pf": 0.0,
+      "wr": 0.0,
+      "trades": 2
+    },
+    "TLT": {
+      "sharpe": 1.893,
+      "pf": 2.789,
+      "wr": 75.0,
+      "trades": 4
+    },
+    "URNM": {
+      "sharpe": -1.848,
+      "pf": 0.427,
+      "wr": 33.3,
+      "trades": 9
+    },
+    "USMV": {
+      "sharpe": -0.283,
+      "pf": 0.852,
+      "wr": 66.7,
+      "trades": 3
+    },
+    "USO": {
+      "sharpe": 3.896,
+      "pf": 14.573,
+      "wr": 83.3,
+      "trades": 6
+    },
+    "VBR": {
+      "sharpe": 3.4,
+      "pf": 13.825,
+      "wr": 66.7,
+      "trades": 3
+    },
+    "VGK": {
+      "sharpe": 1.112,
+      "pf": 1.773,
+      "wr": 50.0,
+      "trades": 6
+    },
+    "VTV": {
+      "sharpe": 4.736,
+      "pf": 97.376,
+      "wr": 66.7,
+      "trades": 3
+    },
+    "VWO": {
+      "sharpe": -0.538,
+      "pf": 0.667,
+      "wr": 50.0,
+      "trades": 4
+    },
+    "XLB": {
+      "sharpe": -1.863,
+      "pf": 0.257,
+      "wr": 60.0,
+      "trades": 5
+    },
+    "XLE": {
+      "sharpe": -1.555,
+      "pf": 0.605,
+      "wr": 25.0,
+      "trades": 4
+    },
+    "XLF": {
+      "sharpe": -2.651,
+      "pf": 0.0,
+      "wr": 0.0,
+      "trades": 3
+    },
+    "XLI": {
+      "sharpe": -1.491,
+      "pf": 0.443,
+      "wr": 33.3,
+      "trades": 3
+    },
+    "XLK": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "XLP": {
+      "sharpe": 4.095,
+      "pf": 5.901,
+      "wr": 75.0,
+      "trades": 4
+    },
+    "XLRE": {
+      "sharpe": 4.903,
+      "pf": 1204.658,
+      "wr": 66.7,
+      "trades": 3
+    },
+    "XLU": {
+      "sharpe": 3.62,
+      "pf": 999.0,
+      "wr": 100.0,
+      "trades": 2
+    },
+    "XLV": {
+      "sharpe": 1.235,
+      "pf": 1.658,
+      "wr": 60.0,
+      "trades": 5
+    },
+    "XLY": {
+      "sharpe": -4.273,
+      "pf": 0.065,
+      "wr": 25.0,
+      "trades": 4
+    }
+  },
+  "intraday": {
+    "ARKK": {
+      "sharpe": -3.766,
+      "pf": 0.442,
+      "wr": 37.0,
+      "trades": 27
+    },
+    "BND": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "CIBR": {
+      "sharpe": -1.196,
+      "pf": 0.79,
+      "wr": 40.7,
+      "trades": 27
+    },
+    "EEM": {
+      "sharpe": -1.072,
+      "pf": 0.776,
+      "wr": 51.4,
+      "trades": 35
+    },
+    "EMB": {
+      "sharpe": -0.228,
+      "pf": 0.922,
+      "wr": 50.0,
+      "trades": 8
+    },
+    "ETHA": {
+      "sharpe": -5.257,
+      "pf": 0.234,
+      "wr": 18.5,
+      "trades": 27
+    },
+    "EWA": {
+      "sharpe": -0.062,
+      "pf": 0.987,
+      "wr": 52.2,
+      "trades": 67
+    },
+    "EWC": {
+      "sharpe": 0.033,
+      "pf": 0.998,
+      "wr": 50.0,
+      "trades": 40
+    },
+    "EWG": {
+      "sharpe": -3.45,
+      "pf": 0.305,
+      "wr": 38.5,
+      "trades": 26
+    },
+    "EWH": {
+      "sharpe": 0.459,
+      "pf": 1.075,
+      "wr": 46.2,
+      "trades": 26
+    },
+    "EWJ": {
+      "sharpe": -4.097,
+      "pf": 0.354,
+      "wr": 38.5,
+      "trades": 26
+    },
+    "EWT": {
+      "sharpe": -0.387,
+      "pf": 0.928,
+      "wr": 45.7,
+      "trades": 35
+    },
+    "EWU": {
+      "sharpe": -0.762,
+      "pf": 0.876,
+      "wr": 58.5,
+      "trades": 41
+    },
+    "EWW": {
+      "sharpe": -1.635,
+      "pf": 0.691,
+      "wr": 51.4,
+      "trades": 35
+    },
+    "EWY": {
+      "sharpe": 1.109,
+      "pf": 1.172,
+      "wr": 54.2,
+      "trades": 48
+    },
+    "EWZ": {
+      "sharpe": 1.747,
+      "pf": 1.268,
+      "wr": 55.8,
+      "trades": 43
+    },
+    "FBTC": {
+      "sharpe": -3.367,
+      "pf": 0.444,
+      "wr": 29.6,
+      "trades": 27
+    },
+    "GDX": {
+      "sharpe": -1.5,
+      "pf": 0.703,
+      "wr": 33.3,
+      "trades": 27
+    },
+    "GDXJ": {
+      "sharpe": -2.609,
+      "pf": 0.574,
+      "wr": 18.5,
+      "trades": 27
+    },
+    "GLD": {
+      "sharpe": -0.496,
+      "pf": 0.868,
+      "wr": 48.4,
+      "trades": 31
+    },
+    "HYG": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "IAU": {
+      "sharpe": -0.857,
+      "pf": 0.79,
+      "wr": 51.5,
+      "trades": 33
+    },
+    "IBIT": {
+      "sharpe": -3.26,
+      "pf": 0.453,
+      "wr": 29.6,
+      "trades": 27
+    },
+    "IEF": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "IGV": {
+      "sharpe": 0.629,
+      "pf": 1.134,
+      "wr": 33.3,
+      "trades": 27
+    },
+    "INDA": {
+      "sharpe": -0.396,
+      "pf": 0.912,
+      "wr": 51.1,
+      "trades": 47
+    },
+    "IWB": {
+      "sharpe": -0.51,
+      "pf": 0.923,
+      "wr": 57.5,
+      "trades": 40
+    },
+    "IWF": {
+      "sharpe": 2.927,
+      "pf": 1.53,
+      "wr": 63.6,
+      "trades": 44
+    },
+    "IWM": {
+      "sharpe": -0.213,
+      "pf": 0.956,
+      "wr": 46.4,
+      "trades": 28
+    },
+    "LQD": {
+      "sharpe": -0.461,
+      "pf": 0.0,
+      "wr": 0.0,
+      "trades": 1
+    },
+    "MCHI": {
+      "sharpe": -1.799,
+      "pf": 0.745,
+      "wr": 52.6,
+      "trades": 57
+    },
+    "MTUM": {
+      "sharpe": 0.657,
+      "pf": 1.131,
+      "wr": 53.1,
+      "trades": 32
+    },
+    "PDBC": {
+      "sharpe": -0.871,
+      "pf": 0.816,
+      "wr": 40.7,
+      "trades": 27
+    },
+    "QQQ": {
+      "sharpe": 0.209,
+      "pf": 1.047,
+      "wr": 44.4,
+      "trades": 27
+    },
+    "QUAL": {
+      "sharpe": -3.317,
+      "pf": 0.45,
+      "wr": 41.7,
+      "trades": 24
+    },
+    "SHY": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "SLV": {
+      "sharpe": -2.795,
+      "pf": 0.457,
+      "wr": 14.3,
+      "trades": 28
+    },
+    "SMH": {
+      "sharpe": -1.1,
+      "pf": 0.808,
+      "wr": 38.5,
+      "trades": 26
+    },
+    "SOXX": {
+      "sharpe": -0.541,
+      "pf": 0.897,
+      "wr": 44.4,
+      "trades": 27
+    },
+    "SPY": {
+      "sharpe": 2.701,
+      "pf": 1.568,
+      "wr": 61.5,
+      "trades": 39
+    },
+    "TIP": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "TLT": {
+      "sharpe": -3.128,
+      "pf": 0.472,
+      "wr": 40.9,
+      "trades": 22
+    },
+    "URNM": {
+      "sharpe": -4.377,
+      "pf": 0.394,
+      "wr": 25.0,
+      "trades": 28
+    },
+    "USMV": {
+      "sharpe": 2.228,
+      "pf": 4.051,
+      "wr": 70.0,
+      "trades": 10
+    },
+    "USO": {
+      "sharpe": 3.871,
+      "pf": 2.271,
+      "wr": 51.5,
+      "trades": 33
+    },
+    "VBR": {
+      "sharpe": -0.79,
+      "pf": 0.817,
+      "wr": 43.8,
+      "trades": 32
+    },
+    "VGK": {
+      "sharpe": -0.866,
+      "pf": 0.857,
+      "wr": 56.3,
+      "trades": 71
+    },
+    "VTV": {
+      "sharpe": -0.294,
+      "pf": 0.941,
+      "wr": 48.6,
+      "trades": 35
+    },
+    "VWO": {
+      "sharpe": 0.613,
+      "pf": 1.105,
+      "wr": 46.4,
+      "trades": 28
+    },
+    "XLB": {
+      "sharpe": 2.339,
+      "pf": 1.527,
+      "wr": 51.2,
+      "trades": 43
+    },
+    "XLE": {
+      "sharpe": 2.483,
+      "pf": 1.65,
+      "wr": 57.9,
+      "trades": 38
+    },
+    "XLF": {
+      "sharpe": -2.14,
+      "pf": 0.597,
+      "wr": 50.0,
+      "trades": 32
+    },
+    "XLI": {
+      "sharpe": 0.771,
+      "pf": 1.153,
+      "wr": 55.9,
+      "trades": 34
+    },
+    "XLK": {
+      "sharpe": 2.079,
+      "pf": 1.375,
+      "wr": 57.9,
+      "trades": 38
+    },
+    "XLP": {
+      "sharpe": 0.768,
+      "pf": 1.127,
+      "wr": 46.7,
+      "trades": 30
+    },
+    "XLRE": {
+      "sharpe": 0.126,
+      "pf": 1.02,
+      "wr": 48.6,
+      "trades": 35
+    },
+    "XLU": {
+      "sharpe": 1.16,
+      "pf": 1.221,
+      "wr": 55.8,
+      "trades": 43
+    },
+    "XLV": {
+      "sharpe": -3.069,
+      "pf": 0.48,
+      "wr": 53.2,
+      "trades": 47
+    },
+    "XLY": {
+      "sharpe": -2.549,
+      "pf": 0.535,
+      "wr": 42.3,
+      "trades": 26
+    }
+  },
+  "crypto": {
+    "1INCH-USD": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "AAVE-USD": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "ADA-USD": {
+      "sharpe": -0.218,
+      "pf": 0.852,
+      "wr": 33.3,
+      "trades": 6
+    },
+    "AKT-USD": {
+      "sharpe": 2.786,
+      "pf": 13.447,
+      "wr": 80.0,
+      "trades": 5
+    },
+    "ALGO-USD": {
+      "sharpe": -1.584,
+      "pf": 0.252,
+      "wr": 50.0,
+      "trades": 2
+    },
+    "APT-USD": {
+      "sharpe": 0.0,
+      "pf": 0.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "AR-USD": {
+      "sharpe": 4.252,
+      "pf": 999.0,
+      "wr": 100.0,
+      "trades": 2
+    },
+    "ARB-USD": {
+      "sharpe": 0.0,
+      "pf": 0.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "ATOM-USD": {
+      "sharpe": -0.501,
+      "pf": 0.855,
+      "wr": 42.9,
+      "trades": 7
+    },
+    "AVAX-USD": {
+      "sharpe": -1.55,
+      "pf": 0.378,
+      "wr": 33.3,
+      "trades": 6
+    },
+    "AXS-USD": {
+      "sharpe": 1.708,
+      "pf": 1.599,
+      "wr": 55.6,
+      "trades": 9
+    },
+    "BAT-USD": {
+      "sharpe": 4.191,
+      "pf": 9.368,
+      "wr": 83.3,
+      "trades": 6
+    },
+    "BCH-USD": {
+      "sharpe": -2.969,
+      "pf": 0.251,
+      "wr": 50.0,
+      "trades": 10
+    },
+    "BERA-USD": {
+      "sharpe": -0.697,
+      "pf": 0.678,
+      "wr": 18.2,
+      "trades": 11
+    },
+    "BNB-USD": {
+      "sharpe": -2.202,
+      "pf": 0.379,
+      "wr": 28.6,
+      "trades": 7
+    },
+    "BTC-USD": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "CAKE-USD": {
+      "sharpe": -0.349,
+      "pf": 0.875,
+      "wr": 62.5,
+      "trades": 8
+    },
+    "CFX-USD": {
+      "sharpe": -5.849,
+      "pf": 0.0,
+      "wr": 0.0,
+      "trades": 3
+    },
+    "CHZ-USD": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "CRV-USD": {
+      "sharpe": -3.855,
+      "pf": 0.221,
+      "wr": 44.4,
+      "trades": 9
+    },
+    "CVX-USD": {
+      "sharpe": -1.298,
+      "pf": 0.622,
+      "wr": 50.0,
+      "trades": 10
+    },
+    "DOGE-USD": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "DOT-USD": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "EGLD-USD": {
+      "sharpe": 1.859,
+      "pf": 6.198,
+      "wr": 83.3,
+      "trades": 6
+    },
+    "EIGEN-USD": {
+      "sharpe": -2.189,
+      "pf": 0.503,
+      "wr": 37.5,
+      "trades": 8
+    },
+    "ENA-USD": {
+      "sharpe": -2.481,
+      "pf": 0.379,
+      "wr": 40.0,
+      "trades": 10
+    },
+    "ENS-USD": {
+      "sharpe": -1.648,
+      "pf": 0.422,
+      "wr": 37.5,
+      "trades": 8
+    },
+    "ETC-USD": {
+      "sharpe": -4.166,
+      "pf": 0.0,
+      "wr": 0.0,
+      "trades": 3
+    },
+    "ETH-USD": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "ETHFI-USD": {
+      "sharpe": -0.89,
+      "pf": 0.305,
+      "wr": 25.0,
+      "trades": 4
+    },
+    "FARTCOIN-USD": {
+      "sharpe": 3.055,
+      "pf": 2.408,
+      "wr": 72.7,
+      "trades": 11
+    },
+    "FET-USD": {
+      "sharpe": -1.069,
+      "pf": 0.706,
+      "wr": 50.0,
+      "trades": 10
+    },
+    "FIL-USD": {
+      "sharpe": 1.811,
+      "pf": 2.965,
+      "wr": 71.4,
+      "trades": 7
+    },
+    "GNO-USD": {
+      "sharpe": -1.272,
+      "pf": 0.639,
+      "wr": 50.0,
+      "trades": 10
+    },
+    "GOMINING-USD": {
+      "sharpe": 1.433,
+      "pf": 2.232,
+      "wr": 75.0,
+      "trades": 4
+    },
+    "HBAR-USD": {
+      "sharpe": -2.612,
+      "pf": 0.297,
+      "wr": 28.6,
+      "trades": 7
+    },
+    "HNT-USD": {
+      "sharpe": 2.513,
+      "pf": 3.102,
+      "wr": 62.5,
+      "trades": 8
+    },
+    "ICP-USD": {
+      "sharpe": 0.125,
+      "pf": 1.082,
+      "wr": 50.0,
+      "trades": 2
+    },
+    "INJ-USD": {
+      "sharpe": -1.845,
+      "pf": 0.488,
+      "wr": 40.0,
+      "trades": 10
+    },
+    "JTO-USD": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "KAS-USD": {
+      "sharpe": -3.572,
+      "pf": 0.042,
+      "wr": 20.0,
+      "trades": 5
+    },
+    "LDO-USD": {
+      "sharpe": -3.332,
+      "pf": 0.19,
+      "wr": 14.3,
+      "trades": 7
+    },
+    "LINK-USD": {
+      "sharpe": -0.409,
+      "pf": 0.692,
+      "wr": 50.0,
+      "trades": 2
+    },
+    "LPT-USD": {
+      "sharpe": -4.233,
+      "pf": 0.0,
+      "wr": 0.0,
+      "trades": 7
+    },
+    "LTC-USD": {
+      "sharpe": 0.949,
+      "pf": 6.376,
+      "wr": 66.7,
+      "trades": 3
+    },
+    "MANA-USD": {
+      "sharpe": -3.761,
+      "pf": 0.024,
+      "wr": 42.9,
+      "trades": 7
+    },
+    "NEAR-USD": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "ONDO-USD": {
+      "sharpe": 1.521,
+      "pf": 2.569,
+      "wr": 71.4,
+      "trades": 7
+    },
+    "OP-USD": {
+      "sharpe": -4.514,
+      "pf": 0.206,
+      "wr": 30.0,
+      "trades": 10
+    },
+    "PENDLE-USD": {
+      "sharpe": -2.98,
+      "pf": 0.246,
+      "wr": 37.5,
+      "trades": 8
+    },
+    "PYTH-USD": {
+      "sharpe": -0.053,
+      "pf": 0.975,
+      "wr": 66.7,
+      "trades": 9
+    },
+    "QNT-USD": {
+      "sharpe": 4.955,
+      "pf": 5.883,
+      "wr": 66.7,
+      "trades": 6
+    },
+    "RAY-USD": {
+      "sharpe": -3.126,
+      "pf": 0.248,
+      "wr": 40.0,
+      "trades": 10
+    },
+    "RENDER-USD": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "RUNE-USD": {
+      "sharpe": 1.011,
+      "pf": 1.684,
+      "wr": 66.7,
+      "trades": 6
+    },
+    "SAND-USD": {
+      "sharpe": 2.347,
+      "pf": 999.0,
+      "wr": 100.0,
+      "trades": 2
+    },
+    "SEI-USD": {
+      "sharpe": -6.717,
+      "pf": 0.118,
+      "wr": 22.2,
+      "trades": 9
+    },
+    "SHIB-USD": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "SNX-USD": {
+      "sharpe": 2.198,
+      "pf": 3.36,
+      "wr": 75.0,
+      "trades": 8
+    },
+    "SOL-USD": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "SUSHI-USD": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "SYRUP-USD": {
+      "sharpe": 1.766,
+      "pf": 1.663,
+      "wr": 71.4,
+      "trades": 7
+    },
+    "TIA-USD": {
+      "sharpe": -4.275,
+      "pf": 0.268,
+      "wr": 22.2,
+      "trades": 9
+    },
+    "TRAC-USD": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "UNI-USD": {
+      "sharpe": 0.0,
+      "pf": 0.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "VET-USD": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "VIRTUAL-USD": {
+      "sharpe": -0.744,
+      "pf": 0.752,
+      "wr": 40.0,
+      "trades": 10
+    },
+    "WIF-USD": {
+      "sharpe": 0.253,
+      "pf": 1.098,
+      "wr": 66.7,
+      "trades": 9
+    },
+    "WLD-USD": {
+      "sharpe": 0.217,
+      "pf": 1.082,
+      "wr": 70.0,
+      "trades": 10
+    },
+    "XDC-USD": {
+      "sharpe": -6.39,
+      "pf": 0.006,
+      "wr": 14.3,
+      "trades": 7
+    },
+    "XLM-USD": {
+      "sharpe": -1.795,
+      "pf": 0.499,
+      "wr": 50.0,
+      "trades": 8
+    },
+    "XRP-USD": {
+      "sharpe": 0.58,
+      "pf": 1.269,
+      "wr": 55.6,
+      "trades": 9
+    },
+    "XTZ-USD": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    }
+  },
+  "crypto_intraday": {
+    "1INCH-USD": {
+      "sharpe": 1.947,
+      "pf": 1.349,
+      "wr": 42.4,
+      "trades": 33
+    },
+    "AAVE-USD": {
+      "sharpe": 1.886,
+      "pf": 1.278,
+      "wr": 53.3,
+      "trades": 60
+    },
+    "ADA-USD": {
+      "sharpe": -2.25,
+      "pf": 0.625,
+      "wr": 50.0,
+      "trades": 52
+    },
+    "ALGO-USD": {
+      "sharpe": 2.254,
+      "pf": 1.455,
+      "wr": 56.2,
+      "trades": 64
+    },
+    "AR-USD": {
+      "sharpe": -3.075,
+      "pf": 0.548,
+      "wr": 42.9,
+      "trades": 28
+    },
+    "ATOM-USD": {
+      "sharpe": 27.045,
+      "pf": 6.31,
+      "wr": 79.2,
+      "trades": 495
+    },
+    "AVAX-USD": {
+      "sharpe": 1.949,
+      "pf": 1.458,
+      "wr": 48.3,
+      "trades": 29
+    },
+    "AXS-USD": {
+      "sharpe": 2.941,
+      "pf": 2.83,
+      "wr": 35.7,
+      "trades": 28
+    },
+    "BAT-USD": {
+      "sharpe": -5.559,
+      "pf": 0.274,
+      "wr": 32.1,
+      "trades": 28
+    },
+    "BCH-USD": {
+      "sharpe": 5.252,
+      "pf": 1.801,
+      "wr": 66.9,
+      "trades": 124
+    },
+    "BERA-USD": {
+      "sharpe": -1.651,
+      "pf": 0.709,
+      "wr": 39.3,
+      "trades": 28
+    },
+    "BNB-USD": {
+      "sharpe": -0.884,
+      "pf": 0.662,
+      "wr": 46.7,
+      "trades": 30
+    },
+    "BTC-USD": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "CAKE-USD": {
+      "sharpe": 0.513,
+      "pf": 1.144,
+      "wr": 51.5,
+      "trades": 33
+    },
+    "CFX-USD": {
+      "sharpe": -3.628,
+      "pf": 0.442,
+      "wr": 37.0,
+      "trades": 27
+    },
+    "CHZ-USD": {
+      "sharpe": 1.752,
+      "pf": 1.35,
+      "wr": 48.5,
+      "trades": 33
+    },
+    "CRV-USD": {
+      "sharpe": -1.504,
+      "pf": 0.759,
+      "wr": 45.0,
+      "trades": 40
+    },
+    "CVX-USD": {
+      "sharpe": -3.444,
+      "pf": 0.508,
+      "wr": 42.9,
+      "trades": 28
+    },
+    "DOGE-USD": {
+      "sharpe": -1.515,
+      "pf": 0.714,
+      "wr": 48.5,
+      "trades": 33
+    },
+    "DOT-USD": {
+      "sharpe": 7.042,
+      "pf": 2.029,
+      "wr": 65.5,
+      "trades": 200
+    },
+    "EGLD-USD": {
+      "sharpe": -0.482,
+      "pf": 0.86,
+      "wr": 37.0,
+      "trades": 27
+    },
+    "EIGEN-USD": {
+      "sharpe": 4.757,
+      "pf": 5.74,
+      "wr": 44.4,
+      "trades": 18
+    },
+    "ENA-USD": {
+      "sharpe": 1.903,
+      "pf": 1.26,
+      "wr": 51.4,
+      "trades": 70
+    },
+    "ENS-USD": {
+      "sharpe": -0.503,
+      "pf": 0.893,
+      "wr": 39.3,
+      "trades": 28
+    },
+    "ETC-USD": {
+      "sharpe": 3.958,
+      "pf": 1.766,
+      "wr": 59.4,
+      "trades": 101
+    },
+    "ETH-USD": {
+      "sharpe": -0.852,
+      "pf": 0.815,
+      "wr": 37.0,
+      "trades": 27
+    },
+    "ETHFI-USD": {
+      "sharpe": 1.796,
+      "pf": 1.52,
+      "wr": 48.3,
+      "trades": 29
+    },
+    "FARTCOIN-USD": {
+      "sharpe": 1.221,
+      "pf": 1.331,
+      "wr": 28.0,
+      "trades": 25
+    },
+    "FET-USD": {
+      "sharpe": 7.214,
+      "pf": 2.269,
+      "wr": 64.7,
+      "trades": 139
+    },
+    "FIL-USD": {
+      "sharpe": 9.178,
+      "pf": 2.724,
+      "wr": 63.6,
+      "trades": 118
+    },
+    "GNO-USD": {
+      "sharpe": -2.957,
+      "pf": 0.479,
+      "wr": 23.1,
+      "trades": 26
+    },
+    "GOMINING-USD": {
+      "sharpe": 0.887,
+      "pf": 1.222,
+      "wr": 26.9,
+      "trades": 26
+    },
+    "HBAR-USD": {
+      "sharpe": -2.936,
+      "pf": 0.525,
+      "wr": 32.1,
+      "trades": 28
+    },
+    "HNT-USD": {
+      "sharpe": -11.107,
+      "pf": 0.115,
+      "wr": 22.2,
+      "trades": 27
+    },
+    "ICP-USD": {
+      "sharpe": -0.683,
+      "pf": 0.885,
+      "wr": 47.6,
+      "trades": 42
+    },
+    "INJ-USD": {
+      "sharpe": -4.789,
+      "pf": 0.301,
+      "wr": 29.6,
+      "trades": 27
+    },
+    "IP-USD": {
+      "sharpe": 0.072,
+      "pf": 1.006,
+      "wr": 46.7,
+      "trades": 30
+    },
+    "JTO-USD": {
+      "sharpe": 0.835,
+      "pf": 1.194,
+      "wr": 45.5,
+      "trades": 11
+    },
+    "KAS-USD": {
+      "sharpe": -3.695,
+      "pf": 0.397,
+      "wr": 25.9,
+      "trades": 27
+    },
+    "LDO-USD": {
+      "sharpe": 3.666,
+      "pf": 1.695,
+      "wr": 63.5,
+      "trades": 52
+    },
+    "LINK-USD": {
+      "sharpe": -4.885,
+      "pf": 0.188,
+      "wr": 33.3,
+      "trades": 27
+    },
+    "LPT-USD": {
+      "sharpe": 9.867,
+      "pf": 3.038,
+      "wr": 69.8,
+      "trades": 149
+    },
+    "LTC-USD": {
+      "sharpe": 8.627,
+      "pf": 2.335,
+      "wr": 67.2,
+      "trades": 235
+    },
+    "MANA-USD": {
+      "sharpe": 4.214,
+      "pf": 1.714,
+      "wr": 54.3,
+      "trades": 92
+    },
+    "NEAR-USD": {
+      "sharpe": 4.632,
+      "pf": 1.694,
+      "wr": 62.4,
+      "trades": 85
+    },
+    "ONDO-USD": {
+      "sharpe": 4.997,
+      "pf": 1.88,
+      "wr": 55.6,
+      "trades": 81
+    },
+    "OP-USD": {
+      "sharpe": 0.929,
+      "pf": 1.153,
+      "wr": 56.5,
+      "trades": 46
+    },
+    "PENDLE-USD": {
+      "sharpe": -2.254,
+      "pf": 0.556,
+      "wr": 35.7,
+      "trades": 28
+    },
+    "PYTH-USD": {
+      "sharpe": -7.927,
+      "pf": 0.133,
+      "wr": 21.4,
+      "trades": 28
+    },
+    "QNT-USD": {
+      "sharpe": 12.685,
+      "pf": 3.182,
+      "wr": 65.6,
+      "trades": 189
+    },
+    "RAY-USD": {
+      "sharpe": -3.689,
+      "pf": 0.514,
+      "wr": 31.0,
+      "trades": 29
+    },
+    "RENDER-USD": {
+      "sharpe": -2.496,
+      "pf": 0.578,
+      "wr": 37.9,
+      "trades": 29
+    },
+    "RUNE-USD": {
+      "sharpe": -3.695,
+      "pf": 0.453,
+      "wr": 37.0,
+      "trades": 27
+    },
+    "SAND-USD": {
+      "sharpe": 2.879,
+      "pf": 1.679,
+      "wr": 48.3,
+      "trades": 29
+    },
+    "SEI-USD": {
+      "sharpe": 6.061,
+      "pf": 2.713,
+      "wr": 57.4,
+      "trades": 47
+    },
+    "SOL-USD": {
+      "sharpe": 0.0,
+      "pf": 999.0,
+      "wr": 0.0,
+      "trades": 0
+    },
+    "SYRUP-USD": {
+      "sharpe": -5.85,
+      "pf": 0.209,
+      "wr": 33.3,
+      "trades": 27
+    },
+    "TIA-USD": {
+      "sharpe": 2.385,
+      "pf": 1.726,
+      "wr": 44.4,
+      "trades": 27
+    },
+    "TRAC-USD": {
+      "sharpe": 2.297,
+      "pf": 1.294,
+      "wr": 54.5,
+      "trades": 66
+    },
+    "VET-USD": {
+      "sharpe": 5.447,
+      "pf": 2.417,
+      "wr": 58.8,
+      "trades": 80
+    },
+    "VIRTUAL-USD": {
+      "sharpe": 2.687,
+      "pf": 1.724,
+      "wr": 49.0,
+      "trades": 49
+    },
+    "WIF-USD": {
+      "sharpe": 0.006,
+      "pf": 0.989,
+      "wr": 37.0,
+      "trades": 27
+    },
+    "WLD-USD": {
+      "sharpe": 4.179,
+      "pf": 1.482,
+      "wr": 60.0,
+      "trades": 150
+    },
+    "XDC-USD": {
+      "sharpe": 0.891,
+      "pf": 1.15,
+      "wr": 48.8,
+      "trades": 43
+    },
+    "XLM-USD": {
+      "sharpe": 12.598,
+      "pf": 2.514,
+      "wr": 68.0,
+      "trades": 378
+    },
+    "XRP-USD": {
+      "sharpe": 0.022,
+      "pf": 1.001,
+      "wr": 37.0,
+      "trades": 27
+    },
+    "XTZ-USD": {
+      "sharpe": 2.113,
+      "pf": 1.333,
+      "wr": 54.0,
+      "trades": 50
+    }
+  }
+}

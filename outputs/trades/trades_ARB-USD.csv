@@ -1,0 +1,2 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+ARB-USD,crypto,medium,base,LONG,2025-02-12,0.001,2025-02-13,0.001,6000000.0,0.0,0.0,0.0,-2.4,end_of_backtest,time

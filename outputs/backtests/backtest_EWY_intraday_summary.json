@@ -1,0 +1,22 @@
+{
+  "symbol": "EWY",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 104141.2,
+  "total_return_pct": 4.14,
+  "annualized_return_pct": 28.56,
+  "sharpe_ratio": 1.109,
+  "max_drawdown_pct": -9.79,
+  "total_trades": 48,
+  "win_rate": 0.542,
+  "avg_win_pct": 2.14,
+  "avg_loss_pct": -2.2,
+  "profit_factor": 1.172,
+  "avg_trade_duration_days": 1.0,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

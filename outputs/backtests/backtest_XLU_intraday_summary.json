@@ -1,0 +1,22 @@
+{
+  "symbol": "XLU",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 101573.87,
+  "total_return_pct": 1.57,
+  "annualized_return_pct": 10.15,
+  "sharpe_ratio": 1.16,
+  "max_drawdown_pct": -3.5,
+  "total_trades": 43,
+  "win_rate": 0.558,
+  "avg_win_pct": 0.79,
+  "avg_loss_pct": -0.74,
+  "profit_factor": 1.221,
+  "avg_trade_duration_days": 1.4,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

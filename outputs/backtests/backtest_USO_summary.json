@@ -1,0 +1,22 @@
+{
+  "symbol": "USO",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 115763.35,
+  "total_return_pct": 15.76,
+  "annualized_return_pct": 147.48,
+  "sharpe_ratio": 3.871,
+  "max_drawdown_pct": -5.03,
+  "total_trades": 33,
+  "win_rate": 0.515,
+  "avg_win_pct": 3.14,
+  "avg_loss_pct": -1.44,
+  "profit_factor": 2.271,
+  "avg_trade_duration_days": 1.1,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

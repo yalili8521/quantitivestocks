@@ -1,0 +1,12 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+FARTCOIN-USD,crypto,ultra,base,SHORT,2026-01-25,0.2748,2026-01-27,0.3086,16375.5459,-553.49,-12.2999,0.0,-13.647,disaster_stop,safety
+FARTCOIN-USD,crypto,ultra,base,SHORT,2026-01-28,0.2991,2026-02-02,0.2259,14961.8616,1095.21,24.4734,30.1194,-0.2925,profit_lock_trail,profit_lock
+FARTCOIN-USD,crypto,ultra,base,LONG,2026-02-05,0.1833,2026-02-08,0.1944,24682.9087,273.98,6.0556,12.856,-11.9553,profit_lock_trail,profit_lock
+FARTCOIN-USD,crypto,ultra,base,LONG,2026-02-11,0.1683,2026-02-15,0.1971,26956.0682,776.33,17.1123,32.6827,-0.3547,profit_lock_trail,profit_lock
+FARTCOIN-USD,crypto,ultra,base,LONG,2026-02-16,0.2022,2026-02-19,0.1805,22609.5022,-491.49,-10.7507,0.2151,-12.3887,disaster_stop,safety
+FARTCOIN-USD,crypto,ultra,base,LONG,2026-02-21,0.1839,2026-02-23,0.1444,24739.1218,-977.2,-21.4791,0.0,-21.336,disaster_stop,safety
+FARTCOIN-USD,crypto,ultra,base,LONG,2026-02-24,0.1503,2026-02-27,0.1564,29977.0507,182.86,4.0585,22.5183,-0.5077,profit_lock_trail,profit_lock
+FARTCOIN-USD,crypto,ultra,base,LONG,2026-02-28,0.165,2026-03-05,0.1651,27356.2389,2.74,0.0606,10.9042,-9.5079,profit_lock_trail,profit_lock
+FARTCOIN-USD,crypto,ultra,base,LONG,2026-03-07,0.1474,2026-03-18,0.2118,30623.4906,1970.9,43.6628,51.0597,-2.6309,strong_signal_override,signal_override
+FARTCOIN-USD,crypto,ultra,base,SHORT,2026-03-20,0.1971,2026-03-24,0.1882,23351.5621,207.83,4.5155,11.3719,-1.9447,profit_lock_trail,profit_lock
+FARTCOIN-USD,crypto,ultra,base,SHORT,2026-03-25,0.1914,2026-03-26,0.1765,24095.8474,359.03,7.7847,9.2309,-0.6208,end_of_backtest,time

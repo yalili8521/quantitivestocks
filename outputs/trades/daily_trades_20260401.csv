@@ -1,0 +1,45 @@
+timestamp,group,symbol,side,qty,price,reason,pnl_pct
+2026-04-01 00:10:40,crypto_intraday,INJ/USD,LONG,1086.990905,2.93,entry (LONG),+0.0000
+2026-04-01 00:43:38,intraday,XLE,LONG,68.0,59.60,disaster_stop (-2.31% <= -2.25%),-0.0231
+2026-04-01 01:07:52,intraday,XLE,LONG,60,61.24,entry (LONG),+0.0000
+2026-04-01 01:10:12,swing,IWM,LONG,6,248.00,entry (LONG),+0.0000
+2026-04-01 02:30:50,crypto_intraday,AR/USD,SHORT,1582.907282,1.74,entry (SHORT),+0.0000
+2026-04-01 02:30:56,intraday,XLE,LONG,60.0,60.32,"profit_lock_trail (1.50% from peak, PnL=+0.85%, trail=0.22%)",+0.0085
+2026-04-01 02:32:00,intraday,XLE,LONG,60,61.24,entry (LONG),+0.0000
+2026-04-01 03:57:15,crypto_intraday,INJ/USD,SHORT,1321.653365,2.92,entry (SHORT),+0.0000
+2026-04-01 04:17:52,intraday,XLE,LONG,60.0,60.31,"breakeven_ratchet (floor=$60.3300, current=$60.3125)",-0.0003
+2026-04-01 04:18:55,intraday,XLE,LONG,60,61.24,entry (LONG),+0.0000
+2026-04-01 06:01:43,crypto_intraday,AR/USD,SHORT,1582.907282,1.75,"signal_reversal_post_horizon (E[r]=+0.0116, bars=20, PnL=-0.05%)",-0.0005
+2026-04-01 06:01:47,crypto_intraday,INJ/USD,SHORT,1321.653365,2.96,"signal_reversal_post_horizon (E[r]=+0.0004, bars=12, PnL=-1.42%)",-0.0142
+2026-04-01 06:30:08,intraday,XLB,LONG,77,50.39,entry (LONG),+0.0000
+2026-04-01 06:30:10,intraday,XLK,SHORT,17,134.17,entry (SHORT),+0.0000
+2026-04-01 06:31:14,intraday,IWF,SHORT,7,429.38,entry (SHORT),+0.0000
+2026-04-01 06:32:19,intraday,XLE,LONG,60.0,60.50,"signal_decay (E[r]=-0.0027, flips=1/1, held=127)",+0.0023
+2026-04-01 06:33:30,swing,IWF,LONG,3,429.83,entry (LONG),+0.0000
+2026-04-01 06:35:51,crypto_intraday,INJ/USD,SHORT,959.083124,2.94,entry (SHORT),+0.0000
+2026-04-01 06:42:00,crypto,XRP/USD,LONG,832.256603,1.35,entry (LONG),+0.0000
+2026-04-01 06:49:27,swing,ARKK,LONG,26.0,68.19,"profit_lock_trail (1.41% from peak, PnL=+2.68%, trail=1.12%)",+0.0268
+2026-04-01 06:54:48,swing,ARKK,LONG,22,68.52,entry (LONG),+0.0000
+2026-04-01 07:18:11,intraday,XLB,LONG,77.0,50.26,"breakeven_ratchet (floor=$50.2636, current=$50.2600)",-0.0001
+2026-04-01 07:19:16,intraday,XLB,LONG,77,50.31,entry (LONG),+0.0000
+2026-04-01 08:02:12,crypto_intraday,AR/USD,SHORT,1769.864732,1.75,entry (SHORT),+0.0000
+2026-04-01 10:03:58,crypto_intraday,INJ/USD,SHORT,959.083124,2.92,"profit_lock+signal_decay (armed, E[r]=+0.0450, PnL=+0.43%)",+0.0043
+2026-04-01 10:04:02,crypto_intraday,AR/USD,SHORT,1769.864732,1.75,"signal_reversal_post_horizon (E[r]=+0.0499, bars=12, PnL=+0.01%)",+0.0001
+2026-04-01 10:06:22,crypto_intraday,INJ/USD,LONG,1026.461546,2.91,entry (LONG),+0.0000
+2026-04-01 10:36:34,crypto_intraday,AR/USD,LONG,1458.075982,1.74,entry (LONG),+0.0000
+2026-04-01 14:10:50,crypto_intraday,INJ/USD,LONG,1026.461546,2.88,"signal_reversal_post_horizon (E[r]=-0.0093, bars=24, PnL=-2.03%)",-0.0203
+2026-04-01 14:15:37,crypto_intraday,AR/USD,LONG,1458.075982,1.74,"signal_reversal_post_horizon (E[r]=-0.0023, bars=21, PnL=-0.34%)",-0.0034
+2026-04-01 17:00:24,intraday,IWF,SHORT,7.0,449.00,disaster_stop (-4.46% <= -2.25%),-0.0446
+2026-04-01 17:01:34,swing,PDBC,LONG,47.0,17.05,disaster_stop (-6.06% <= -3.00%),-0.0606
+2026-04-01 17:05:45,intraday,XLE,LONG,52,58.97,entry (LONG),+0.0000
+2026-04-01 17:10:07,intraday,XLE,LONG,52.0,58.56,"breakeven_ratchet (floor=$58.7400, current=$58.5600)",-0.0031
+2026-04-01 17:11:14,intraday,XLE,LONG,52,58.97,entry (LONG),+0.0000
+2026-04-01 17:35:27,crypto,QNT/USD,LONG,24.366841,70.88,legacy_trailing_stop (4.32%),-0.0432
+2026-04-01 17:59:35,swing,IWM,LONG,8,249.56,entry (LONG),+0.0000
+2026-04-01 18:10:03,intraday,XLE,LONG,52.0,59.01,"profit_lock_trail (0.52% from peak, PnL=+0.60%, trail=0.29%)",+0.0060
+2026-04-01 18:11:16,intraday,XLE,LONG,52,58.97,entry (LONG),+0.0000
+2026-04-01 18:30:10,intraday,XLE,LONG,52.0,60.19,"profit_lock_trail (0.35% from peak, PnL=+2.00%, trail=0.30%)",+0.0200
+2026-04-01 18:31:15,intraday,XLE,LONG,52,58.97,entry (LONG),+0.0000
+2026-04-01 19:18:46,crypto,XRP/USD,LONG,832.256603,1.32,legacy_trailing_stop (3.12%),-0.0209
+2026-04-01 19:45:13,crypto,RUNE/USD,LONG,2381.830095,0.40,legacy_trailing_stop (3.13%),-0.0271
+2026-04-01 23:08:18,intraday,XLK,SHORT,17.0,132.09,"profit_lock_trail (0.24% from peak, PnL=+1.57%, trail=0.23%)",+0.0157

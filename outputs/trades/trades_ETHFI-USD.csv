@@ -1,0 +1,5 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+ETHFI-USD,crypto,ultra,base,LONG,2026-01-25,0.569,2026-01-29,0.567,5835.4478,-11.67,-0.3515,11.9287,-1.7868,breakeven_ratchet,breakeven
+ETHFI-USD,crypto,ultra,base,LONG,2026-02-02,0.4866,2026-02-05,0.4288,7260.7331,-419.67,-11.8783,9.3467,-11.7205,disaster_stop,safety
+ETHFI-USD,crypto,ultra,base,LONG,2026-02-26,0.5085,2026-03-06,0.5301,6536.5933,141.19,4.2478,10.2767,-8.7506,profit_lock_trail,profit_lock
+ETHFI-USD,crypto,ultra,base,LONG,2026-03-11,0.5644,2026-03-25,0.5588,5574.2967,-31.22,-0.9922,13.0826,-9.0861,max_underwater_14d,time

@@ -1,0 +1,2 @@
+{"timestamp": "2026-03-21T04:11:19.721074+00:00", "symbol": "BCH-USD", "predicted_return": -0.005321940517765233, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}
+{"timestamp": "2026-03-21T21:59:11.372046+00:00", "symbol": "BCH-USD", "predicted_return": -0.005323247658759021, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}

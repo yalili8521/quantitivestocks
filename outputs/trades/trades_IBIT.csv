@@ -1,0 +1,8 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+IBIT,swing,high,base,SHORT,2026-01-26,49.6326,2026-02-06,39.6939,241.7766,2402.94,20.0245,28.8774,-3.3796,profit_lock_trail,profit_lock
+IBIT,swing,high,base,SHORT,2026-02-09,40.096,2026-02-13,38.9836,306.4733,340.92,2.7743,8.0332,0.0,profit_lock_trail,profit_lock
+IBIT,swing,high,base,LONG,2026-02-17,38.4034,2026-02-20,38.4066,176.3773,0.56,0.0083,0.9025,-3.1336,strong_signal_override,signal_override
+IBIT,swing,high,base,SHORT,2026-02-23,36.5372,2026-02-25,39.2437,337.446,-913.3,-7.4075,2.5651,-7.9995,disaster_stop,safety
+IBIT,swing,high,base,SHORT,2026-02-26,38.2466,2026-03-04,41.4545,319.4986,-1024.92,-8.3874,3.4947,-9.866,disaster_stop,safety
+IBIT,swing,high,base,SHORT,2026-03-05,40.3759,2026-03-11,40.084,299.6031,87.45,0.723,4.9557,-0.8646,profit_lock_trail,profit_lock
+IBIT,swing,high,base,SHORT,2026-03-12,39.936,2026-03-26,38.8336,303.1661,334.21,2.7604,3.3704,-6.4203,end_of_backtest,time

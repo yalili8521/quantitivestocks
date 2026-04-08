@@ -1,0 +1,357 @@
+// TQQQ MA Accumulation + TSI Divergence Filter v1
+// Base: TQQQ MA Accumulation v1.3 (locked settings)
+// Added: TSI hidden divergence as confirmation filter
+// Only takes MA Accumulation entries when TSI divergence agrees
+// Timeframe: 5-min on TQQQ
+// Webhook: https://gold-scalper.zhuangxiujiyuan.com/webhook
+
+//@version=6
+strategy("TQQQ MA+TSI v1",
+     overlay        = true,
+     initial_capital = 5000,
+     default_qty_type = strategy.percent_of_equity,
+     default_qty_value = 95,
+     commission_type = strategy.commission.percent,
+     commission_value = 0,
+     slippage       = 1,
+     pyramiding     = 0,
+     calc_on_every_tick = false)
+
+// ─── MA Inputs (same as v1.3 locked) ───
+ma_fast_len   = input.int(5,   "Fast MA (5)",   minval=2)
+ma_mid_len    = input.int(10,  "Mid MA (10)",   minval=3)
+ma_slow_len   = input.int(20,  "Slow MA (20)",  minval=5)
+
+// Accumulation
+acc_lookback  = input.int(10,  "Accumulation lookback bars", minval=3)
+acc_min_bars  = input.int(6,   "Min bars rising (of lookback)", minval=2)
+max_bar_size  = input.float(1.05, "Max single bar % (reject spikes)", minval=0.01, step=0.05)
+
+// Session
+use_session       = input.bool(true, "Morning entry only")
+session_start     = input.int(9,   "Session start hour (ET)")
+session_start_min = input.int(30,  "Session start minute")
+session_end       = input.int(11,  "Session end hour (ET)")
+session_end_min   = input.int(0,   "Session end minute")
+
+// Stop Loss & Trailing (v1.3 locked values)
+be_trigger_pct = input.float(1.50, "BE trigger %", minval=0.01, step=0.10)
+sl_pct         = input.float(1.50, "Initial Stop Loss %", minval=0.01, step=0.10)
+trail_pct      = input.float(0.75, "Trailing Stop %", minval=0.01, step=0.05)
+
+// Other
+allow_short   = input.bool(true, "Allow shorts")
+cooldown_bars = input.int(8, "Bars between trades", minval=0)
+
+// ─── TSI Inputs ───
+tsi_long_len  = input.int(13,  "TSI Long Length",   minval=2)
+tsi_short_len = input.int(7,   "TSI Short Length",  minval=2)
+tsi_sig_len   = input.int(7,   "TSI Signal Length", minval=2)
+pivot_len     = input.int(5,   "Pivot Lookback/Forward", minval=2, maxval=15)
+max_pivot_dist = input.int(50, "Max bars between pivots", minval=10)
+
+// TSI filter mode
+tsi_mode = input.string("Recent Divergence", "TSI Filter Mode",
+     options=["Recent Divergence", "TSI Momentum", "Both"])
+tsi_recency  = input.int(15, "Divergence recency (bars)", minval=3, maxval=50,
+     tooltip="Hidden div must have occurred within this many bars")
+
+// ─── MA Calculations ───
+ma_fast = ta.sma(close, ma_fast_len)
+ma_mid  = ta.sma(close, ma_mid_len)
+ma_slow = ta.sma(close, ma_slow_len)
+
+// ─── TSI Calculation ───
+pc = close - close[1]
+double_smooth_pc  = ta.ema(ta.ema(pc, tsi_long_len), tsi_short_len)
+double_smooth_apc = ta.ema(ta.ema(math.abs(pc), tsi_long_len), tsi_short_len)
+tsi_val = double_smooth_apc != 0 ? 100 * double_smooth_pc / double_smooth_apc : 0.0
+tsi_sig = ta.ema(tsi_val, tsi_sig_len)
+
+// ─── Session Filter ───
+in_session = true
+if use_session
+    h = hour(time, "America/New_York")
+    m = minute(time, "America/New_York")
+    t = h * 60 + m
+    s = session_start * 60 + session_start_min
+    e = session_end * 60 + session_end_min
+    in_session := t >= s and t < e
+
+force_close = false
+if use_session
+    h = hour(time, "America/New_York")
+    m = minute(time, "America/New_York")
+    t = h * 60 + m
+    force_close := t >= 960 and t < 970
+
+// ─── MA Stack ───
+bull_stack = ma_fast > ma_mid and ma_mid > ma_slow
+bear_stack = ma_fast < ma_mid and ma_mid < ma_slow
+price_above = close > ma_fast
+price_below = close < ma_fast
+
+// ─── Accumulation ───
+bars_rising = 0
+for i = 0 to acc_lookback - 1
+    if close[i] > close[i + 1]
+        bars_rising += 1
+
+bars_falling = 0
+for i = 0 to acc_lookback - 1
+    if close[i] < close[i + 1]
+        bars_falling += 1
+
+no_spike = true
+for i = 0 to acc_lookback - 1
+    bar_move = math.abs(close[i] - open[i]) / open[i] * 100
+    if bar_move > max_bar_size
+        no_spike := false
+
+accumulating = bars_rising >= acc_min_bars and no_spike
+distributing = bars_falling >= acc_min_bars and no_spike
+
+mas_rising  = ma_fast > ma_fast[1] and ma_mid > ma_mid[1]
+mas_falling = ma_fast < ma_fast[1] and ma_mid < ma_mid[1]
+
+// ─── TSI Pivot Detection ───
+price_ph = ta.pivothigh(high, pivot_len, pivot_len)
+price_pl = ta.pivotlow(low,  pivot_len, pivot_len)
+tsi_ph = ta.pivothigh(tsi_val, pivot_len, pivot_len)
+tsi_pl = ta.pivotlow(tsi_val,  pivot_len, pivot_len)
+
+// Track pivot lows
+var float prev_price_low = na
+var float last_price_low = na
+var int   prev_pl_bar    = 0
+var int   last_pl_bar    = 0
+var float prev_tsi_low   = na
+var float last_tsi_low   = na
+
+if not na(price_pl)
+    prev_price_low := last_price_low
+    prev_pl_bar    := last_pl_bar
+    last_price_low := price_pl
+    last_pl_bar    := bar_index - pivot_len
+    prev_tsi_low   := last_tsi_low
+    last_tsi_low   := nz(tsi_pl, tsi_val[pivot_len])
+
+// Track pivot highs
+var float prev_price_high = na
+var float last_price_high = na
+var int   prev_ph_bar     = 0
+var int   last_ph_bar     = 0
+var float prev_tsi_high   = na
+var float last_tsi_high   = na
+
+if not na(price_ph)
+    prev_price_high := last_price_high
+    prev_ph_bar     := last_ph_bar
+    last_price_high := price_ph
+    last_ph_bar     := bar_index - pivot_len
+    prev_tsi_high   := last_tsi_high
+    last_tsi_high   := nz(tsi_ph, tsi_val[pivot_len])
+
+// ─── Hidden Divergence Detection ───
+hidden_bull_detected = not na(prev_price_low) and not na(prev_tsi_low) and
+     last_price_low > prev_price_low and last_tsi_low < prev_tsi_low and
+     (last_pl_bar - prev_pl_bar) <= max_pivot_dist
+
+hidden_bear_detected = not na(prev_price_high) and not na(prev_tsi_high) and
+     last_price_high < prev_price_high and last_tsi_high > prev_tsi_high and
+     (last_ph_bar - prev_ph_bar) <= max_pivot_dist
+
+// Track when divergence was last detected (for recency check)
+var int last_bull_div_bar = 0
+var int last_bear_div_bar = 0
+
+if hidden_bull_detected and not na(price_pl)
+    last_bull_div_bar := bar_index
+if hidden_bear_detected and not na(price_ph)
+    last_bear_div_bar := bar_index
+
+// Recent divergence = within N bars
+recent_bull_div = (bar_index - last_bull_div_bar) <= tsi_recency
+recent_bear_div = (bar_index - last_bear_div_bar) <= tsi_recency
+
+// TSI momentum filter (simpler alternative)
+tsi_bull_momentum = tsi_val > tsi_sig and tsi_val > tsi_val[1]
+tsi_bear_momentum = tsi_val < tsi_sig and tsi_val < tsi_val[1]
+
+// ─── Combined TSI Filter ───
+tsi_long_ok = switch tsi_mode
+    "Recent Divergence" => recent_bull_div
+    "TSI Momentum"      => tsi_bull_momentum
+    "Both"              => recent_bull_div and tsi_bull_momentum
+    => true
+
+tsi_short_ok = switch tsi_mode
+    "Recent Divergence" => recent_bear_div
+    "TSI Momentum"      => tsi_bear_momentum
+    "Both"              => recent_bear_div and tsi_bear_momentum
+    => true
+
+// ─── Cooldown ───
+var int bars_since_exit = 999
+if strategy.position_size == 0
+    bars_since_exit += 1
+else
+    bars_since_exit := 0
+cooled_off = bars_since_exit >= cooldown_bars
+
+// ─── Entry Signals (MA Accumulation + TSI filter) ───
+long_entry  = bull_stack and price_above and accumulating and mas_rising and in_session and cooled_off and tsi_long_ok
+short_entry = allow_short and bear_stack and price_below and distributing and mas_falling and in_session and cooled_off and tsi_short_ok
+
+long_trigger  = long_entry and not long_entry[1]
+short_trigger = short_entry and not short_entry[1]
+
+// ─── State ───
+var float entry_price  = na
+var int   entry_bar    = 0
+var float stop_level   = na
+var float peak_price   = na
+var bool  is_trailing  = false
+
+// ─── Long Entry ───
+if long_trigger and strategy.position_size <= 0
+    entry_price  := close
+    entry_bar    := bar_index
+    stop_level   := close * (1 - sl_pct / 100)
+    peak_price   := close
+    is_trailing  := false
+
+    alert_json = '{"action": "buy", "ticker": "TQQQ", "contracts": 1, "position_size": 1, "price": ' + str.tostring(close, "#.##") + ', "comment": "MA+TSI Long"}'
+    strategy.entry("Long", strategy.long, alert_message = alert_json)
+
+// ─── Short Entry ───
+if short_trigger and strategy.position_size >= 0
+    entry_price  := close
+    entry_bar    := bar_index
+    stop_level   := close * (1 + sl_pct / 100)
+    peak_price   := close
+    is_trailing  := false
+
+    alert_json = '{"action": "sell", "ticker": "TQQQ", "contracts": 1, "position_size": -1, "price": ' + str.tostring(close, "#.##") + ', "comment": "MA+TSI Short"}'
+    strategy.entry("Short", strategy.short, alert_message = alert_json)
+
+// ─── Track Peak Price ───
+if strategy.position_size > 0
+    if close > peak_price
+        peak_price := close
+if strategy.position_size < 0
+    if close < peak_price
+        peak_price := close
+
+// ─── BE Trigger ───
+if strategy.position_size > 0 and not is_trailing
+    if close >= entry_price * (1 + be_trigger_pct / 100)
+        is_trailing := true
+        floor_level = entry_price * (1 + 0.05 / 100)
+        new_stop = peak_price * (1 - trail_pct / 100)
+        stop_level := math.max(floor_level, new_stop)
+
+if strategy.position_size < 0 and not is_trailing
+    if close <= entry_price * (1 - be_trigger_pct / 100)
+        is_trailing := true
+        floor_level = entry_price * (1 - 0.05 / 100)
+        new_stop = peak_price * (1 + trail_pct / 100)
+        stop_level := math.min(floor_level, new_stop)
+
+// ─── Update Trail ───
+if is_trailing and strategy.position_size > 0
+    new_stop = peak_price * (1 - trail_pct / 100)
+    if new_stop > stop_level
+        stop_level := new_stop
+
+if is_trailing and strategy.position_size < 0
+    new_stop = peak_price * (1 + trail_pct / 100)
+    if new_stop < stop_level
+        stop_level := new_stop
+
+// ─── Stop / Trail Exit ───
+if strategy.position_size > 0 and close <= stop_level
+    exit_comment = is_trailing ? "Trail Stop" : "Stop Loss"
+    exit_json = '{"action": "sell", "ticker": "TQQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "' + exit_comment + '"}'
+    strategy.close("Long", comment=exit_comment, alert_message = exit_json)
+
+if strategy.position_size < 0 and close >= stop_level
+    exit_comment = is_trailing ? "Trail Stop" : "Stop Loss"
+    exit_json = '{"action": "buy", "ticker": "TQQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "' + exit_comment + '"}'
+    strategy.close("Short", comment=exit_comment, alert_message = exit_json)
+
+// ─── Market Close ───
+if force_close and strategy.position_size > 0
+    close_json = '{"action": "sell", "ticker": "TQQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Market Close"}'
+    strategy.close("Long", comment="Market Close", alert_message = close_json)
+if force_close and strategy.position_size < 0
+    close_json = '{"action": "buy", "ticker": "TQQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Market Close"}'
+    strategy.close("Short", comment="Market Close", alert_message = close_json)
+
+// ─── Reset ───
+if strategy.position_size == 0
+    is_trailing := false
+
+// ─── Plots ───
+plot(ma_fast, "MA5",  color=color.new(color.lime, 0),   linewidth=2)
+plot(ma_mid,  "MA10", color=color.new(color.blue, 0),   linewidth=2)
+plot(ma_slow, "MA20", color=color.new(color.orange, 0), linewidth=2)
+
+stop_color = is_trailing ? color.new(color.blue, 0) : color.new(color.red, 0)
+plot(strategy.position_size != 0 ? stop_level : na, "Stop", color=stop_color, style=plot.style_linebr, linewidth=2)
+
+plot(strategy.position_size > 0 ? peak_price : na, "Peak", color=color.new(color.yellow, 50), style=plot.style_linebr, linewidth=1)
+plot(strategy.position_size < 0 ? peak_price : na, "Trough", color=color.new(color.yellow, 50), style=plot.style_linebr, linewidth=1)
+
+plot(strategy.position_size > 0 and not is_trailing ? entry_price * (1 + be_trigger_pct/100) : na, "BE Trigger", color=color.new(color.green, 40), style=plot.style_linebr, linewidth=1)
+plot(strategy.position_size < 0 and not is_trailing ? entry_price * (1 - be_trigger_pct/100) : na, "BE Trigger", color=color.new(color.red, 40), style=plot.style_linebr, linewidth=1)
+
+bgcolor(in_session ? color.new(color.blue, 96) : na)
+bg = bull_stack and accumulating and in_session ? color.new(color.green, 88) :
+     bear_stack and distributing and in_session ? color.new(color.red, 88) : na
+bgcolor(bg)
+
+// MA entry signals
+plotshape(long_trigger  and strategy.position_size[1] <= 0, "Long",  shape.triangleup,   location.belowbar, color.green, size=size.small)
+plotshape(short_trigger and strategy.position_size[1] >= 0, "Short", shape.triangledown, location.abovebar, color.red,   size=size.small)
+
+// TSI divergence markers (informational)
+plotshape(hidden_bull_detected and not na(price_pl), "H.Bull Div", shape.diamond, location.belowbar, color.new(color.lime, 30), size=size.tiny, text="HD")
+plotshape(hidden_bear_detected and not na(price_ph), "H.Bear Div", shape.diamond, location.abovebar, color.new(color.fuchsia, 30), size=size.tiny, text="HD")
+
+// ─── Info Table ───
+bars_held = strategy.position_size != 0 ? bar_index - entry_bar : 0
+
+var table info = table.new(position.top_right, 2, 8, bgcolor=color.new(color.black, 80))
+if barstate.islast
+    table.cell(info, 0, 0, "Strategy", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 0, "MA+TSI v1", text_color=color.lime, text_size=size.small)
+
+    table.cell(info, 0, 1, "MA Stack", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 1, bull_stack ? "BULL" : bear_stack ? "BEAR" : "NONE",
+         text_color=bull_stack ? color.green : bear_stack ? color.red : color.gray, text_size=size.small)
+
+    table.cell(info, 0, 2, "TSI", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 2, str.tostring(tsi_val, "#.#") + " / " + str.tostring(tsi_sig, "#.#"),
+         text_color=tsi_val > tsi_sig ? color.green : color.red, text_size=size.small)
+
+    table.cell(info, 0, 3, "TSI Filter", text_color=color.white, text_size=size.small)
+    string tsi_status = recent_bull_div ? "BULL DIV" : recent_bear_div ? "BEAR DIV" : "NO DIV"
+    table.cell(info, 1, 3, tsi_status,
+         text_color=recent_bull_div ? color.green : recent_bear_div ? color.red : color.gray, text_size=size.small)
+
+    table.cell(info, 0, 4, "Position", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 4, strategy.position_size > 0 ? "LONG" : strategy.position_size < 0 ? "SHORT" : "FLAT",
+         text_color=strategy.position_size > 0 ? color.green : strategy.position_size < 0 ? color.red : color.gray, text_size=size.small)
+
+    table.cell(info, 0, 5, "Stop", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 5, strategy.position_size != 0 ? "$" + str.tostring(stop_level, "#.##") : "---",
+         text_color=is_trailing ? color.blue : color.yellow, text_size=size.small)
+
+    table.cell(info, 0, 6, "Mode", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 6, strategy.position_size == 0 ? "---" : not is_trailing ? "FIXED SL" : "TRAILING",
+         text_color=is_trailing ? color.blue : color.yellow, text_size=size.small)
+
+    table.cell(info, 0, 7, "Bars Held", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 7, strategy.position_size != 0 ? str.tostring(bars_held) : "---",
+         text_color=color.white, text_size=size.small)

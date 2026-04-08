@@ -1,0 +1,2 @@
+{"timestamp": "2026-03-30T13:39:15.703683+00:00", "symbol": "XLRE", "predicted_return": 0.002145, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-04-02T13:34:53.106777+00:00", "symbol": "XLRE", "predicted_return": -0.004814, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}

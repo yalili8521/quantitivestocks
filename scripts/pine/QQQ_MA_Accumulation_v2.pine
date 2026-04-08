@@ -1,0 +1,333 @@
+// QQQ MA Accumulation v2 — MA Stack + Steady Grind + Morning Session
+// 6-level TP system (like gold scalper) + breakeven after TP1
+// Timeframe: 1-min
+// Webhook: https://gold-scalper.zhuangxiujiyuan.com/webhook
+// Alert template: {{strategy.order.alert_message}}
+
+//@version=6
+strategy("QQQ MA Accumulation v2",
+     overlay        = true,
+     initial_capital = 5000,
+     default_qty_type = strategy.percent_of_equity,
+     default_qty_value = 95,
+     commission_type = strategy.commission.percent,
+     commission_value = 0,
+     slippage       = 1,
+     pyramiding     = 0,
+     calc_on_every_tick = false)
+
+// ─── Inputs ───
+// MA lengths (on 1-min bars)
+ma_fast_len   = input.int(5,   "Fast MA (5)",   minval=2)
+ma_mid_len    = input.int(10,  "Mid MA (10)",   minval=3)
+ma_slow_len   = input.int(20,  "Slow MA (20)",  minval=5)
+
+// Accumulation detection
+acc_lookback  = input.int(10,  "Accumulation lookback bars", minval=3)
+acc_min_bars  = input.int(6,   "Min bars rising (of lookback)", minval=2)
+max_bar_size  = input.float(0.15, "Max single bar % (reject spikes)", minval=0.01, step=0.01)
+
+// Session filter
+use_session       = input.bool(true, "Morning session only")
+session_start     = input.int(9,   "Session start hour (ET)")
+session_start_min = input.int(30,  "Session start minute")
+session_end       = input.int(11,  "Session end hour (ET)")
+session_end_min   = input.int(0,   "Session end minute")
+
+// ─── 6-Level Take Profit (% from entry) ───
+tp1_pct  = input.float(0.08, "TP1 %", minval=0.01, step=0.01)
+tp1_qty  = input.float(25,   "TP1 close %", minval=5, step=5)
+tp2_pct  = input.float(0.15, "TP2 %", minval=0.01, step=0.01)
+tp2_qty  = input.float(20,   "TP2 close %", minval=5, step=5)
+tp3_pct  = input.float(0.25, "TP3 %", minval=0.01, step=0.01)
+tp3_qty  = input.float(20,   "TP3 close %", minval=5, step=5)
+tp4_pct  = input.float(0.35, "TP4 %", minval=0.01, step=0.01)
+tp4_qty  = input.float(15,   "TP4 close %", minval=5, step=5)
+tp5_pct  = input.float(0.50, "TP5 %", minval=0.01, step=0.01)
+tp5_qty  = input.float(10,   "TP5 close %", minval=5, step=5)
+tp6_pct  = input.float(0.70, "TP6 % (runner)", minval=0.01, step=0.01)
+// TP6 closes remaining 10%
+
+// Stop loss & breakeven
+sl_pct        = input.float(0.20, "Stop Loss %", minval=0.01, step=0.01)
+be_offset_pct = input.float(0.02, "Breakeven offset % (after TP1)", minval=0.0, step=0.01)
+
+// Time exit
+max_hold_bars = input.int(30,  "Max hold bars (minutes)", minval=5)
+
+// Short side
+allow_short   = input.bool(true, "Allow shorts")
+
+// Cooldown
+cooldown_bars = input.int(5, "Bars between trades", minval=0)
+
+// ─── Calculations ───
+ma_fast = ta.sma(close, ma_fast_len)
+ma_mid  = ta.sma(close, ma_mid_len)
+ma_slow = ta.sma(close, ma_slow_len)
+
+// ─── Session Filter ───
+in_session = true
+if use_session
+    h = hour(time, "America/New_York")
+    m = minute(time, "America/New_York")
+    t = h * 60 + m
+    s = session_start * 60 + session_start_min
+    e = session_end * 60 + session_end_min
+    in_session := t >= s and t < e
+
+force_close = false
+if use_session
+    h = hour(time, "America/New_York")
+    m = minute(time, "America/New_York")
+    t = h * 60 + m
+    e = session_end * 60 + session_end_min
+    force_close := t >= e and t < e + 2
+
+// ─── MA Stack ───
+bull_stack = ma_fast > ma_mid and ma_mid > ma_slow
+bear_stack = ma_fast < ma_mid and ma_mid < ma_slow
+price_above = close > ma_fast
+price_below = close < ma_fast
+
+// ─── Accumulation: Steady Grind ───
+bars_rising = 0
+for i = 0 to acc_lookback - 1
+    if close[i] > close[i + 1]
+        bars_rising += 1
+
+bars_falling = 0
+for i = 0 to acc_lookback - 1
+    if close[i] < close[i + 1]
+        bars_falling += 1
+
+no_spike = true
+for i = 0 to acc_lookback - 1
+    bar_move = math.abs(close[i] - open[i]) / open[i] * 100
+    if bar_move > max_bar_size
+        no_spike := false
+
+accumulating = bars_rising >= acc_min_bars and no_spike
+distributing = bars_falling >= acc_min_bars and no_spike
+
+mas_rising  = ma_fast > ma_fast[1] and ma_mid > ma_mid[1]
+mas_falling = ma_fast < ma_fast[1] and ma_mid < ma_mid[1]
+
+// ─── Cooldown ───
+var int bars_since_exit = 999
+if strategy.position_size == 0
+    bars_since_exit += 1
+else
+    bars_since_exit := 0
+
+cooled_off = bars_since_exit >= cooldown_bars
+
+// ─── Entry Signals ───
+long_entry  = bull_stack and price_above and accumulating and mas_rising and in_session and cooled_off
+short_entry = allow_short and bear_stack and price_below and distributing and mas_falling and in_session and cooled_off
+
+long_trigger  = long_entry and not long_entry[1]
+short_trigger = short_entry and not short_entry[1]
+
+// ─── State ───
+var float entry_price = na
+var int   entry_bar   = na
+var float stop_level  = na
+var int   tp_stage    = 0    // 0=none, 1-6=which TP was last hit
+
+// ─── Long Entry ───
+if long_trigger and strategy.position_size <= 0
+    entry_price := close
+    entry_bar   := bar_index
+    stop_level  := close * (1 - sl_pct / 100)
+    tp_stage    := 0
+
+    alert_json = '{"action": "buy", "ticker": "QQQ", "contracts": 1, "position_size": 1, "price": ' + str.tostring(close, "#.##") + ', "comment": "Long Entry"}'
+    strategy.entry("Long", strategy.long, alert_message = alert_json)
+
+// ─── Short Entry ───
+if short_trigger and strategy.position_size >= 0
+    entry_price := close
+    entry_bar   := bar_index
+    stop_level  := close * (1 + sl_pct / 100)
+    tp_stage    := 0
+
+    alert_json = '{"action": "sell", "ticker": "QQQ", "contracts": 1, "position_size": -1, "price": ' + str.tostring(close, "#.##") + ', "comment": "Short Entry"}'
+    strategy.entry("Short", strategy.short, alert_message = alert_json)
+
+// ─── 6-Level TP: Long ───
+if strategy.position_size > 0
+    // TP1
+    if tp_stage < 1 and close >= entry_price * (1 + tp1_pct / 100)
+        tp_stage := 1
+        // Move stop to breakeven + offset
+        stop_level := entry_price * (1 + be_offset_pct / 100)
+        tp_json = '{"action": "sell", "ticker": "QQQ", "contracts": 1, "position_size": 0.75, "price": ' + str.tostring(close, "#.##") + ', "comment": "Long TP1"}'
+        strategy.close("Long", comment="TP1", qty_percent=tp1_qty, alert_message = tp_json)
+
+    // TP2
+    if tp_stage < 2 and tp_stage >= 1 and close >= entry_price * (1 + tp2_pct / 100)
+        tp_stage := 2
+        tp_json = '{"action": "sell", "ticker": "QQQ", "contracts": 1, "position_size": 0.55, "price": ' + str.tostring(close, "#.##") + ', "comment": "Long TP2"}'
+        strategy.close("Long", comment="TP2", qty_percent=tp2_qty, alert_message = tp_json)
+
+    // TP3
+    if tp_stage < 3 and tp_stage >= 2 and close >= entry_price * (1 + tp3_pct / 100)
+        tp_stage := 3
+        tp_json = '{"action": "sell", "ticker": "QQQ", "contracts": 1, "position_size": 0.35, "price": ' + str.tostring(close, "#.##") + ', "comment": "Long TP3"}'
+        strategy.close("Long", comment="TP3", qty_percent=tp3_qty, alert_message = tp_json)
+
+    // TP4
+    if tp_stage < 4 and tp_stage >= 3 and close >= entry_price * (1 + tp4_pct / 100)
+        tp_stage := 4
+        tp_json = '{"action": "sell", "ticker": "QQQ", "contracts": 1, "position_size": 0.20, "price": ' + str.tostring(close, "#.##") + ', "comment": "Long TP4"}'
+        strategy.close("Long", comment="TP4", qty_percent=tp4_qty, alert_message = tp_json)
+
+    // TP5
+    if tp_stage < 5 and tp_stage >= 4 and close >= entry_price * (1 + tp5_pct / 100)
+        tp_stage := 5
+        tp_json = '{"action": "sell", "ticker": "QQQ", "contracts": 1, "position_size": 0.10, "price": ' + str.tostring(close, "#.##") + ', "comment": "Long TP5"}'
+        strategy.close("Long", comment="TP5", qty_percent=tp5_qty, alert_message = tp_json)
+
+    // TP6 — runner, close all remaining
+    if tp_stage < 6 and tp_stage >= 5 and close >= entry_price * (1 + tp6_pct / 100)
+        tp_stage := 6
+        tp_json = '{"action": "sell", "ticker": "QQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Long TP6 Runner"}'
+        strategy.close("Long", comment="TP6", alert_message = tp_json)
+
+// ─── 6-Level TP: Short ───
+if strategy.position_size < 0
+    // TP1
+    if tp_stage < 1 and close <= entry_price * (1 - tp1_pct / 100)
+        tp_stage := 1
+        stop_level := entry_price * (1 - be_offset_pct / 100)
+        tp_json = '{"action": "buy", "ticker": "QQQ", "contracts": 1, "position_size": -0.75, "price": ' + str.tostring(close, "#.##") + ', "comment": "Short TP1"}'
+        strategy.close("Short", comment="TP1", qty_percent=tp1_qty, alert_message = tp_json)
+
+    // TP2
+    if tp_stage < 2 and tp_stage >= 1 and close <= entry_price * (1 - tp2_pct / 100)
+        tp_stage := 2
+        tp_json = '{"action": "buy", "ticker": "QQQ", "contracts": 1, "position_size": -0.55, "price": ' + str.tostring(close, "#.##") + ', "comment": "Short TP2"}'
+        strategy.close("Short", comment="TP2", qty_percent=tp2_qty, alert_message = tp_json)
+
+    // TP3
+    if tp_stage < 3 and tp_stage >= 2 and close <= entry_price * (1 - tp3_pct / 100)
+        tp_stage := 3
+        tp_json = '{"action": "buy", "ticker": "QQQ", "contracts": 1, "position_size": -0.35, "price": ' + str.tostring(close, "#.##") + ', "comment": "Short TP3"}'
+        strategy.close("Short", comment="TP3", qty_percent=tp3_qty, alert_message = tp_json)
+
+    // TP4
+    if tp_stage < 4 and tp_stage >= 3 and close <= entry_price * (1 - tp4_pct / 100)
+        tp_stage := 4
+        tp_json = '{"action": "buy", "ticker": "QQQ", "contracts": 1, "position_size": -0.20, "price": ' + str.tostring(close, "#.##") + ', "comment": "Short TP4"}'
+        strategy.close("Short", comment="TP4", qty_percent=tp4_qty, alert_message = tp_json)
+
+    // TP5
+    if tp_stage < 5 and tp_stage >= 4 and close <= entry_price * (1 - tp5_pct / 100)
+        tp_stage := 5
+        tp_json = '{"action": "buy", "ticker": "QQQ", "contracts": 1, "position_size": -0.10, "price": ' + str.tostring(close, "#.##") + ', "comment": "Short TP5"}'
+        strategy.close("Short", comment="TP5", qty_percent=tp5_qty, alert_message = tp_json)
+
+    // TP6
+    if tp_stage < 6 and tp_stage >= 5 and close <= entry_price * (1 - tp6_pct / 100)
+        tp_stage := 6
+        tp_json = '{"action": "buy", "ticker": "QQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Short TP6 Runner"}'
+        strategy.close("Short", comment="TP6", alert_message = tp_json)
+
+// ─── Stop Loss (dynamic — moves to BE after TP1) ───
+if strategy.position_size > 0
+    sl_json = '{"action": "sell", "ticker": "QQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Long Stop"}'
+    strategy.exit("Long SL", "Long", stop=stop_level, alert_message = sl_json)
+
+if strategy.position_size < 0
+    sl_json = '{"action": "buy", "ticker": "QQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Short Stop"}'
+    strategy.exit("Short SL", "Short", stop=stop_level, alert_message = sl_json)
+
+// ─── Time Exit ───
+bars_held = bar_index - entry_bar
+
+if strategy.position_size > 0 and bars_held >= max_hold_bars
+    time_json = '{"action": "sell", "ticker": "QQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Time Exit"}'
+    strategy.close("Long", comment="Time Exit", alert_message = time_json)
+
+if strategy.position_size < 0 and bars_held >= max_hold_bars
+    time_json = '{"action": "buy", "ticker": "QQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Time Exit"}'
+    strategy.close("Short", comment="Time Exit", alert_message = time_json)
+
+// ─── Session End Close ───
+if force_close and strategy.position_size > 0
+    close_json = '{"action": "sell", "ticker": "QQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Session End"}'
+    strategy.close("Long", comment="Session End", alert_message = close_json)
+
+if force_close and strategy.position_size < 0
+    close_json = '{"action": "buy", "ticker": "QQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Session End"}'
+    strategy.close("Short", comment="Session End", alert_message = close_json)
+
+// ─── Reset on flat ───
+if strategy.position_size == 0
+    tp_stage := 0
+
+// ─── Plots ───
+plot(ma_fast, "MA5",  color=color.new(color.lime, 0),   linewidth=2)
+plot(ma_mid,  "MA10", color=color.new(color.blue, 0),   linewidth=2)
+plot(ma_slow, "MA20", color=color.new(color.orange, 0), linewidth=2)
+
+// Stop level
+plot(strategy.position_size != 0 ? stop_level : na, "Stop", color=color.red, style=plot.style_linebr, linewidth=1)
+
+// Session + accumulation background
+bgcolor(in_session ? color.new(color.blue, 96) : na)
+bg = bull_stack and accumulating and in_session ? color.new(color.green, 88) :
+     bear_stack and distributing and in_session ? color.new(color.red, 88) : na
+bgcolor(bg)
+
+// Entry markers
+plotshape(long_trigger  and strategy.position_size[1] <= 0, "Long",  shape.triangleup,   location.belowbar, color.green, size=size.small)
+plotshape(short_trigger and strategy.position_size[1] >= 0, "Short", shape.triangledown, location.abovebar, color.red,   size=size.small)
+
+// ─── TP Level Lines (long only for clarity) ───
+plot(strategy.position_size > 0 and tp_stage < 1 ? entry_price * (1 + tp1_pct/100) : na, "TP1", color=color.new(color.green, 60), style=plot.style_linebr)
+plot(strategy.position_size > 0 and tp_stage < 2 ? entry_price * (1 + tp2_pct/100) : na, "TP2", color=color.new(color.green, 50), style=plot.style_linebr)
+plot(strategy.position_size > 0 and tp_stage < 3 ? entry_price * (1 + tp3_pct/100) : na, "TP3", color=color.new(color.green, 40), style=plot.style_linebr)
+plot(strategy.position_size > 0 and tp_stage < 4 ? entry_price * (1 + tp4_pct/100) : na, "TP4", color=color.new(color.green, 30), style=plot.style_linebr)
+plot(strategy.position_size > 0 and tp_stage < 5 ? entry_price * (1 + tp5_pct/100) : na, "TP5", color=color.new(color.green, 20), style=plot.style_linebr)
+plot(strategy.position_size > 0 and tp_stage < 6 ? entry_price * (1 + tp6_pct/100) : na, "TP6", color=color.new(color.lime, 0),  style=plot.style_linebr)
+
+// ─── Info Table ───
+var table info = table.new(position.top_right, 2, 8, bgcolor=color.new(color.black, 80))
+if barstate.islast
+    table.cell(info, 0, 0, "MA Stack", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 0, bull_stack ? "BULL" : bear_stack ? "BEAR" : "NONE",
+         text_color=bull_stack ? color.green : bear_stack ? color.red : color.gray, text_size=size.small)
+
+    table.cell(info, 0, 1, "Grind", text_color=color.white, text_size=size.small)
+    string acc_text = accumulating ? "BUYING " : distributing ? "SELLING " : ""
+    acc_text += str.tostring(bars_rising) + "up/" + str.tostring(bars_falling) + "dn"
+    table.cell(info, 1, 1, acc_text,
+         text_color=accumulating ? color.green : distributing ? color.red : color.gray, text_size=size.small)
+
+    table.cell(info, 0, 2, "Session", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 2, in_session ? "ACTIVE" : "CLOSED",
+         text_color=in_session ? color.green : color.gray, text_size=size.small)
+
+    table.cell(info, 0, 3, "Position", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 3, strategy.position_size > 0 ? "LONG" : strategy.position_size < 0 ? "SHORT" : "FLAT",
+         text_color=strategy.position_size > 0 ? color.green : strategy.position_size < 0 ? color.red : color.gray, text_size=size.small)
+
+    table.cell(info, 0, 4, "TP Stage", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 4, str.tostring(tp_stage) + " / 6",
+         text_color=tp_stage > 0 ? color.green : color.gray, text_size=size.small)
+
+    table.cell(info, 0, 5, "Bars Held", text_color=color.white, text_size=size.small)
+    string bars_text = strategy.position_size != 0 ? str.tostring(bars_held) + "/" + str.tostring(max_hold_bars) : "---"
+    table.cell(info, 1, 5, bars_text, text_color=color.white, text_size=size.small)
+
+    table.cell(info, 0, 6, "Stop", text_color=color.white, text_size=size.small)
+    string stop_text = strategy.position_size != 0 ? "$" + str.tostring(stop_level, "#.##") : "---"
+    string stop_note = tp_stage >= 1 ? " (BE)" : ""
+    table.cell(info, 1, 6, stop_text + stop_note,
+         text_color=tp_stage >= 1 ? color.green : color.yellow, text_size=size.small)
+
+    table.cell(info, 0, 7, "Cooldown", text_color=color.white, text_size=size.small)
+    table.cell(info, 1, 7, cooled_off ? "READY" : str.tostring(cooldown_bars - bars_since_exit) + " bars",
+         text_color=cooled_off ? color.green : color.yellow, text_size=size.small)

@@ -1,0 +1,22 @@
+{
+  "symbol": "ARKK",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 93658.22,
+  "total_return_pct": -6.34,
+  "annualized_return_pct": -33.34,
+  "sharpe_ratio": -3.766,
+  "max_drawdown_pct": -9.01,
+  "total_trades": 27,
+  "win_rate": 0.37,
+  "avg_win_pct": 1.32,
+  "avg_loss_pct": -1.5,
+  "profit_factor": 0.442,
+  "avg_trade_duration_days": 0.6,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

@@ -1,0 +1,8 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+HBAR-USD,crypto,high,base,LONG,2026-01-25,0.1033,2026-01-29,0.1008,43562.4395,-108.91,-2.4201,5.3824,-4.5015,breakeven_ratchet,breakeven
+HBAR-USD,crypto,high,base,LONG,2026-01-30,0.0987,2026-02-01,0.0885,45543.0519,-464.54,-10.3343,0.0,-12.0476,disaster_stop,safety
+HBAR-USD,crypto,high,base,LONG,2026-02-03,0.0905,2026-02-05,0.078,49438.6184,-617.98,-13.8122,3.1613,-15.7967,disaster_stop,safety
+HBAR-USD,crypto,high,base,LONG,2026-02-06,0.0913,2026-02-15,0.1001,48700.8296,428.57,9.6386,17.4162,-4.9365,profit_lock_trail,profit_lock
+HBAR-USD,crypto,high,base,LONG,2026-02-16,0.102,2026-03-09,0.0941,43781.0909,-345.87,-7.7451,3.9637,-9.052,max_underwater_21d,time
+HBAR-USD,crypto,high,base,LONG,2026-03-11,0.0944,2026-03-18,0.0957,47140.965,61.28,1.3771,7.4439,-3.1705,profit_lock_trail,profit_lock
+HBAR-USD,crypto,high,base,LONG,2026-03-19,0.0931,2026-03-26,0.0908,47828.8382,-110.01,-2.4705,2.8464,-5.3502,end_of_backtest,time

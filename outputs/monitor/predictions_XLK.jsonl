@@ -1,0 +1,4 @@
+{"timestamp": "2026-03-31T13:30:42.147186+00:00", "symbol": "XLK", "predicted_return": -0.004884631417292245, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}
+{"timestamp": "2026-04-01T13:30:10.661559+00:00", "symbol": "XLK", "predicted_return": -0.030558035171419914, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}
+{"timestamp": "2026-04-02T13:30:33.838542+00:00", "symbol": "XLK", "predicted_return": -0.015209391662726389, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}
+{"timestamp": "2026-04-03T13:31:27.607665+00:00", "symbol": "XLK", "predicted_return": -0.01070517633534883, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}

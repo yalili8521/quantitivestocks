@@ -1,0 +1,8 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+ONDO-USD,crypto,ultra,base,SHORT,2026-01-25,0.3219,2026-02-02,0.2846,13979.4967,521.44,11.5874,17.6353,-9.1873,profit_lock_trail,profit_lock
+ONDO-USD,crypto,ultra,base,SHORT,2026-02-03,0.2772,2026-02-06,0.2591,16318.4148,295.36,6.5296,25.5848,-3.2103,profit_lock_trail,profit_lock
+ONDO-USD,crypto,ultra,base,SHORT,2026-02-08,0.2575,2026-02-12,0.2516,17618.4696,103.95,2.2913,8.2151,-0.7631,profit_lock_trail,profit_lock
+ONDO-USD,crypto,ultra,base,SHORT,2026-02-13,0.2631,2026-02-14,0.2951,17261.2453,-552.36,-12.1627,0.0,-12.851,disaster_stop,safety
+ONDO-USD,crypto,ultra,base,SHORT,2026-02-15,0.2751,2026-02-25,0.2756,16417.9478,-8.21,-0.1818,11.8433,-5.4805,profit_lock_trail,profit_lock
+ONDO-USD,crypto,ultra,base,LONG,2026-03-04,0.2698,2026-03-17,0.2806,11670.2795,126.04,4.003,7.8732,-10.2713,profit_lock_trail,profit_lock
+ONDO-USD,crypto,ultra,base,LONG,2026-03-22,0.246,2026-03-26,0.2674,18381.6252,393.37,8.6992,11.109,-1.6289,end_of_backtest,time

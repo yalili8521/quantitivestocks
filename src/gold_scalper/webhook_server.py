@@ -47,12 +47,16 @@ PT = ZoneInfo("America/Los_Angeles")
 _gold_executor: Optional[WebhookExecutor] = None
 _btc_executor = None  # BTCWebhookExecutor, lazy import
 _webull_executor = None  # WebullExecutor, lazy import
+_qqq_executor = None  # QQQOptionsExecutor, lazy import
 
 # Tickers that route to BTC executor (Alpaca)
 _BTC_TICKERS = {"BTCUSD", "BTC/USD", "BTC-USD", "XBTUSD"}
 
-# Tickers that route to Webull executor
-_WEBULL_TICKERS = set()  # populated by start_server if Webull keys present
+# Tickers that route to QQQ options executor
+_QQQ_TICKERS = {"QQQ", "QQQO"}
+
+# Tickers that route to Webull TQQQ executor
+_WEBULL_TICKERS = {"TQQQ"}
 
 app = FastAPI(title="Trading Webhook Server", version="2.0")
 
@@ -86,10 +90,12 @@ async def webhook(request: Request):
     )
 
     # Route by ticker
-    # Priority: Webull (if configured) → BTC (Alpaca) → Gold (default)
+    # Priority: Webull (if configured) → QQQ Options → BTC (Alpaca) → Gold (default)
     norm_ticker = ticker.replace("/", "").replace("-", "")
     if _webull_executor and (norm_ticker in _WEBULL_TICKERS or ticker in _WEBULL_TICKERS):
         return _handle_webull(body)
+    elif norm_ticker in _QQQ_TICKERS or ticker in _QQQ_TICKERS:
+        return _handle_qqq(body)
     elif ticker in _BTC_TICKERS:
         return _handle_btc(body)
     else:
@@ -117,6 +123,30 @@ def _handle_btc(body: dict) -> JSONResponse:
         )
 
     logger.info("[WEBHOOK] BTC result: %s", result)
+    return JSONResponse(content=result)
+
+
+def _handle_qqq(body: dict) -> JSONResponse:
+    """Route to QQQ options executor."""
+    global _qqq_executor
+
+    if _qqq_executor is None:
+        logger.error("[WEBHOOK] QQQ options executor not initialized")
+        return JSONResponse(
+            status_code=503,
+            content={"error": "QQQ options executor not initialized"},
+        )
+
+    try:
+        result = _qqq_executor.execute(body)
+    except Exception as exc:
+        logger.error("[WEBHOOK] QQQ options execute failed: %s", exc)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"QQQ options execution failed: {exc}"},
+        )
+
+    logger.info("[WEBHOOK] QQQ options result: %s", result)
     return JSONResponse(content=result)
 
 
@@ -212,24 +242,13 @@ async def status():
             "circuit_breaker": _btc_executor._circuit_breaker_fired,
         }
 
-    # Webull status
+    # QQQ options status
+    if _qqq_executor:
+        result["qqq_options"] = _qqq_executor.get_status()
+
+    # Webull TQQQ status
     if _webull_executor:
-        webull_positions = {}
-        for ticker, pos in _webull_executor.positions.items():
-            webull_positions[ticker] = {
-                "direction": pos.direction,
-                "entry_price": pos.entry_price,
-                "qty": pos.qty,
-                "instrument_type": pos.instrument_type,
-            }
-        result["webull"] = {
-            "positions": webull_positions if webull_positions else None,
-            "daily_pnl": _webull_executor.daily_pnl,
-            "daily_trades": _webull_executor.daily_trades,
-            "daily_wl": f"{_webull_executor.daily_wins}W/{_webull_executor.daily_losses}L",
-            "circuit_breaker": _webull_executor._circuit_breaker_fired,
-            "equity": _webull_executor._equity,
-        }
+        result["webull_tqqq"] = _webull_executor.get_status()
 
     return result
 
@@ -296,10 +315,31 @@ def start_server(
     else:
         logger.warning("[WEBHOOK] No ALPACA_CRYPTO_KEY — BTC executor disabled")
 
-    # Webull executor disabled — MGC routes to Gold executor (default)
-    # To enable later: uncomment and set live_orders=True after token approval
-    # from src.gold_scalper.webull_executor import WebullExecutor
-    logger.info("[WEBHOOK] MGC routes to Gold executor (Webull disabled)")
+    # Initialize QQQ options executor (uses same Alpaca account as BTC — third account)
+    if btc_key and btc_secret:
+        from src.gold_scalper.qqq_options_executor import QQQOptionsExecutor
+        _qqq_executor = QQQOptionsExecutor(
+            api_key=btc_key,
+            api_secret=btc_secret,
+        )
+        logger.info("[WEBHOOK] QQQ options executor initialized (Alpaca paper, options level 3)")
+    else:
+        logger.warning("[WEBHOOK] No ALPACA_CRYPTO_KEY — QQQ options executor disabled")
+
+    # Webull TQQQ executor
+    webull_key = env.get("WEBULL_APP_KEY", os.environ.get("WEBULL_APP_KEY", ""))
+    webull_secret = env.get("WEBULL_APP_SECRET", os.environ.get("WEBULL_APP_SECRET", ""))
+
+    if webull_key and webull_secret:
+        from src.gold_scalper.webull_tqqq_executor import WebullTQQQExecutor
+        _webull_executor = WebullTQQQExecutor(
+            app_key=webull_key,
+            app_secret=webull_secret,
+            live_orders=True,  # LIVE — places real orders on Webull
+        )
+        logger.info("[WEBHOOK] Webull TQQQ executor initialized (paper mode)")
+    else:
+        logger.warning("[WEBHOOK] No WEBULL_APP_KEY — Webull TQQQ executor disabled")
 
     logger.info(
         "[WEBHOOK] Starting server on %s:%d — "
@@ -309,7 +349,10 @@ def start_server(
     routes = ["Gold (default)"]
     if _btc_executor:
         routes.append("BTC/Alpaca (ticker=BTCUSD)")
-    # Webull disabled — MGC falls through to Gold executor
+    if _qqq_executor:
+        routes.append("QQQ Options (ticker=QQQ)")
+    if _webull_executor:
+        routes.append("TQQQ/Webull (ticker=TQQQ)")
     logger.info("[WEBHOOK] Routes: %s", " + ".join(routes))
     logger.info(
         "[WEBHOOK] Set TradingView alert webhook URL to: "

@@ -1,0 +1,6 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+KAS-USD,crypto,ultra,base,LONG,2026-01-31,0.0332,2026-02-05,0.0271,133018.6841,-816.34,-18.4849,3.0422,-19.7289,disaster_stop,safety
+KAS-USD,crypto,ultra,base,LONG,2026-02-12,0.0315,2026-02-15,0.032,141690.9489,70.85,1.5873,6.9778,-2.3302,profit_lock_trail,profit_lock
+KAS-USD,crypto,ultra,base,LONG,2026-02-16,0.0323,2026-03-02,0.0302,138280.2767,-290.39,-6.5015,4.161,-12.1486,max_underwater_14d,time
+KAS-USD,crypto,ultra,base,SHORT,2026-03-17,0.0362,2026-03-18,0.0397,114095.8682,-399.34,-9.6685,0.0,-11.5332,disaster_stop,safety
+KAS-USD,crypto,ultra,base,LONG,2026-03-19,0.0374,2026-03-26,0.0359,118593.9933,-177.89,-4.0107,6.992,-9.2995,end_of_backtest,time

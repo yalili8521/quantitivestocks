@@ -1,0 +1,61 @@
+timestamp,group,symbol,side,qty,price,reason,pnl_pct
+2026-03-21 02:01:48,crypto,OP/USD,SHORT,1850.867345,0.12,entry (SHORT),+0.0000
+2026-03-21 02:29:35,crypto_intraday,LINK/USD,LONG,65.047578,9.13,"signal_reversal_post_horizon (E[r]=-0.0036, bars=12, PnL=+0.21%)",+0.0021
+2026-03-21 02:30:58,crypto_intraday,FET/USD,LONG,13123.445037,0.23,entry (LONG),+0.0000
+2026-03-21 04:03:25,crypto_intraday,FET/USD,SHORT,11230.823258,0.22,"profit_lock_trail (0.78% from peak, PnL=+2.08%, trail=0.40%)",+0.0208
+2026-03-21 04:04:45,crypto_intraday,FET/USD,LONG,13358.23265,0.22,entry (LONG),+0.0000
+2026-03-21 04:58:52,crypto_intraday,BCH/USD,SHORT,2.09001,467.33,"profit_lock+signal_decay (armed, E[r]=+0.0028, PnL=+0.85%)",+0.0085
+2026-03-21 05:00:05,crypto_intraday,OP/USD,LONG,24699.781168,0.12,entry (LONG),+0.0000
+2026-03-21 08:54:28,crypto,XTZ/USD,LONG,24289.15793,0.40,entry (LONG),+0.0000
+2026-03-21 08:54:32,crypto,XTZ/USD,LONG,24293.23877,0.40,entry (LONG),+0.0000
+2026-03-21 08:54:40,crypto,QNT/USD,SHORT,11.58963,78.23,entry (SHORT),+0.0000
+2026-03-21 08:54:45,crypto,QNT/USD,SHORT,11.58963,78.23,entry (SHORT),+0.0000
+2026-03-21 08:54:48,crypto,EGLD/USD,SHORT,191.164421,4.12,"profit_lock+signal_decay (armed, E[r]=+0.0716, PnL=+5.07%)",+0.0507
+2026-03-21 08:54:53,crypto,EGLD/USD,SHORT,191.164421,4.12,"profit_lock+signal_decay (armed, E[r]=+0.0716, PnL=+5.07%)",+0.0507
+2026-03-21 08:55:44,crypto,QNT/USD,SHORT,11.584233,78.26,entry (SHORT),+0.0000
+2026-03-21 08:55:52,crypto,EGLD/USD,SHORT,191.164421,4.12,"profit_lock+signal_decay (armed, E[r]=+0.0716, PnL=+5.07%)",+0.0507
+2026-03-21 09:05:51,crypto,EGLD/USD,LONG,2249.379928,4.13,entry (LONG),+0.0000
+2026-03-21 09:05:53,crypto,EGLD/USD,LONG,2249.380059,4.13,entry (LONG),+0.0000
+2026-03-21 09:06:43,crypto,EGLD/USD,LONG,2249.374261,4.13,entry (LONG),+0.0000
+2026-03-21 09:07:05,crypto_intraday,ETHFI/USD,SHORT,1700.649411,0.59,entry (SHORT),+0.0000
+2026-03-21 09:07:07,crypto_intraday,ETHFI/USD,SHORT,1700.649411,0.59,entry (SHORT),+0.0000
+2026-03-21 09:07:13,crypto_intraday,CVX/USD,LONG,613.163324,1.85,entry (LONG),+0.0000
+2026-03-21 09:07:14,crypto_intraday,CVX/USD,LONG,612.996721,1.85,entry (LONG),+0.0000
+2026-03-21 09:08:57,crypto_intraday,XLM/USD,SHORT,6772.13425,0.17,entry (SHORT),+0.0000
+2026-03-21 09:10:09,crypto_intraday,FIL/USD,SHORT,3098.71262,0.97,entry (SHORT),+0.0000
+2026-03-21 09:20:46,crypto_intraday,FIL/USD,SHORT,3098.71262,0.97,"profit_lock_trail (0.62% from peak, PnL=+0.16%, trail=0.40%)",+0.0016
+2026-03-21 09:22:05,crypto_intraday,FIL/USD,SHORT,3112.827935,0.97,entry (SHORT),+0.0000
+2026-03-21 10:21:12,crypto,XTZ/USD,SHORT,1909.872164,0.39,entry (SHORT),+0.0000
+2026-03-21 10:23:54,crypto_intraday,VET/USD,SHORT,414550.486601,0.01,"max_hold_expired (48 bars = 4.0h, PnL=+0.85%)",+0.0085
+2026-03-21 10:38:08,crypto_intraday,BERA/USD,SHORT,3390.887323,0.55,entry (SHORT),+0.0000
+2026-03-21 10:53:09,crypto,ATOM/USD,SHORT,368.069507,1.84,"profit_lock+signal_decay (armed, E[r]=+0.0053, PnL=+5.46%)",+0.0546
+2026-03-21 11:03:52,crypto,ATOM/USD,SHORT,5372.593093,1.84,entry (SHORT),+0.0000
+2026-03-21 12:11:19,crypto_intraday,VET/USD,SHORT,414550.486601,0.01,"max_hold_expired (58 bars = 4.8h, PnL=+0.61%)",+0.0061
+2026-03-21 12:42:57,crypto_intraday,FET/USD,SHORT,13194.023354,0.23,entry (SHORT),+0.0000
+2026-03-21 13:44:08,crypto_intraday,VET/USD,SHORT,414550.486601,0.01,"max_hold_expired (69 bars = 5.8h, PnL=+0.72%)",+0.0072
+2026-03-21 13:50:14,crypto_intraday,SEI/USD,SHORT,47702.598438,0.06,entry (SHORT),+0.0000
+2026-03-21 14:00:47,crypto,FIL/USD,SHORT,608.689376,0.94,signal_decay (E[r]=+0.0217),-0.0331
+2026-03-21 14:00:56,crypto,ATOM/USD,SHORT,368.069507,1.83,"profit_lock+signal_decay (armed, E[r]=+0.0021, PnL=+6.03%)",+0.0603
+2026-03-21 14:11:28,crypto,FIL/USD,SHORT,232.56844,0.93,entry (SHORT),+0.0000
+2026-03-21 14:11:37,crypto,ATOM/USD,SHORT,5401.72097,1.83,entry (SHORT),+0.0000
+2026-03-21 14:15:46,crypto_intraday,FIL/USD,SHORT,3112.827935,0.94,"profit_lock_trail (0.43% from peak, PnL=+3.46%, trail=0.40%)",+0.0346
+2026-03-21 14:17:14,crypto_intraday,ATOM/USD,LONG,2076.616361,1.83,entry (LONG),+0.0000
+2026-03-21 14:57:55,crypto_intraday,FET/USD,SHORT,13194.023354,0.22,"profit_lock+signal_decay (armed, E[r]=+0.0015, PnL=+0.71%)",+0.0071
+2026-03-21 14:59:11,crypto_intraday,BCH/USD,SHORT,2.564583,468.67,entry (SHORT),+0.0000
+2026-03-21 15:00:33,crypto,ATOM/USD,SHORT,368.069507,1.82,"profit_lock+signal_decay (armed, E[r]=+0.0011, PnL=+6.29%)",+0.0629
+2026-03-21 15:13:17,crypto,ATOM/USD,SHORT,5420.352942,1.82,entry (SHORT),+0.0000
+2026-03-21 15:36:48,crypto_intraday,GOMINING/USD,LONG,3249.011547,0.31,entry (LONG),+0.0000
+2026-03-21 15:36:56,crypto_intraday,CVX/USD,LONG,613.163324,1.84,"signal_reversal_post_horizon (E[r]=-0.0066, bars=37, PnL=-0.16%)",-0.0016
+2026-03-21 15:38:12,crypto_intraday,PENDLE/USD,LONG,892.62631,1.25,entry (LONG),+0.0000
+2026-03-21 17:02:43,crypto_intraday,GOMINING/USD,LONG,3249.011547,0.31,"breakeven_ratchet (floor=$0.3084, current=$0.3079)",-0.0015
+2026-03-21 17:04:08,crypto_intraday,INJ/USD,SHORT,877.661489,3.03,entry (SHORT),+0.0000
+2026-03-21 17:35:04,crypto,OP/USD,SHORT,1850.867345,0.12,"profit_lock_trail (2.16% from peak, PnL=+3.74%, trail=2.00%)",+0.0374
+2026-03-21 17:40:28,crypto,OP/USD,SHORT,63355.241321,0.12,entry (SHORT),+0.0000
+2026-03-21 21:16:34,crypto_intraday,CVX/USD,SHORT,663.840307,1.81,entry (SHORT),+0.0000
+2026-03-21 21:16:43,crypto_intraday,GOMINING/USD,LONG,1418.322934,0.31,entry (LONG),+0.0000
+2026-03-21 21:22:57,crypto_intraday,PENDLE/USD,LONG,892.62631,1.21,disaster_stop (-3.56% <= -3.00%),-0.0356
+2026-03-21 21:53:27,crypto_intraday,AR/USD,SHORT,1773.597688,1.69,entry (SHORT),+0.0000
+2026-03-21 22:20:44,crypto_intraday,RUNE/USD,SHORT,9711.779961,0.41,entry (SHORT),+0.0000
+2026-03-21 22:20:50,crypto_intraday,RAY/USD,SHORT,6625.057262,0.60,entry (SHORT),+0.0000
+2026-03-21 22:22:17,crypto_intraday,RUNE/USD,SHORT,9711.468927,0.41,entry (SHORT),+0.0000
+2026-03-21 22:22:27,crypto_intraday,GOMINING/USD,SHORT,9784.42786,0.31,entry (SHORT),+0.0000

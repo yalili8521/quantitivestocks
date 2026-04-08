@@ -1,0 +1,8 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+ATOM-USD,crypto,high,base,LONG,2026-01-25,2.2376,2026-01-31,1.9666,2011.0833,-545.0,-12.1112,3.1678,-16.2432,disaster_stop,safety
+ATOM-USD,crypto,high,base,LONG,2026-02-01,1.9144,2026-02-05,1.8124,2337.795,-238.46,-5.328,9.5707,-6.7615,breakeven_ratchet,breakeven
+ATOM-USD,crypto,high,base,LONG,2026-02-06,1.9871,2026-02-13,2.1171,2246.8645,292.09,6.5422,6.8382,-5.5389,strong_signal_override,signal_override
+ATOM-USD,crypto,high,base,SHORT,2026-02-14,2.1797,2026-02-20,2.36,2054.36,-370.4,-8.2718,3.6861,-14.7244,disaster_stop,safety
+ATOM-USD,crypto,high,base,SHORT,2026-02-21,2.3101,2026-02-27,1.8525,1931.1807,883.71,19.8087,20.7257,-0.2431,strong_signal_override,signal_override
+ATOM-USD,crypto,high,base,LONG,2026-02-28,1.8514,2026-03-18,1.9046,1453.1167,77.31,2.8735,9.7414,-7.7684,profit_lock_trail,profit_lock
+ATOM-USD,crypto,high,base,LONG,2026-03-19,1.8142,2026-03-26,1.6883,2482.8939,-312.6,-6.9397,2.3979,-7.6332,end_of_backtest,time

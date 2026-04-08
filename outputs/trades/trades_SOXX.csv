@@ -1,0 +1,6 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+SOXX,swing,high,base,SHORT,2026-01-26,342.7388,2026-02-02,352.5962,10.2403,-100.94,-2.8761,0.3062,-6.0796,strong_signal_override,signal_override
+SOXX,swing,high,base,SHORT,2026-02-04,330.061,2026-02-09,352.6762,5.5795,-126.18,-6.8518,1.8847,-7.4109,strong_signal_override,signal_override
+SOXX,swing,high,base,LONG,2026-02-10,351.3365,2026-02-24,361.6905,19.6017,202.96,2.947,3.9331,-1.773,strong_signal_override,signal_override
+SOXX,swing,high,base,SHORT,2026-02-25,367.6447,2026-03-02,351.9564,20.048,314.52,4.2672,6.6684,0.0,strong_signal_override,signal_override
+SOXX,swing,high,base,LONG,2026-03-03,334.691,2026-03-26,328.7349,10.4478,-62.23,-1.7796,3.8809,-5.577,end_of_backtest,time

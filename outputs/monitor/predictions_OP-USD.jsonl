@@ -1,0 +1,4 @@
+{"timestamp": "2026-03-21T12:00:04.730967+00:00", "symbol": "OP-USD", "predicted_return": 0.008111245715453063, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}
+{"timestamp": "2026-03-22T00:40:28.615849+00:00", "symbol": "OP-USD", "predicted_return": -0.068672, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-23T01:23:22.314951+00:00", "symbol": "OP-USD", "predicted_return": -0.068672, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-24T08:19:06.841145+00:00", "symbol": "OP-USD", "predicted_return": -0.073826, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}

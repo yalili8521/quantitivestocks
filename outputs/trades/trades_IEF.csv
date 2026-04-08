@@ -1,0 +1,4 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+IEF,swing,medium,base,LONG,2026-01-30,95.3852,2026-02-23,97.1246,94.3543,164.12,1.8236,1.9533,-0.3047,strong_signal_override,signal_override
+IEF,swing,medium,base,SHORT,2026-02-24,97.1047,2026-03-17,96.2237,123.7808,109.05,0.9073,1.6011,-0.6819,profit_lock_trail,profit_lock
+IEF,swing,medium,base,LONG,2026-03-24,94.8932,2026-03-26,94.5569,88.533,-29.77,-0.3544,0.5341,-0.3195,end_of_backtest,time

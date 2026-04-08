@@ -1,0 +1,8 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+LDO-USD,crypto,high,base,LONG,2026-01-25,0.496,2026-01-29,0.4793,9072.5806,-151.68,-3.3708,6.5595,-5.9879,breakeven_ratchet,breakeven
+LDO-USD,crypto,high,base,LONG,2026-01-30,0.4706,2026-01-31,0.4215,9547.7565,-468.79,-10.4335,0.0,-14.8102,disaster_stop,safety
+LDO-USD,crypto,high,base,LONG,2026-02-01,0.4093,2026-02-03,0.408,10926.1628,-14.2,-0.3176,5.2372,-4.3936,breakeven_ratchet,breakeven
+LDO-USD,crypto,high,base,LONG,2026-02-04,0.4042,2026-02-05,0.3217,11062.4425,-912.65,-20.4107,0.6759,-20.2543,disaster_stop,safety
+LDO-USD,crypto,high,base,LONG,2026-02-26,0.3132,2026-03-07,0.2835,10497.0186,-311.76,-9.4828,4.2388,-10.1073,disaster_stop,safety
+LDO-USD,crypto,high,base,LONG,2026-03-10,0.2939,2026-03-17,0.3204,15026.678,398.87,9.0316,12.3988,-2.2559,profit_lock_trail,profit_lock
+LDO-USD,crypto,high,base,LONG,2026-03-18,0.3043,2026-03-26,0.2863,13421.4824,-241.59,-5.9152,1.0611,-8.6921,end_of_backtest,time

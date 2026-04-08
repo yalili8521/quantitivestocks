@@ -1,0 +1,8 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+SYRUP-USD,crypto,ultra,base,LONG,2026-01-25,0.3092,2026-01-30,0.3303,14553.6869,307.14,6.8254,17.6801,-0.9373,profit_lock_trail,profit_lock
+SYRUP-USD,crypto,ultra,base,LONG,2026-02-14,0.2851,2026-02-16,0.2509,15832.4144,-541.47,-11.9958,0.0,-15.3753,disaster_stop,safety
+SYRUP-USD,crypto,ultra,base,LONG,2026-02-17,0.2453,2026-02-23,0.2057,18301.8967,-724.76,-16.1435,0.9971,-17.6058,disaster_stop,safety
+SYRUP-USD,crypto,ultra,base,LONG,2026-02-24,0.2107,2026-02-27,0.2321,21152.5452,452.66,10.1566,16.383,-0.3816,profit_lock_trail,profit_lock
+SYRUP-USD,crypto,ultra,base,LONG,2026-03-01,0.2319,2026-03-05,0.2386,19306.6459,129.35,2.8892,8.0651,-3.1315,profit_lock_trail,profit_lock
+SYRUP-USD,crypto,ultra,base,LONG,2026-03-08,0.2181,2026-03-13,0.2542,20554.9387,742.03,16.552,19.7795,-0.8647,strong_signal_override,signal_override
+SYRUP-USD,crypto,ultra,base,SHORT,2026-03-14,0.263,2026-03-25,0.2354,17172.7134,473.97,10.4943,14.2555,-5.43,profit_lock_trail,profit_lock

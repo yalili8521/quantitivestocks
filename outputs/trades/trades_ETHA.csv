@@ -1,0 +1,10 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+ETHA,swing,ultra,base,SHORT,2026-01-26,21.8923,2026-01-30,20.1771,548.1379,940.17,7.8347,9.2375,-4.8085,strong_signal_override,signal_override
+ETHA,swing,ultra,base,LONG,2026-02-02,17.5061,2026-02-04,16.3343,657.9362,-770.97,-6.6937,0.822,-10.6026,disaster_stop,safety
+ETHA,swing,ultra,base,LONG,2026-02-05,14.0649,2026-02-10,15.1947,854.6313,965.56,8.0328,15.3936,0.0,profit_lock_trail,profit_lock
+ETHA,swing,ultra,base,LONG,2026-02-11,14.7552,2026-02-17,15.0447,822.5013,238.11,1.962,6.1321,-2.9495,profit_lock_trail,profit_lock
+ETHA,swing,ultra,base,LONG,2026-02-18,14.6351,2026-02-25,15.6745,831.2034,863.95,7.1021,7.618,-6.9361,strong_signal_override,signal_override
+ETHA,swing,ultra,base,SHORT,2026-02-26,15.2846,2026-03-02,15.3754,677.5872,-61.52,-0.5941,5.7875,-3.3066,breakeven_ratchet,breakeven
+ETHA,swing,ultra,base,LONG,2026-03-03,14.9352,2026-03-05,15.7945,820.9489,705.44,5.7535,11.3477,0.0,profit_lock_trail,profit_lock
+ETHA,swing,ultra,base,LONG,2026-03-06,14.9352,2026-03-18,16.4942,826.6169,1288.7,10.4384,19.3154,0.0,profit_lock_trail,profit_lock
+ETHA,swing,ultra,base,LONG,2026-03-19,16.1657,2026-03-26,15.4546,773.2627,-549.87,-4.3988,2.7175,-5.1077,end_of_backtest,time

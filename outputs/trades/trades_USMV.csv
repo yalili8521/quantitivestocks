@@ -1,0 +1,4 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+USMV,swing,medium,base,LONG,2026-01-26,95.1618,2026-03-03,96.7777,83.933,135.63,1.6981,2.6337,-1.406,strong_signal_override,signal_override
+USMV,swing,medium,base,SHORT,2026-03-04,96.927,2026-03-10,95.5603,45.9527,62.8,1.41,1.9172,0.0,strong_signal_override,signal_override
+USMV,swing,medium,base,LONG,2026-03-11,95.0622,2026-03-26,92.1777,80.7064,-232.8,-3.0343,0.9234,-3.1897,end_of_backtest,time

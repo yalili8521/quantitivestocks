@@ -1,0 +1,7 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+QNT-USD,crypto,ultra,base,SHORT,2026-01-27,82.0348,2026-02-04,66.2441,42.0483,663.97,19.2488,22.3875,-0.1152,strong_signal_override,signal_override
+QNT-USD,crypto,ultra,base,LONG,2026-02-05,56.6847,2026-02-15,70.5007,79.9136,1104.09,24.3734,34.0452,-4.7124,profit_lock_trail,profit_lock
+QNT-USD,crypto,ultra,base,LONG,2026-02-16,69.749,2026-02-23,62.7031,65.6578,-462.62,-10.1018,1.5889,-11.6637,disaster_stop,safety
+QNT-USD,crypto,ultra,base,SHORT,2026-02-25,64.61,2026-03-04,65.2289,37.2813,-23.07,-0.9579,6.6657,-4.2476,breakeven_ratchet,breakeven
+QNT-USD,crypto,ultra,base,LONG,2026-03-08,62.5158,2026-03-21,76.9204,68.6811,989.32,23.0415,30.2554,-1.2159,profit_lock_trail,profit_lock
+QNT-USD,crypto,ultra,base,LONG,2026-03-22,71.8415,2026-03-26,74.2872,40.8446,99.89,3.4043,8.95,-4.8135,profit_lock_trail,profit_lock

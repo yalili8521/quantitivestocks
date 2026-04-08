@@ -1,0 +1,10 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+CRV-USD,crypto,ultra,base,LONG,2026-01-25,0.3444,2026-01-31,0.2877,11809.9823,-669.63,-16.4634,3.8139,-20.2166,disaster_stop,safety
+CRV-USD,crypto,ultra,base,LONG,2026-02-01,0.2804,2026-02-05,0.2296,15941.0372,-809.8,-18.117,3.5542,-18.0984,disaster_stop,safety
+CRV-USD,crypto,ultra,base,LONG,2026-02-06,0.2585,2026-02-11,0.2309,17150.5827,-473.36,-10.677,1.5439,-12.6375,disaster_stop,safety
+CRV-USD,crypto,ultra,base,LONG,2026-02-12,0.2389,2026-02-15,0.25,18468.4998,205.76,4.6635,13.0766,-2.5224,profit_lock_trail,profit_lock
+CRV-USD,crypto,ultra,base,LONG,2026-02-16,0.2551,2026-02-23,0.2215,17331.9627,-582.35,-13.1713,0.9439,-13.9875,disaster_stop,safety
+CRV-USD,crypto,ultra,base,LONG,2026-02-24,0.2253,2026-02-27,0.2421,19508.1126,327.15,7.4434,16.8637,-0.2889,profit_lock_trail,profit_lock
+CRV-USD,crypto,ultra,base,LONG,2026-03-01,0.2424,2026-03-06,0.2431,18192.655,12.73,0.2888,10.12,-1.6609,profit_lock_trail,profit_lock
+CRV-USD,crypto,ultra,base,LONG,2026-03-07,0.2345,2026-03-18,0.2391,18807.9856,86.52,1.9616,10.6606,-3.8559,profit_lock_trail,profit_lock
+CRV-USD,crypto,ultra,base,LONG,2026-03-19,0.2369,2026-03-26,0.2195,18633.8788,-324.23,-7.3449,1.5918,-10.2089,end_of_backtest,time

@@ -1,0 +1,6 @@
+{"timestamp": "2026-03-20T23:42:37.279131+00:00", "symbol": "ADA-USD", "predicted_return": -0.00708211675845558, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}
+{"timestamp": "2026-03-21T01:11:12.464404+00:00", "symbol": "ADA-USD", "predicted_return": -0.008411452553080043, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}
+{"timestamp": "2026-03-21T02:19:27.600513+00:00", "symbol": "ADA-USD", "predicted_return": -0.006359200971944039, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}
+{"timestamp": "2026-03-21T04:08:03.016803+00:00", "symbol": "ADA-USD", "predicted_return": 0.008108, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-21T04:08:44.013451+00:00", "symbol": "ADA-USD", "predicted_return": 0.008108, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-21T05:01:37.517510+00:00", "symbol": "ADA-USD", "predicted_return": -0.006911687970644392, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}

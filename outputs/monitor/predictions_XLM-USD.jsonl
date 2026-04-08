@@ -1,0 +1,2 @@
+{"timestamp": "2026-03-21T16:08:57.510798+00:00", "symbol": "XLM-USD", "predicted_return": -0.010888860824886578, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}
+{"timestamp": "2026-03-31T22:28:59.881286+00:00", "symbol": "XLM-USD", "predicted_return": 0.014539930059519403, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}

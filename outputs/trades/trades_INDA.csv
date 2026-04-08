@@ -1,0 +1,6 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+INDA,swing,medium,base,LONG,2026-01-26,51.458,2026-02-13,52.8715,233.1999,329.63,2.7469,4.5707,-0.5208,profit_lock_trail,profit_lock
+INDA,swing,medium,base,LONG,2026-02-18,53.3387,2026-03-02,50.9322,90.6187,-218.07,-4.5117,0.2462,-4.5534,disaster_stop,safety
+INDA,swing,medium,base,LONG,2026-03-03,50.2376,2026-03-13,48.0432,66.6998,-146.37,-4.368,0.6218,-4.6133,disaster_stop,safety
+INDA,swing,medium,base,LONG,2026-03-16,48.577,2026-03-20,46.5737,54.3764,-108.93,-4.124,0.4385,-4.1933,disaster_stop,safety
+INDA,swing,medium,base,LONG,2026-03-23,47.6467,2026-03-26,46.5937,92.7955,-97.71,-2.21,0.0,-2.9104,end_of_backtest,time

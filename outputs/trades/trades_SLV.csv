@@ -1,0 +1,10 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+SLV,swing,ultra,base,LONG,2026-01-26,98.399,2026-01-30,75.3947,66.8528,-1537.9,-23.3786,11.617,-29.7554,disaster_stop,safety
+SLV,swing,ultra,base,LONG,2026-02-02,72.4835,2026-02-05,66.65,163.0088,-950.91,-8.048,14.2329,-9.6208,disaster_stop,safety
+SLV,swing,ultra,base,LONG,2026-02-06,70.2321,2026-02-10,73.41,166.6096,529.47,4.5249,8.4404,0.0,profit_lock_trail,profit_lock
+SLV,swing,ultra,base,LONG,2026-02-11,76.6059,2026-02-12,67.6894,153.5767,-1369.37,-11.6394,0.0,-12.0694,disaster_stop,safety
+SLV,swing,ultra,base,LONG,2026-02-13,69.7618,2026-03-02,81.5211,166.2881,1955.43,16.8564,22.2302,-6.6251,profit_lock_trail,profit_lock
+SLV,swing,ultra,base,LONG,2026-03-03,74.7248,2026-03-11,77.91,158.3839,504.49,4.2626,8.7725,-2.2948,profit_lock_trail,profit_lock
+SLV,swing,ultra,base,LONG,2026-03-16,73.2639,2026-03-18,68.6588,148.2057,-682.5,-6.2856,0.6225,-6.284,disaster_stop,safety
+SLV,swing,ultra,base,LONG,2026-03-19,65.7194,2026-03-20,61.4831,155.6896,-659.55,-6.446,0.0,-6.8007,disaster_stop,safety
+SLV,swing,ultra,base,LONG,2026-03-23,62.5075,2026-03-26,60.7335,30.2914,-53.74,-2.8381,6.2273,-3.4196,breakeven_ratchet,breakeven

@@ -1,0 +1,7 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+GDX,swing,ultra,base,LONG,2026-01-26,107.5445,2026-01-29,107.98,60.8874,26.52,0.405,5.5377,-3.4074,profit_lock_trail,profit_lock
+GDX,swing,ultra,base,LONG,2026-01-30,94.2565,2026-02-05,92.3845,70.431,-131.85,-1.9861,7.2817,-2.394,breakeven_ratchet,breakeven
+GDX,swing,ultra,base,LONG,2026-02-10,103.0718,2026-03-03,105.1769,96.9176,204.02,2.0424,13.6877,-5.4931,profit_lock_trail,profit_lock
+GDX,swing,ultra,base,LONG,2026-03-04,105.9435,2026-03-12,99.2404,94.4831,-633.33,-6.3271,0.0,-9.4234,disaster_stop,safety
+GDX,swing,ultra,base,LONG,2026-03-13,93.316,2026-03-19,82.8503,79.9994,-837.25,-11.2153,3.0156,-14.3127,disaster_stop,safety
+GDX,swing,ultra,base,LONG,2026-03-20,80.1681,2026-03-26,82.3406,122.1128,265.29,2.7099,9.8567,0.0,profit_lock_trail,profit_lock

@@ -1,0 +1,4 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+EWA,swing,high,base,LONG,2026-01-27,28.2499,2026-02-12,29.0898,387.5577,325.51,2.9731,4.7083,-2.3359,strong_signal_override,signal_override
+EWA,swing,high,base,SHORT,2026-02-13,29.1498,2026-03-17,28.71,177.5382,78.08,1.5088,4.0817,-3.74,strong_signal_override,signal_override
+EWA,swing,high,base,LONG,2026-03-18,28.0098,2026-03-26,27.1605,258.2783,-219.36,-3.0322,1.5716,-3.0339,end_of_backtest,time

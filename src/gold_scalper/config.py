@@ -3,7 +3,7 @@
 配置说明：
 - 所有止盈/止损用点数(pips)表示，1 pip = $0.10（黄金）
 - 交易时段用太平洋时间(PT)
-- 仓位缩放：每赚$7,500利润加一倍基础合约数，最高4倍
+- 仓位缩放：每赚$10,000利润加一倍基础合约数，最高4倍
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Dict
 
 @dataclass(frozen=True)
 class GoldScalperConfig:
-    """Frozen config — all TC baby V1.0 parameters."""
+    """Frozen config — Gold Multi-TF NYSE Scalper v2 parameters."""
 
     # ── Instrument ──
     symbol: str = "GC=F"           # Yahoo Finance symbol for gold futures
@@ -29,8 +29,8 @@ class GoldScalperConfig:
 
     # ── Entry Filters ──
     rsi_period: int = 14
-    rsi_long_threshold: float = 55.0   # RSI must be > this for LONG
-    rsi_short_threshold: float = 35.0  # RSI must be < this for SHORT
+    rsi_long_threshold: float = 60.0   # RSI must be > this for LONG (was 55)
+    rsi_short_threshold: float = 30.0  # RSI must be < this for SHORT (was 35)
     require_engulfing: bool = True     # require engulfing candle confirmation
 
     # ── Session (Pacific Time) ──
@@ -58,29 +58,29 @@ class GoldScalperConfig:
 
     # ── Position Sizing ──
     base_contracts: int = 6
-    scale_per_profit: float = 7500.0   # add base_contracts per this $ profit
+    scale_per_profit: float = 10000.0  # add base_contracts per this $ profit (was 7500)
     max_scale_mult: int = 4            # cap multiplier (max 24 contracts at 6 base)
 
     # ── Take-Profit Levels (pips) ──
-    tp1_pips: float = 60.0
-    tp1_contracts: int = 1    # contracts to close at TP1 (per base_contracts=6)
-    tp2_pips: float = 220.0
+    tp1_pips: float = 50.0             # was 60
+    tp1_contracts: int = 2             # was 1 — close more early to lock profit
+    tp2_pips: float = 120.0            # was 220
     tp2_contracts: int = 2
-    tp3_pips: float = 400.0
+    tp3_pips: float = 250.0            # was 400
     tp3_contracts: int = 1
-    tp4_pips: float = 600.0
+    tp4_pips: float = 400.0            # was 600
     tp4_contracts: int = 1
-    # Runner = base_contracts - tp1 - tp2 - tp3 - tp4 = 1
+    # Runner = base_contracts - tp1 - tp2 - tp3 - tp4 = 0 (no runner in v2)
 
     # ── Stop-Loss ──
-    hard_stop_pips: float = 300.0      # initial hard stop
-    be_offset_pips: float = 10.0       # SL moves to entry + this after TP trigger
+    hard_stop_pips: float = 100.0      # was 300 — tighter stop, better R:R
+    be_offset_pips: float = 5.0        # was 10 — SL moves to entry + 5 pips after TP1
 
     # ── Timeout ──
-    tp1_timeout_minutes: int = 120     # close if TP1 not hit within 2 hours
+    tp1_timeout_minutes: int = 90      # was 120 — close if TP2 not hit within 90 min
 
     # ── Circuit Breaker ──
-    daily_loss_limit: float = -1000.0  # stop new entries after this daily loss (USD)
+    daily_loss_limit: float = -600.0   # was -1000 — stop new entries after this daily loss
 
     # ── Alerts ──
     discord_webhook_url: str = ""

@@ -1,0 +1,6 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+IAU,swing,high,base,LONG,2026-01-26,95.2133,2026-01-30,91.1681,106.3936,-430.38,-4.2486,9.6485,-7.3764,breakeven_ratchet,breakeven
+IAU,swing,high,base,LONG,2026-02-02,87.6006,2026-02-12,92.4476,136.3958,661.11,5.5331,9.5655,0.0,profit_lock_trail,profit_lock
+IAU,swing,high,base,LONG,2026-02-13,94.7832,2026-03-03,95.8864,126.8968,139.99,1.1639,6.3585,-3.696,profit_lock_trail,profit_lock
+IAU,swing,high,base,LONG,2026-03-04,96.6838,2026-03-19,87.3394,124.5761,-1164.09,-9.6649,1.9819,-11.6812,disaster_stop,safety
+IAU,swing,high,base,LONG,2026-03-20,84.7296,2026-03-26,82.0613,63.7153,-170.01,-3.1492,1.7,-3.375,end_of_backtest,time

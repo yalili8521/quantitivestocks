@@ -1,0 +1,5 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+LQD,swing,medium,base,LONG,2026-01-27,110.061,2026-02-23,111.2879,81.7728,100.33,1.1147,1.2588,-0.5521,strong_signal_override,signal_override
+LQD,swing,medium,base,SHORT,2026-02-24,111.2581,2026-03-09,110.8588,88.4127,35.3,0.3589,1.3375,-0.2589,profit_lock_trail,profit_lock
+LQD,swing,medium,base,SHORT,2026-03-10,110.0215,2026-03-17,109.3383,95.8277,65.47,0.621,1.8192,0.0,profit_lock_trail,profit_lock
+LQD,swing,medium,base,LONG,2026-03-24,108.3779,2026-03-26,107.8422,64.3478,-34.47,-0.4943,0.6201,-0.4963,end_of_backtest,time

@@ -1,0 +1,12 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+BERA-USD,crypto,ultra,base,LONG,2026-01-25,0.6495,2026-01-28,0.6107,6928.4065,-268.82,-5.9738,6.7741,-6.3407,breakeven_ratchet,breakeven
+BERA-USD,crypto,ultra,base,LONG,2026-01-29,0.5683,2026-01-31,0.5063,7897.0667,-489.62,-10.9097,12.5918,-15.6289,disaster_stop,safety
+BERA-USD,crypto,ultra,base,LONG,2026-02-01,0.4646,2026-02-05,0.3735,9612.2905,-875.68,-19.6083,2.9879,-19.4427,disaster_stop,safety
+BERA-USD,crypto,ultra,base,LONG,2026-02-06,0.5266,2026-02-07,0.4471,8405.7436,-668.26,-15.0968,4.0545,-16.5501,disaster_stop,safety
+BERA-USD,crypto,ultra,base,LONG,2026-02-08,0.4625,2026-02-12,0.7345,9505.7147,2585.82,58.8169,225.3632,-6.9507,profit_lock_trail,profit_lock
+BERA-USD,crypto,ultra,base,LONG,2026-02-13,0.7481,2026-02-15,0.6595,6032.2884,-534.46,-11.8433,0.0,-14.5565,disaster_stop,safety
+BERA-USD,crypto,ultra,base,LONG,2026-02-16,0.6507,2026-02-19,0.5834,6898.2699,-464.25,-10.3427,11.6628,-13.6149,disaster_stop,safety
+BERA-USD,crypto,ultra,base,LONG,2026-02-20,0.5982,2026-02-27,0.5912,7468.761,-52.28,-1.1702,10.1125,-9.179,breakeven_ratchet,breakeven
+BERA-USD,crypto,ultra,base,LONG,2026-02-28,0.6222,2026-03-03,0.5646,7176.8887,-413.39,-9.2575,0.8566,-9.4973,strong_signal_override,signal_override
+BERA-USD,crypto,ultra,base,SHORT,2026-03-04,0.5446,2026-03-13,0.6636,7367.3003,-876.71,-21.8509,5.83,-22.9526,disaster_stop,safety
+BERA-USD,crypto,ultra,base,SHORT,2026-03-14,0.6348,2026-03-26,0.4729,3471.4916,562.03,25.5041,26.3007,-10.1215,end_of_backtest,time

@@ -1,0 +1,5 @@
+{"timestamp": "2026-03-21T16:05:51.666730+00:00", "symbol": "EGLD-USD", "predicted_return": 0.071625, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-21T16:05:53.122871+00:00", "symbol": "EGLD-USD", "predicted_return": 0.071625, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-21T16:06:42.906700+00:00", "symbol": "EGLD-USD", "predicted_return": 0.071625, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-23T03:06:59.868782+00:00", "symbol": "EGLD-USD", "predicted_return": 0.076046, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}
+{"timestamp": "2026-03-24T08:19:17.516723+00:00", "symbol": "EGLD-USD", "predicted_return": 0.066372, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}

@@ -1,0 +1,12 @@
+[
+  {
+    "time": "2026-04-08 02:20:15",
+    "symbol": "GC",
+    "direction": "LONG",
+    "contracts": 6,
+    "entry": 44.0,
+    "exit": 44.0,
+    "pnl": 0.0,
+    "reason": "test cleanup"
+  }
+]

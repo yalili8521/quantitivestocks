@@ -1,0 +1,8 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+FBTC,swing,high,base,SHORT,2026-01-26,76.2333,2026-02-06,60.9813,157.4115,2400.84,20.007,28.8959,-3.4063,profit_lock_trail,profit_lock
+FBTC,swing,high,base,SHORT,2026-02-09,61.5834,2026-02-13,59.911,199.5359,333.7,2.7157,7.9947,0.0,profit_lock_trail,profit_lock
+FBTC,swing,high,base,LONG,2026-02-17,59.0407,2026-02-20,59.01,113.5124,-3.49,-0.052,0.8118,-3.2024,strong_signal_override,signal_override
+FBTC,swing,high,base,SHORT,2026-02-23,56.1104,2026-02-25,60.3211,219.7049,-925.11,-7.5043,2.5225,-8.0192,disaster_stop,safety
+FBTC,swing,high,base,SHORT,2026-02-26,58.7194,2026-03-04,63.7023,208.0524,-1036.7,-8.486,3.405,-9.9466,disaster_stop,safety
+FBTC,swing,high,base,SHORT,2026-03-05,62.0283,2026-03-11,61.5915,194.9483,85.15,0.7042,4.9144,-0.8733,profit_lock_trail,profit_lock
+FBTC,swing,high,base,SHORT,2026-03-12,61.3485,2026-03-26,59.6809,197.275,328.98,2.7182,3.3391,-6.3922,end_of_backtest,time

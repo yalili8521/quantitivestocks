@@ -1,0 +1,11 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+OP-USD,crypto,ultra,base,LONG,2026-01-25,0.2867,2026-01-29,0.2687,15695.8493,-282.53,-6.2783,5.8029,-9.0464,breakeven_ratchet,breakeven
+OP-USD,crypto,ultra,base,LONG,2026-01-30,0.2626,2026-01-31,0.2333,17087.9146,-500.68,-11.1577,0.142,-16.2113,disaster_stop,safety
+OP-USD,crypto,ultra,base,LONG,2026-02-01,0.2282,2026-02-05,0.1811,19565.1006,-921.52,-20.6398,5.2349,-20.7568,disaster_stop,safety
+OP-USD,crypto,ultra,base,LONG,2026-02-06,0.1976,2026-02-11,0.1773,22385.0593,-454.42,-10.2733,1.2819,-11.9332,disaster_stop,safety
+OP-USD,crypto,ultra,base,LONG,2026-02-12,0.183,2026-02-15,0.1888,24059.2293,139.54,3.1694,9.4131,-2.3525,profit_lock_trail,profit_lock
+OP-USD,crypto,ultra,base,LONG,2026-02-18,0.1656,2026-02-19,0.1391,26625.1113,-705.57,-16.0024,0.2397,-18.4752,disaster_stop,safety
+OP-USD,crypto,ultra,base,LONG,2026-02-20,0.1289,2026-02-26,0.1192,33959.4102,-329.41,-7.5252,4.7277,-10.8836,strong_signal_override,signal_override
+OP-USD,crypto,ultra,base,SHORT,2026-02-28,0.1222,2026-03-07,0.1166,35700.0384,199.92,4.5827,5.5106,-7.8748,strong_signal_override,signal_override
+OP-USD,crypto,ultra,base,LONG,2026-03-08,0.1157,2026-03-18,0.126,37783.4149,389.17,8.9023,20.3596,-0.4365,profit_lock_trail,profit_lock
+OP-USD,crypto,ultra,base,LONG,2026-03-21,0.1178,2026-03-26,0.1084,37258.5205,-350.23,-7.9796,1.6375,-9.8668,end_of_backtest,time

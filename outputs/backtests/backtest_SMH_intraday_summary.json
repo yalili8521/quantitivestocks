@@ -1,0 +1,22 @@
+{
+  "symbol": "SMH",
+  "mode": "intraday",
+  "intraday_interval": "5min",
+  "start_date": "2026-01-26",
+  "end_date": "2026-03-26",
+  "initial_capital": 100000.0,
+  "final_equity": 97885.5,
+  "total_return_pct": -2.11,
+  "annualized_return_pct": -12.39,
+  "sharpe_ratio": -1.1,
+  "max_drawdown_pct": -6.2,
+  "total_trades": 26,
+  "win_rate": 0.385,
+  "avg_win_pct": 1.92,
+  "avg_loss_pct": -1.38,
+  "profit_factor": 0.808,
+  "avg_trade_duration_days": 1.2,
+  "vol_tier": "",
+  "exit_variant": "base",
+  "bt_group": ""
+}

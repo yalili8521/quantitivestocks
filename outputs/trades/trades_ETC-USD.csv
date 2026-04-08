@@ -1,0 +1,4 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+ETC-USD,crypto,high,base,LONG,2026-01-25,11.1274,2026-01-29,10.7785,245.3849,-85.61,-3.1355,4.2457,-4.8386,breakeven_ratchet,breakeven
+ETC-USD,crypto,high,base,LONG,2026-01-30,10.5832,2026-02-01,9.5106,295.8705,-317.35,-10.1349,0.3463,-11.766,disaster_stop,safety
+ETC-USD,crypto,high,base,LONG,2026-02-03,9.5323,2026-02-05,8.0321,305.2011,-457.86,-15.7381,2.4479,-16.7956,disaster_stop,safety

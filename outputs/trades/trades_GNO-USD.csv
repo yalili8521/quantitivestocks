@@ -1,0 +1,11 @@
+symbol,group,tier,variant,direction,entry_date,entry_price,exit_date,exit_price,shares,pnl,return_pct,mfe_pct,mae_pct,exit_reason,exit_layer
+GNO-USD,crypto,high,base,SHORT,2026-01-25,132.7814,2026-02-02,117.6821,33.8903,511.72,11.3715,18.2969,-8.1671,profit_lock_trail,profit_lock
+GNO-USD,crypto,high,base,SHORT,2026-02-04,109.8572,2026-02-06,114.7617,41.1719,-201.93,-4.4644,14.6747,-5.3242,breakeven_ratchet,breakeven
+GNO-USD,crypto,high,base,SHORT,2026-02-07,119.8412,2026-02-14,133.9768,37.666,-532.43,-11.7953,0.0207,-13.2134,disaster_stop,safety
+GNO-USD,crypto,high,base,SHORT,2026-02-15,128.0552,2026-02-20,118.1374,35.0629,347.75,7.7449,11.9866,-1.8912,profit_lock_trail,profit_lock
+GNO-USD,crypto,high,base,SHORT,2026-02-21,119.6493,2026-02-25,130.0145,37.657,-390.32,-8.663,2.6734,-12.3381,disaster_stop,safety
+GNO-USD,crypto,high,base,SHORT,2026-02-27,124.6073,2026-03-04,136.227,36.0177,-418.51,-9.3251,4.0908,-11.3105,disaster_stop,safety
+GNO-USD,crypto,high,base,SHORT,2026-03-05,130.8832,2026-03-10,126.4116,34.1467,152.69,3.4165,6.6156,-1.1985,profit_lock_trail,profit_lock
+GNO-USD,crypto,high,base,SHORT,2026-03-11,128.2897,2026-03-16,145.6583,34.8906,-606.0,-13.5386,1.4255,-13.9632,disaster_stop,safety
+GNO-USD,crypto,high,base,SHORT,2026-03-18,134.5728,2026-03-23,129.4236,33.0589,170.23,3.8263,10.3921,-0.9921,profit_lock_trail,profit_lock
+GNO-USD,crypto,high,base,SHORT,2026-03-24,128.5784,2026-03-26,123.0674,34.6597,191.01,4.2861,4.8451,-1.2904,end_of_backtest,time
