@@ -41,11 +41,11 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-# Promotion thresholds
-DEFAULT_MIN_SHARPE = 0.0
-DEFAULT_MIN_TRADES = 3
+# Promotion thresholds (tightened 2026-04-08: was 0.0/3/0.40/-50)
+DEFAULT_MIN_SHARPE = 0.5
+DEFAULT_MIN_TRADES = 5
 DEFAULT_MIN_WIN_RATE = 0.40
-DEFAULT_MAX_DRAWDOWN = -50.0  # max drawdown % (negative)
+DEFAULT_MAX_DRAWDOWN = -15.0  # max drawdown % (negative, was -50)
 
 
 def train_single(symbol: str, save_dir: str) -> bool:

@@ -165,6 +165,8 @@ class Backtester:
         use_cost_model: bool = True,
         # A/B exit variant
         exit_variant: Optional[str] = None,
+        # TimesFM ensemble
+        use_timesfm: bool = False,
     ):
         self.symbol = symbol
         self.adapter = adapter
@@ -186,6 +188,7 @@ class Backtester:
         self.stress_cost_mult = stress_cost_mult
         self.use_cost_model = use_cost_model
         self.exit_variant = exit_variant
+        self.use_timesfm = use_timesfm
         if self.model_type == "crypto_intraday":
             self._risk_group = "crypto_intraday"
         elif self.model_type == "intraday":
@@ -893,9 +896,14 @@ class Backtester:
         if bars_indexed.index.tz is None:
             bars_indexed.index = bars_indexed.index.tz_localize("US/Eastern")
 
-        # --- Walk-forward bar-by-bar ---
+        # --- Tiered exit system (ported from swing backtester 2026-04-08) ---
         from collections import deque
         from datetime import timedelta as _td
+        from risk_config import (
+            classify_vol_tier, compute_vol_metrics, get_exit_params,
+            VolTier, ExitVariant,
+            CRYPTO_INTRADAY_SIGNAL_REVERSAL_COOLDOWN_BARS,
+        )
 
         portfolio = Portfolio(
             initial_capital=self.initial_capital,
@@ -904,17 +912,49 @@ class Backtester:
         recent_wins: deque = deque(maxlen=20)
         cooldown_until = None
         cooldown_skipped = 0
-        bars_in_position = 0
         reentry_cooldown_remaining = 0
         price_rows = []
 
-        # Use same min-hold/cooldown as crypto intraday (both are 5-min bar models)
-        from risk_config import (
-            CRYPTO_INTRADAY_MIN_HOLD_BARS,
-            CRYPTO_INTRADAY_SIGNAL_REVERSAL_COOLDOWN_BARS,
-        )
-        min_hold_bars = CRYPTO_INTRADAY_MIN_HOLD_BARS
         reentry_cooldown_bars = CRYPTO_INTRADAY_SIGNAL_REVERSAL_COOLDOWN_BARS
+
+        # --- Sharpe-based auto-pause (from auto_derisk config) ---
+        _trading_json_path = os.path.join(PROJECT_ROOT, "config", "trading.json")
+        try:
+            with open(_trading_json_path) as _f:
+                _trading_cfg = json.load(_f)
+        except Exception:
+            _trading_cfg = {}
+        _derisk_cfg = _trading_cfg.get("auto_derisk", {})
+        _sharpe_window = _derisk_cfg.get("rolling_window", 50)
+        _sharpe_disable = _derisk_cfg.get("sharpe_disable", -0.3)
+        _sharpe_recovery = _derisk_cfg.get("recovery_trades", 20)
+        _trade_returns: deque = deque(maxlen=_sharpe_window)
+        _sharpe_paused = False
+        _sharpe_recovery_wins = 0
+
+        # Classify vol tier for this symbol
+        try:
+            _close_s = bars_indexed["close"].astype(float)
+            _high_s = bars_indexed["high"].astype(float) if "high" in bars_indexed.columns else _close_s
+            _low_s = bars_indexed["low"].astype(float) if "low" in bars_indexed.columns else _close_s
+            _ohlc_df = pd.DataFrame({"High": _high_s, "Low": _low_s, "Close": _close_s})
+            _atr_ratio, _vol20 = compute_vol_metrics(_ohlc_df)
+            _vol_tier = classify_vol_tier(_atr_ratio, _vol20)
+        except Exception:
+            _vol_tier = VolTier.HIGH
+        _exit_variant = ExitVariant(self.exit_variant) if self.exit_variant else None
+        ep = get_exit_params("intraday", _vol_tier, variant=_exit_variant)
+        log.info("ETF intraday vol tier: %s, exit params: disaster=%.1f%%, "
+                 "arm=%.1f%%, trail=%.1f%%, BE=%.1f%%, min_hold=%d bars",
+                 _vol_tier.value, ep.disaster_stop_pct * 100,
+                 ep.profit_lock_arm_pct * 100, ep.profit_lock_trail_pct * 100,
+                 ep.breakeven_ratchet_pct * 100, ep.min_hold_bars)
+
+        # Pre-compute ATR for intraday bars (using 5-min OHLC)
+        _bar_high = bars_indexed["high"].astype(float) if "high" in bars_indexed.columns else bars_indexed["close"].astype(float)
+        _bar_low = bars_indexed["low"].astype(float) if "low" in bars_indexed.columns else bars_indexed["close"].astype(float)
+        _bar_close_s = bars_indexed["close"].astype(float)
+        _intraday_atr = compute_atr(_bar_high, _bar_low, _bar_close_s, period=14)
 
         for i in range(len(features)):
             ts = feature_ts.iloc[i]
@@ -930,6 +970,7 @@ class Backtester:
             if closest_idx >= len(bars_indexed):
                 closest_idx = len(bars_indexed) - 1
             bar_close = float(bars_indexed.iloc[closest_idx]["close"])
+            bar_atr = float(_intraday_atr.iloc[closest_idx]) if closest_idx < len(_intraday_atr) and not np.isnan(_intraday_atr.iloc[closest_idx]) else bar_close * 0.005
 
             price_rows.append({"date": bar_date, "close": bar_close})
 
@@ -981,51 +1022,118 @@ class Backtester:
             except Exception:
                 expected_return = 0.0
 
-            # --- Exit logic ---
+            # --- Tiered exit logic (matches swing backtester architecture) ---
             if portfolio.position is not None:
                 pos = portfolio.position
-                bars_in_position += 1
+                pos.bars_held += 1
 
                 if pos.direction == "LONG":
                     unrealized_pct = (bar_close - pos.entry_price) / pos.entry_price
                 else:
                     unrealized_pct = (pos.entry_price - bar_close) / pos.entry_price
 
-                # Disaster stop: 1.5% for ETFs (tighter than crypto 2%)
-                if unrealized_pct <= -0.015:
+                # Track peak price for trailing logic
+                if pos.direction == "LONG":
+                    pos.peak_price = max(pos.peak_price, bar_close)
+                    drawdown_from_peak = (pos.peak_price - bar_close) / pos.peak_price if pos.peak_price > 0 else 0
+                else:
+                    pos.peak_price = min(pos.peak_price, bar_close) if pos.peak_price > 0 else bar_close
+                    drawdown_from_peak = (bar_close - pos.peak_price) / pos.peak_price if pos.peak_price > 0 else 0
+
+                # MFE/MAE tracking
+                pos.mfe_pct = max(pos.mfe_pct, unrealized_pct)
+                pos.mae_pct = min(pos.mae_pct, unrealized_pct)
+
+                # LAYER 1: Disaster stop (vol-tiered, not flat 1.5%)
+                disaster_pct = ep.disaster_stop_pct
+                if ep.use_atr and pos.atr_at_entry > 0:
+                    disaster_pct = min(disaster_pct,
+                                       ep.disaster_atr_mult * pos.atr_at_entry / pos.entry_price)
+                if unrealized_pct <= -disaster_pct:
+                    pos.exit_layer = "safety"
                     self._close_position(portfolio, bar_date, bar_close,
                                          "disaster_stop")
                     recent_wins.append(0)
-                    bars_in_position = 0
+                    self._record_equity(portfolio, bar_date, bar_close)
+                    continue
+
+                # LAYER 1.5: Breakeven ratchet
+                if unrealized_pct >= ep.breakeven_ratchet_pct:
+                    pos.breakeven_armed = True
+                if pos.breakeven_armed and unrealized_pct <= 0:
+                    pos.exit_layer = "breakeven"
+                    self._close_position(portfolio, bar_date, bar_close,
+                                         "breakeven_ratchet")
+                    recent_wins.append(1)  # was profitable, locked at breakeven
+                    self._record_equity(portfolio, bar_date, bar_close)
+                    continue
+
+                # LAYER 1.75: Strong opposing signal override
+                strong_opposing = ((pos.direction == "LONG" and expected_return < -2 * etf_ct)
+                                   or (pos.direction == "SHORT" and expected_return > 2 * etf_ct))
+                if strong_opposing and pos.bars_held >= 2:
+                    pos.exit_layer = "signal_override"
+                    self._close_position(portfolio, bar_date, bar_close,
+                                         "strong_signal_override")
+                    recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
                     self._record_equity(portfolio, bar_date, bar_close)
                     continue
 
                 # Max-hold exit: after MAX_HOLD_BARS (78 bars = full trading day)
-                if bars_in_position >= MAX_HOLD_BARS:
+                if pos.bars_held >= MAX_HOLD_BARS:
+                    pos.exit_layer = "time"
                     self._close_position(portfolio, bar_date, bar_close,
                                          "max_hold")
                     recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
-                    bars_in_position = 0
                     self._record_equity(portfolio, bar_date, bar_close)
                     continue
 
-                # Signal-decay: exit when prediction reverses direction
-                # Only after minimum hold period (parity with paper_trader)
-                if bars_in_position >= min_hold_bars:
-                    if pos.direction == "LONG" and expected_return <= 0:
-                        self._close_position(portfolio, bar_date, bar_close,
-                                             "signal_decay")
-                        recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
-                        bars_in_position = 0
-                        reentry_cooldown_remaining = reentry_cooldown_bars
-                    elif pos.direction == "SHORT" and expected_return >= 0:
-                        self._close_position(portfolio, bar_date, bar_close,
-                                             "signal_decay")
-                        recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
-                        bars_in_position = 0
-                        reentry_cooldown_remaining = reentry_cooldown_bars
+                # LAYER 2: Profit-lock (arm + trail)
+                arm_pct = ep.profit_lock_arm_pct
+                trail_pct = ep.profit_lock_trail_pct
+                if ep.use_atr and pos.atr_at_entry > 0:
+                    arm_pct = min(arm_pct, ep.arm_atr_mult * pos.atr_at_entry / pos.entry_price)
+                    trail_pct = min(trail_pct, ep.trail_atr_mult * pos.atr_at_entry / pos.entry_price)
 
-                # Cooldown check after close
+                if unrealized_pct >= arm_pct:
+                    pos.tp_activated = True
+
+                if pos.tp_activated:
+                    # Armed + model flips + still profitable -> immediate exit
+                    signal_flipped = ((pos.direction == "LONG" and expected_return <= 0)
+                                      or (pos.direction == "SHORT" and expected_return >= 0))
+                    if signal_flipped and unrealized_pct > 0 and pos.bars_held >= ep.min_hold_bars:
+                        pos.exit_layer = "profit_lock"
+                        self._close_position(portfolio, bar_date, bar_close,
+                                             "profit_lock+signal_decay")
+                        recent_wins.append(1)
+                        self._record_equity(portfolio, bar_date, bar_close)
+                        continue
+                    # Trail from peak
+                    if drawdown_from_peak >= trail_pct:
+                        pos.exit_layer = "profit_lock"
+                        self._close_position(portfolio, bar_date, bar_close,
+                                             "profit_lock_trail")
+                        recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
+                        self._record_equity(portfolio, bar_date, bar_close)
+                        continue
+
+                # LAYER 3: Signal decay (consecutive flip requirement)
+                signal_flipped = ((pos.direction == "LONG" and expected_return <= 0)
+                                  or (pos.direction == "SHORT" and expected_return >= 0))
+                if signal_flipped:
+                    pos.signal_flip_count += 1
+                else:
+                    pos.signal_flip_count = 0
+
+                if pos.bars_held >= ep.min_hold_bars and pos.signal_flip_count >= ep.signal_flip_consecutive:
+                    pos.exit_layer = "signal_decay"
+                    self._close_position(portfolio, bar_date, bar_close,
+                                         "signal_decay")
+                    recent_wins.append(1 if portfolio.closed_trades[-1].pnl > 0 else 0)
+                    reentry_cooldown_remaining = reentry_cooldown_bars
+
+                # Rolling win-rate cooldown check
                 if len(recent_wins) == 20 and cooldown_until is None:
                     wr = sum(recent_wins) / 20
                     if wr < 0.5:
@@ -1037,6 +1145,17 @@ class Backtester:
                 continue
 
             # --- Entry logic (no position) ---
+            # Track returns from most recent closed trade (for Sharpe auto-pause)
+            _n_closed = len(portfolio.closed_trades)
+            if _n_closed > 0 and _n_closed > len(_trade_returns):
+                _last_t = portfolio.closed_trades[-1]
+                _pnl_pct = _last_t.pnl / (abs(_last_t.entry_price * _last_t.size) or 1)
+                _trade_returns.append(_pnl_pct)
+                if _last_t.pnl > 0:
+                    _sharpe_recovery_wins += 1
+                else:
+                    _sharpe_recovery_wins = 0
+
             if is_last:
                 self._record_equity(portfolio, bar_date, bar_close)
                 continue
@@ -1047,7 +1166,7 @@ class Backtester:
                 self._record_equity(portfolio, bar_date, bar_close)
                 continue
 
-            # Cooldown gate
+            # Win-rate cooldown gate
             if cooldown_until is not None:
                 if ts < cooldown_until:
                     cooldown_skipped += 1
@@ -1055,6 +1174,32 @@ class Backtester:
                     continue
                 else:
                     cooldown_until = None
+
+            # Sharpe-based auto-pause gate
+            if _sharpe_paused:
+                # Need _sharpe_recovery consecutive wins to resume
+                if _sharpe_recovery_wins >= _sharpe_recovery:
+                    _sharpe_paused = False
+                    _sharpe_recovery_wins = 0
+                    log.info("Sharpe pause lifted at %s after %d recovery wins",
+                             ts, _sharpe_recovery)
+                else:
+                    self._record_equity(portfolio, bar_date, bar_close)
+                    continue
+
+            # Check rolling Sharpe for pause (only if enough trades)
+            if len(_trade_returns) >= 20 and not _sharpe_paused:
+                _ret_arr = np.array(_trade_returns)
+                _mean = _ret_arr.mean()
+                _std = _ret_arr.std()
+                _rolling_sr = (_mean / _std * np.sqrt(252)) if _std > 0 else 0.0
+                if _rolling_sr < _sharpe_disable:
+                    _sharpe_paused = True
+                    _sharpe_recovery_wins = 0
+                    log.info("Rolling Sharpe %.2f < %.2f at %s -> auto-pause",
+                             _rolling_sr, _sharpe_disable, ts)
+                    self._record_equity(portfolio, bar_date, bar_close)
+                    continue
 
             # Entry signal
             enter_dir = None
@@ -1074,9 +1219,8 @@ class Backtester:
                 portfolio.position = Trade(
                     entry_date=bar_date, entry_price=bar_close,
                     direction=enter_dir, size=shares,
-                    peak_price=bar_close, atr_at_entry=0.0,
+                    peak_price=bar_close, atr_at_entry=bar_atr,
                 )
-                bars_in_position = 0
 
             self._record_equity(portfolio, bar_date, bar_close)
 
@@ -1204,6 +1348,21 @@ class Backtester:
                 xgb_q75 = joblib.load(q75_path)
                 log.info("Loaded q25/q75 quantile models for confidence gating.")
 
+        elif self.model_type == "timesfm":
+            # TimesFM zero-shot: no feature engineering, no trained model needed
+            from src.timesfm_predictor import TimesFMPredictor
+            tfm_predictor = TimesFMPredictor(
+                symbol=self.symbol,
+                horizon=10,
+                context_len=256,
+                backend="cpu",
+            )
+            # Use raw bars index for the walk-forward loop
+            features_norm = bars[["close"]].copy()
+            features_norm.index = range(len(features_norm))
+            effective_seq_len = 30  # min context for TimesFM
+            log.info("TimesFM zero-shot mode for %s (no training required).", self.symbol)
+
         else:  # "lstm" (default)
             engine = FeatureEngine()
             suffix = "" if self.mode == "daily" else f"_{self.intraday_interval}"
@@ -1231,6 +1390,15 @@ class Backtester:
             model.load_state_dict(
                 torch.load(weights_path, map_location="cpu", weights_only=True))
             model.eval()
+
+        # TimesFM ensemble: create TimesFM predictor for blending with primary model
+        tfm_ensemble_predictor = None
+        if self.use_timesfm and self.model_type != "timesfm":
+            from src.timesfm_predictor import TimesFMPredictor
+            tfm_ensemble_predictor = TimesFMPredictor(
+                symbol=self.symbol, horizon=10, context_len=256, backend="cpu",
+            )
+            log.info("TimesFM ensemble enabled — will blend with %s predictions.", self.model_type)
 
         # Pre-compute indicators for v2 strategy
         close_s = bars["close"].astype(float)
@@ -1310,7 +1478,12 @@ class Backtester:
             bar_trend = float(trend_signal.iloc[feat_idx]) if not np.isnan(trend_signal.iloc[feat_idx]) else 0.0
 
             # --- Get prediction (v2 regression: expected return) ---
-            if xgb_model is not None:
+            if self.model_type == "timesfm":
+                # TimesFM zero-shot: feed raw bars up to current position
+                bars_slice = bars.iloc[:feat_idx + 1]
+                tfm_result = tfm_predictor.predict(bars_slice, vix_df)
+                expected_return = tfm_result["expected_return"]
+            elif xgb_model is not None:
                 if swing_feature_names:
                     avail = [c for c in swing_feature_names if c in features_norm.columns]
                     x_row = features_norm[avail].iloc[idx_pos:idx_pos + 1].values.astype(np.float32)
@@ -1355,6 +1528,17 @@ class Backtester:
                 x = torch.FloatTensor(window).unsqueeze(0)
                 with torch.no_grad():
                     expected_return = model(x).item()
+
+            # --- TimesFM ensemble blend (if enabled) ---
+            if tfm_ensemble_predictor is not None:
+                try:
+                    bars_slice = bars.iloc[:feat_idx + 1]
+                    tfm_result = tfm_ensemble_predictor.predict(bars_slice, vix_df)
+                    tfm_er = tfm_result["expected_return"]
+                    # 70/30 blend (primary/TimesFM)
+                    expected_return = 0.70 * expected_return + 0.30 * tfm_er
+                except Exception:
+                    pass  # keep primary-only on TimesFM failure
 
             # --- Exit logic (tier-based: safety > breakeven > profit-lock > signal decay > time) ---
             if portfolio.position is not None:
@@ -2374,8 +2558,10 @@ def main() -> None:
     parser.add_argument("--interval", default="5min", choices=["1min", "5min"],
                         help="Intraday bar interval (default: 5min)")
     parser.add_argument("--model", default="lstm",
-                        choices=["lstm", "swing", "options", "intraday", "crypto_intraday", "etf_intraday"],
-                        help="Model type: lstm (default), swing, options, intraday, crypto_intraday, etf_intraday")
+                        choices=["lstm", "swing", "options", "intraday", "crypto_intraday", "etf_intraday", "timesfm"],
+                        help="Model type: lstm (default), swing, options, intraday, crypto_intraday, etf_intraday, timesfm")
+    parser.add_argument("--timesfm", action="store_true",
+                        help="Enable TimesFM ensemble: blend primary model with TimesFM zero-shot forecasts")
     parser.add_argument("--model-dir", type=str, default=None,
                         help="Directory for model files (default: models/ or models/crypto/ for crypto)")
     # v2 regression parameters
@@ -2413,6 +2599,10 @@ def main() -> None:
         log.info("Auto-setting --mode intraday (required by --model %s)", args.model)
         args.mode = "intraday"
 
+    if args.model == "timesfm" and args.timesfm:
+        log.warning("--model timesfm already uses TimesFM only; ignoring --timesfm flag.")
+        args.timesfm = False
+
     adapter = build_adapter(args.provider)
     fred_key = os.environ.get("FRED_API_KEY")
 
@@ -2433,6 +2623,8 @@ def main() -> None:
             model_dir = INTRADAY_MODEL_DIR
         elif args.model == "crypto_intraday":
             model_dir = CRYPTO_INTRADAY_MODEL_DIR
+        elif args.model == "timesfm":
+            model_dir = DEFAULT_MODEL_DIR  # no model files needed, but keep consistent
         else:
             model_dir = DEFAULT_MODEL_DIR
 
@@ -2457,6 +2649,7 @@ def main() -> None:
         stress_cost_mult=args.stress_cost_mult,
         use_cost_model=not args.no_cost_model,
         exit_variant=args.exit_variant,
+        use_timesfm=args.timesfm,
     )
 
     result = bt.run(start_date=args.start, end_date=args.end)

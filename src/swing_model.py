@@ -117,7 +117,11 @@ CRYPTO_REGIME_FEATURES = [
 ]
 
 # Crypto sentiment features — OKX L/S ratio, Fear & Greed, Polymarket
-from crypto_sentiment_features import get_crypto_sentiment_features, CryptoSentimentBuilder
+try:
+    from crypto_sentiment_features import get_crypto_sentiment_features, CryptoSentimentBuilder
+except ImportError:
+    get_crypto_sentiment_features = None
+    CryptoSentimentBuilder = None
 
 # Per-symbol supplement features (fetched from proxy ETFs)
 SWING_SUPPLEMENT_FEATURES: Dict[str, List[str]] = {
@@ -308,7 +312,8 @@ def get_swing_feature_cols(symbol: str | None = None) -> list:
     # Crypto regime features (BTC trend, vol, drawdown, ETH/BTC ratio)
     if _is_crypto_swing(symbol):
         cols.extend(CRYPTO_REGIME_FEATURES)
-        cols.extend(get_crypto_sentiment_features())
+        if get_crypto_sentiment_features is not None:
+            cols.extend(get_crypto_sentiment_features())
 
     # Symbol-specific supplement features
     if symbol and symbol in SWING_SUPPLEMENT_FEATURES:
@@ -496,6 +501,8 @@ class SwingFeatureEngine:
         # --- Crypto sentiment features (OKX L/S, Fear & Greed, Polymarket) ---
         if _is_crypto_swing(symbol):
             try:
+                if CryptoSentimentBuilder is None:
+                    raise ImportError("crypto_sentiment_features not available")
                 if self._sentiment_builder is None:
                     self._sentiment_builder = CryptoSentimentBuilder()
                 sent_df = self._sentiment_builder.build_features(bars_df, symbol)
@@ -503,9 +510,10 @@ class SwingFeatureEngine:
                     df[col] = sent_df[col]
             except Exception as exc:
                 log.warning("Crypto sentiment features failed for %s: %s", symbol, exc)
-                for col in get_crypto_sentiment_features():
-                    if col not in df.columns:
-                        df[col] = np.nan
+                if get_crypto_sentiment_features is not None:
+                    for col in get_crypto_sentiment_features():
+                        if col not in df.columns:
+                            df[col] = np.nan
 
         # --- Supplement features (copper / SOX) ---
         if symbol and symbol in SWING_SUPPLEMENT_FEATURES:

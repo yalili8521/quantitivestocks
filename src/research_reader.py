@@ -161,12 +161,57 @@ class MacroSignal:
 
 
 @dataclass
+class InsiderSignal:
+    """Notable insider transaction extracted from Signal Manifest."""
+    symbol: str
+    direction: str         # "buy" or "sell"
+    amount: str            # free-form, e.g. "$2.3M" or "$16.1B trailing 2y"
+    insider: str           # name/title, may be empty
+    date: str              # report date (YYYY-MM-DD)
+
+
+@dataclass
+class OptionsSignal:
+    """Unusual options activity extracted from Signal Manifest."""
+    symbol: str
+    direction: str         # "calls" or "puts"
+    strike: str            # e.g. "$200"
+    expiry: str            # e.g. "Apr 10"
+    volume_oi_ratio: str   # free-form, e.g. "46:1"
+    date: str              # report date
+
+
+@dataclass
+class SectorFlowSignal:
+    """Sector-level fund flow signal."""
+    category: str          # ETF screener category
+    direction: str         # "inflow", "outflow", "neutral"
+    magnitude: str         # "high", "medium", "low"
+    keywords: List[str]    # triggering sector keywords
+    date: str
+
+
+@dataclass
+class AccuracyRecord:
+    """Record of a prior-day call being scored."""
+    call_date: str         # date of the call being scored
+    symbol: str
+    outcome: str           # "CONFIRMED", "INVALIDATED", "PENDING"
+    actual: str            # free-form actual result
+    report_date: str       # date of the report doing the scoring
+
+
+@dataclass
 class ResearchSignals:
     """Aggregated signals from one or more research reports."""
     ticker_mentions: List[TickerMention] = field(default_factory=list)
     sector_signals: List[SectorSignal] = field(default_factory=list)
     macro_signals: List[MacroSignal] = field(default_factory=list)
     themes: List[str] = field(default_factory=list)
+    insider_signals: List[InsiderSignal] = field(default_factory=list)
+    options_signals: List[OptionsSignal] = field(default_factory=list)
+    sector_flow_signals: List[SectorFlowSignal] = field(default_factory=list)
+    accuracy_records: List[AccuracyRecord] = field(default_factory=list)
     dates_read: List[str] = field(default_factory=list)
 
 
@@ -176,21 +221,47 @@ class ResearchReader:
     def __init__(self, research_dir: str = RESEARCH_DIR):
         self.research_dir = research_dir
 
+    # Accepted filename patterns, in priority order. Each regex must define
+    # a single capture group yielding the YYYY-MM-DD date string.
+    _FILENAME_PATTERNS = (
+        re.compile(r"^Market_Intel_(\d{4}-\d{2}-\d{2})\.md$"),
+        re.compile(r"^(\d{4}-\d{2}-\d{2})\.md$"),
+    )
+
     def _list_available_dates(self) -> List[str]:
-        """List available research file dates, sorted descending."""
+        """List available research file dates, sorted descending.
+
+        Supports both legacy ``YYYY-MM-DD.md`` and newer
+        ``Market_Intel_YYYY-MM-DD.md`` naming conventions. If both files exist
+        for the same date, the ``Market_Intel_`` variant wins (it is the
+        current generation format).
+        """
         if not os.path.isdir(self.research_dir):
+            self._date_to_file = {}
             return []
-        dates = []
+
+        date_to_file: Dict[str, str] = {}
         for fname in os.listdir(self.research_dir):
-            if fname.endswith(".md"):
-                date_str = fname.replace(".md", "")
-                # Validate date format
-                try:
-                    datetime.strptime(date_str, "%Y-%m-%d")
-                    dates.append(date_str)
-                except ValueError:
-                    continue
-        return sorted(dates, reverse=True)
+            if not fname.endswith(".md"):
+                continue
+            date_str = None
+            for idx, pat in enumerate(self._FILENAME_PATTERNS):
+                m = pat.match(fname)
+                if m:
+                    date_str = m.group(1)
+                    # Validate date format
+                    try:
+                        datetime.strptime(date_str, "%Y-%m-%d")
+                    except ValueError:
+                        date_str = None
+                        continue
+                    # Priority: Market_Intel_ (idx=0) wins over legacy (idx=1)
+                    if date_str not in date_to_file or idx == 0:
+                        date_to_file[date_str] = fname
+                    break
+
+        self._date_to_file = date_to_file
+        return sorted(date_to_file.keys(), reverse=True)
 
     def read_last_n_days(self, n: int = 7) -> ResearchSignals:
         """Read and parse the last N days of research reports."""
@@ -206,7 +277,8 @@ class ResearchReader:
 
         all_signals = ResearchSignals(dates_read=to_read)
         for date_str in to_read:
-            path = os.path.join(self.research_dir, f"{date_str}.md")
+            fname = self._date_to_file.get(date_str, f"{date_str}.md")
+            path = os.path.join(self.research_dir, fname)
             try:
                 with open(path, encoding="utf-8") as f:
                     content = f.read()
@@ -214,9 +286,14 @@ class ResearchReader:
             except Exception as exc:
                 log.warning("Failed to read %s: %s", path, exc)
 
-        log.info("Extracted: %d ticker mentions, %d sector signals, %d macro signals, %d themes",
-                 len(all_signals.ticker_mentions), len(all_signals.sector_signals),
-                 len(all_signals.macro_signals), len(all_signals.themes))
+        log.info(
+            "Extracted: %d tickers, %d sectors, %d macro, %d themes, "
+            "%d insider, %d options, %d flows, %d accuracy",
+            len(all_signals.ticker_mentions), len(all_signals.sector_signals),
+            len(all_signals.macro_signals), len(all_signals.themes),
+            len(all_signals.insider_signals), len(all_signals.options_signals),
+            len(all_signals.sector_flow_signals), len(all_signals.accuracy_records),
+        )
         return all_signals
 
     def _classify_heading(self, heading: str) -> str:
@@ -259,13 +336,31 @@ class ResearchReader:
         return "general"
 
     # Signal Manifest — explicit sentiment vocabulary
+    # Keys are normalized to uppercase for sectors, lowercase for tickers.
+    # Multi-word terms MUST be present here AND in the regex alternation
+    # inside _parse_manifest_sectors / _parse_manifest_tickers.
     MANIFEST_SECTOR_SCORES = {
-        "STRONG": 1.0, "BULLISH": 0.7, "NEUTRAL": 0.0,
-        "WEAK": -0.7, "BEARISH": -1.0,
+        "STRONG": 1.0,
+        "BULLISH": 0.7,
+        "RECOVERING": 0.4,
+        "NEUTRAL": 0.0,
+        "WATCH": 0.0,
+        "WEAK": -0.7,
+        "REVERSAL": -0.8,
+        "SHARP REVERSAL": -1.0,
+        "BEARISH": -1.0,
     }
     MANIFEST_TICKER_SCORES = {
-        "bullish": 0.8, "leaning bullish": 0.4, "neutral": 0.0,
-        "leaning bearish": -0.4, "bearish": -0.8,
+        "bullish": 0.8,
+        "bullish reversal": 0.8,
+        "leaning bullish": 0.4,
+        "hot mover": 0.6,
+        "monitoring": 0.0,
+        "neutral": 0.0,
+        "cautious": -0.4,
+        "leaning bearish": -0.4,
+        "bearish": -0.8,
+        "bearish reversal": -0.8,
     }
 
     def _parse_report(self, content: str, date_str: str,
@@ -372,7 +467,165 @@ class ResearchReader:
             self._parse_themes_section(sub_sections["themes"], signals)
             parsed_any = True
 
+        # --- Insider Signals (optional) ---
+        if "insider signals" in sub_sections:
+            self._parse_manifest_insider(
+                sub_sections["insider signals"], date_str, signals
+            )
+
+        # --- Options Signals (optional) ---
+        if "options signals" in sub_sections:
+            self._parse_manifest_options(
+                sub_sections["options signals"], date_str, signals
+            )
+
+        # --- Sector Flows (optional) ---
+        if "sector flows" in sub_sections:
+            self._parse_manifest_sector_flows(
+                sub_sections["sector flows"], date_str, signals
+            )
+
+        # --- Accuracy (optional) ---
+        if "accuracy" in sub_sections:
+            self._parse_manifest_accuracy(
+                sub_sections["accuracy"], date_str, signals
+            )
+
         return parsed_any
+
+    # Regex: "- AAPL: insider_buy, $2.3M, CEO Tim Cook"
+    _INSIDER_RE = re.compile(
+        r"[-*]\s*([A-Z]{1,5})\s*:\s*"
+        r"insider[_\s]*(buy|sell)\b"
+        r"\s*,?\s*([^,]*?)"
+        r"(?:\s*,\s*(.*))?$",
+        re.IGNORECASE,
+    )
+
+    def _parse_manifest_insider(self, body: str, date_str: str,
+                                 signals: ResearchSignals) -> None:
+        """Parse the Insider Signals sub-section."""
+        for line in body.splitlines():
+            line = line.strip()
+            if not line or line.lower().startswith("- none"):
+                continue
+            m = self._INSIDER_RE.match(line)
+            if not m:
+                continue
+            symbol = m.group(1).upper()
+            direction = m.group(2).lower()
+            amount = (m.group(3) or "").strip()
+            insider = (m.group(4) or "").strip()
+            signals.insider_signals.append(
+                InsiderSignal(symbol=symbol, direction=direction,
+                              amount=amount, insider=insider, date=date_str)
+            )
+
+    # Regex: "- FSLR: unusual_calls, $200, Apr 10, 46:1"
+    _OPTIONS_RE = re.compile(
+        r"[-*]\s*([A-Z]{1,5})\s*:\s*"
+        r"unusual[_\s]*(calls|puts)\b"
+        r"\s*,\s*([^,]+?)"
+        r"\s*,\s*([^,]+?)"
+        r"(?:\s*,\s*(.*))?$",
+        re.IGNORECASE,
+    )
+
+    def _parse_manifest_options(self, body: str, date_str: str,
+                                 signals: ResearchSignals) -> None:
+        """Parse the Options Signals sub-section."""
+        for line in body.splitlines():
+            line = line.strip()
+            if not line or line.lower().startswith("- none"):
+                continue
+            m = self._OPTIONS_RE.match(line)
+            if not m:
+                continue
+            signals.options_signals.append(
+                OptionsSignal(
+                    symbol=m.group(1).upper(),
+                    direction=m.group(2).lower(),
+                    strike=m.group(3).strip(),
+                    expiry=m.group(4).strip(),
+                    volume_oi_ratio=(m.group(5) or "").strip(),
+                    date=date_str,
+                )
+            )
+
+    # Regex: "- Semiconductors: INFLOW, high"
+    _SECTOR_FLOW_RE = re.compile(
+        r"[-*]\s*(.+?):\s*(INFLOW|OUTFLOW|NEUTRAL)\b"
+        r"(?:\s*,\s*(high|medium|low))?",
+        re.IGNORECASE,
+    )
+
+    def _parse_manifest_sector_flows(self, body: str, date_str: str,
+                                      signals: ResearchSignals) -> None:
+        """Parse the Sector Flows sub-section."""
+        for line in body.splitlines():
+            line = line.strip()
+            if not line or line.lower().startswith("- none"):
+                continue
+            m = self._SECTOR_FLOW_RE.match(line)
+            if not m:
+                continue
+            sector_name = m.group(1).strip().lower()
+            direction = m.group(2).lower()
+            magnitude = (m.group(3) or "medium").lower()
+
+            # Map to ETF categories using same logic as sector parsing
+            matched_cats: Set[str] = set()
+            matched_kw: List[str] = []
+            for keyword, category in SECTOR_CATEGORY_MAP.items():
+                if len(keyword) <= 3:
+                    if re.search(r"\b" + re.escape(keyword) + r"\b", sector_name):
+                        matched_cats.add(category)
+                        matched_kw.append(keyword)
+                else:
+                    if keyword in sector_name:
+                        matched_cats.add(category)
+                        matched_kw.append(keyword)
+
+            if not matched_cats:
+                matched_cats.add("us_sector")
+                matched_kw.append(sector_name)
+
+            for cat in matched_cats:
+                signals.sector_flow_signals.append(
+                    SectorFlowSignal(
+                        category=cat, direction=direction,
+                        magnitude=magnitude, keywords=matched_kw,
+                        date=date_str,
+                    )
+                )
+
+    # Regex: "- 2026-04-07 NVDA call: CONFIRMED, closed +2.1%"
+    _ACCURACY_RE = re.compile(
+        r"[-*]\s*(\d{4}-\d{2}-\d{2})\s+([A-Z]{1,5})\s+call\s*:\s*"
+        r"(CONFIRMED|INVALIDATED|PENDING)\b"
+        r"(?:\s*,\s*(.*))?$",
+        re.IGNORECASE,
+    )
+
+    def _parse_manifest_accuracy(self, body: str, date_str: str,
+                                  signals: ResearchSignals) -> None:
+        """Parse the Accuracy sub-section — prior-day call outcomes."""
+        for line in body.splitlines():
+            line = line.strip()
+            if not line or line.lower().startswith("- none"):
+                continue
+            m = self._ACCURACY_RE.match(line)
+            if not m:
+                continue
+            signals.accuracy_records.append(
+                AccuracyRecord(
+                    call_date=m.group(1),
+                    symbol=m.group(2).upper(),
+                    outcome=m.group(3).upper(),
+                    actual=(m.group(4) or "").strip(),
+                    report_date=date_str,
+                )
+            )
 
     def _parse_manifest_macro(self, body: str, date_str: str,
                                signals: ResearchSignals) -> None:
@@ -425,8 +678,13 @@ class ResearchReader:
 
         Expected format: - Category: STRONG/BULLISH/NEUTRAL/WEAK/BEARISH — description
         """
+        # Longer multi-word terms must appear first in the alternation so
+        # the regex engine prefers "SHARP REVERSAL" over "REVERSAL".
         sector_re = re.compile(
-            r"[-*]\s*(.+?):\s*(STRONG|BULLISH|NEUTRAL|WEAK|BEARISH)\b\s*(?:—\s*(.*))?",
+            r"[-*]\s*(.+?):\s*"
+            r"(SHARP\s+REVERSAL|REVERSAL|RECOVERING|WATCH|"
+            r"STRONG|BULLISH|NEUTRAL|WEAK|BEARISH)"
+            r"\b\s*(?:[—\-]+\s*(.*))?",
             re.IGNORECASE,
         )
         for line in body.splitlines():
@@ -434,7 +692,8 @@ class ResearchReader:
             if not m:
                 continue
             sector_name = m.group(1).strip().lower()
-            call = m.group(2).upper()
+            # Normalize whitespace inside multi-word call ("SHARP  REVERSAL" → "SHARP REVERSAL")
+            call = re.sub(r"\s+", " ", m.group(2).upper().strip())
             sentiment = self.MANIFEST_SECTOR_SCORES.get(call, 0.0)
 
             # Map to categories using word-boundary matching to avoid
@@ -469,9 +728,13 @@ class ResearchReader:
 
         Expected format: - TICKER: bullish/leaning bullish/neutral/leaning bearish/bearish, description
         """
+        # Multi-word terms must come first in the alternation.
         ticker_re = re.compile(
             r"[-*]\s*([A-Z]{2,5})\s*:\s*"
-            r"(leaning bullish|leaning bearish|bullish|bearish|neutral)"
+            r"(bullish\s+reversal|bearish\s+reversal|"
+            r"leaning\s+bullish|leaning\s+bearish|"
+            r"hot\s+mover|monitoring|cautious|"
+            r"bullish|bearish|neutral)"
             r"\s*[,—\-]?\s*(.*)",
             re.IGNORECASE,
         )
@@ -480,7 +743,7 @@ class ResearchReader:
             if not m:
                 continue
             symbol = m.group(1).upper()
-            call = m.group(2).lower()
+            call = re.sub(r"\s+", " ", m.group(2).lower().strip())
             context = m.group(3).strip() if m.group(3) else ""
             sentiment = self.MANIFEST_TICKER_SCORES.get(call, 0.0)
 
@@ -745,10 +1008,45 @@ class ResearchReader:
             weight = sig.sentiment * (decay ** rank) * 0.5  # half weight for sector-level
             cat_scores.setdefault(sig.category, []).append(weight)
 
+        # Sector flow bias → category-level, weaker multiplier (slower signal)
+        FLOW_MAGNITUDE = {"high": 1.0, "medium": 0.6, "low": 0.3}
+        for flow in signals.sector_flow_signals:
+            rank = date_rank.get(flow.date, len(date_order))
+            base = FLOW_MAGNITUDE.get(flow.magnitude, 0.6)
+            if flow.direction == "inflow":
+                score = base * 0.3 * (decay ** rank)
+            elif flow.direction == "outflow":
+                score = -base * 0.3 * (decay ** rank)
+            else:
+                score = 0.0
+            cat_scores.setdefault(flow.category, []).append(score)
+
         # Apply sector scores to tickers
         for symbol, category in TICKER_CATEGORY_HINTS.items():
             if category in cat_scores:
                 symbol_scores.setdefault(symbol, []).extend(cat_scores[category])
+
+        # Insider signal bias (asymmetric: buys are more informative than sells)
+        for ins in signals.insider_signals:
+            rank = date_rank.get(ins.date, len(date_order))
+            if ins.direction == "buy":
+                bias = 0.3 * (decay ** rank)
+            elif ins.direction == "sell":
+                bias = -0.15 * (decay ** rank)
+            else:
+                bias = 0.0
+            symbol_scores.setdefault(ins.symbol, []).append(bias)
+
+        # Options flow bias
+        for opt in signals.options_signals:
+            rank = date_rank.get(opt.date, len(date_order))
+            if opt.direction == "calls":
+                bias = 0.2 * (decay ** rank)
+            elif opt.direction == "puts":
+                bias = -0.2 * (decay ** rank)
+            else:
+                bias = 0.0
+            symbol_scores.setdefault(opt.symbol, []).append(bias)
 
         # Macro regime → broad market bias
         for macro in signals.macro_signals:
@@ -842,6 +1140,30 @@ def main() -> None:
             direction = "BULL" if t.sentiment > 0 else "BEAR" if t.sentiment < 0 else "NEUT"
             print(f"    [{t.date}] {t.symbol:<6} {direction} ({t.sentiment:+.2f}) "
                   f"{t.context[:60]}")
+
+    if signals.insider_signals:
+        print("\n  Insider Signals:")
+        for ins in signals.insider_signals:
+            print(f"    [{ins.date}] {ins.symbol:<6} {ins.direction.upper():<4} "
+                  f"{ins.amount}  {ins.insider}")
+
+    if signals.options_signals:
+        print("\n  Options Signals:")
+        for opt in signals.options_signals:
+            print(f"    [{opt.date}] {opt.symbol:<6} {opt.direction.upper():<5} "
+                  f"{opt.strike} {opt.expiry}  ratio={opt.volume_oi_ratio}")
+
+    if signals.sector_flow_signals:
+        print("\n  Sector Flows:")
+        for f in signals.sector_flow_signals:
+            print(f"    [{f.date}] {f.category:<16} {f.direction.upper():<7} "
+                  f"{f.magnitude:<6} keys={f.keywords}")
+
+    if signals.accuracy_records:
+        print("\n  Accuracy Records:")
+        for a in signals.accuracy_records:
+            print(f"    [{a.report_date}] {a.call_date} {a.symbol:<6} "
+                  f"{a.outcome:<12} {a.actual[:50]}")
 
     if signals.themes:
         print(f"\n  Themes: {', '.join(signals.themes)}")

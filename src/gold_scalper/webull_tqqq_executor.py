@@ -23,9 +23,6 @@ from zoneinfo import ZoneInfo
 from webull.core.client import ApiClient
 from webull.core.common.region import Region
 from webull.trade.trade_client import TradeClient
-from webull.trade.common.order_side import OrderSide
-from webull.trade.common.order_type import OrderType
-from webull.trade.common.order_tif import OrderTIF
 
 logger = logging.getLogger("webull_tqqq")
 
@@ -65,7 +62,6 @@ class WebullTQQQExecutor:
         self._api_client: Optional[ApiClient] = None
         self._trade_client: Optional[TradeClient] = None
         self._account_id: Optional[str] = None
-        self._instrument_id: Optional[str] = None  # TQQQ instrument ID on Webull
 
         # Position state
         self.position: Optional[TQQQPosition] = None
@@ -128,31 +124,10 @@ class WebullTQQQExecutor:
             else:
                 logger.error("[WEBULL_TQQQ] No accounts found in response: %s", data)
 
-            # Look up TQQQ instrument ID
-            self._lookup_instrument()
-
         except Exception as e:
             logger.error("[WEBULL_TQQQ] Failed to initialize Webull: %s", e)
             logger.warning("[WEBULL_TQQQ] Will retry Webull init on first order")
             # Keep live_orders=True — retry on first trade
-
-    def _lookup_instrument(self):
-        """Look up TQQQ instrument ID on Webull."""
-        if not self._trade_client:
-            return
-        try:
-            resp = self._trade_client.trade_instrument.get_tradeable_instruments(
-                instrument_sup_type="stock",
-                symbol="TQQQ",
-            )
-            if resp:
-                data = resp.json() if hasattr(resp, 'json') else resp
-                instruments = data.get("data", data.get("instruments", []))
-                if instruments:
-                    self._instrument_id = str(instruments[0].get("instrument_id", ""))
-                    logger.info("[WEBULL_TQQQ] TQQQ instrument_id: %s", self._instrument_id)
-        except Exception as e:
-            logger.warning("[WEBULL_TQQQ] Instrument lookup failed: %s", e)
 
     def execute(self, body: dict) -> dict:
         """Process a TradingView webhook signal.
@@ -414,19 +389,19 @@ class WebullTQQQExecutor:
         try:
             client_order_id = f"tqqq_{uuid.uuid4().hex[:16]}"
 
-            order_side = OrderSide.BUY if side == "BUY" else OrderSide.SELL
-
-            # Limit order at TV price
+            # Limit order at TV price — uses symbol (not instrument_id)
             new_order = {
-                "instrument_id": self._instrument_id,
-                "qty": str(qty),
-                "side": order_side.value if hasattr(order_side, 'value') else side,
-                "order_type": OrderType.LIMIT.value if hasattr(OrderType.LIMIT, 'value') else "LIMIT",
+                "symbol": "TQQQ",
+                "instrument_type": "STOCK",
+                "side": side,
+                "order_type": "LIMIT",
                 "limit_price": str(round(price, 2)),
-                "tif": OrderTIF.DAY.value if hasattr(OrderTIF.DAY, 'value') else "DAY",
-                "extended_hours_trading": False,
+                "total_quantity": str(qty),
+                "time_in_force": "DAY",
                 "client_order_id": client_order_id,
                 "market": "US",
+                "support_trading_session": "CORE",
+                "entrust_type": "QTY",
             }
 
             logger.info("[WEBULL_TQQQ] Placing LIMIT %s %d shares @ $%.2f", side, qty, price)

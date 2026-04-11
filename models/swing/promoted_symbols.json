@@ -1,1373 +1,306 @@
 {
-  "promoted_at": "2026-03-18T03:36:15.933820+00:00",
+  "promoted_at": "2026-04-08T22:52:49.332611+00:00",
   "thresholds": {
-    "min_sharpe": 0.0,
-    "min_trades": 3,
+    "min_sharpe": 0.5,
+    "min_trades": 5,
     "min_win_rate": 0.4,
-    "max_drawdown": -50.0
+    "max_drawdown": -15.0
   },
-  "count": 59,
+  "count": 11,
   "symbols": [
-    "XLRE",
     "ARKK",
-    "VTV",
-    "IGV",
-    "EMB",
-    "PDBC",
-    "BND",
-    "XLP",
-    "USO",
-    "XLU",
     "EWJ",
-    "VBR",
-    "IEF",
-    "IWM",
-    "IWF",
-    "EWT",
-    "ETHA",
-    "EWH",
+    "PDBC",
     "CIBR",
-    "LQD",
-    "EWW",
-    "TLT",
-    "MTUM",
-    "XLV",
-    "IBIT",
+    "EWH",
+    "IWM",
     "VGK",
-    "FBTC",
-    "SOXX",
-    "EWC",
-    "EWZ",
-    "EWA",
-    "IWB",
-    "EWY",
-    "SHY",
-    "XLK",
-    "SPY",
     "USMV",
-    "QQQ",
-    "VWO",
-    "EEM",
-    "EWU",
-    "SMH",
-    "QUAL",
-    "INDA",
-    "GLD",
-    "IAU",
-    "SLV",
-    "GDX",
-    "XLI",
-    "XLE",
-    "GDXJ",
-    "HYG",
-    "URNM",
-    "XLB",
-    "TIP",
-    "MCHI",
-    "XLF",
-    "EWG",
-    "XLY"
+    "EWY",
+    "USO",
+    "EWU"
   ],
   "details": [
     {
-      "symbol": "XLRE",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.76,
-      "annualized_return_pct": 4.83,
-      "sharpe_ratio": 4.903,
-      "max_drawdown_pct": -0.15,
-      "total_trades": 3,
-      "win_rate": 0.667,
-      "profit_factor": 1204.658,
-      "avg_trade_duration_days": 18.7,
-      "updated_at": "2026-03-26T23:06:14.692740+00:00"
-    },
-    {
       "symbol": "ARKK",
       "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 1.99,
-      "annualized_return_pct": 12.99,
-      "sharpe_ratio": 4.739,
-      "max_drawdown_pct": -0.68,
-      "total_trades": 5,
-      "win_rate": 0.6,
-      "profit_factor": 7.131,
-      "avg_trade_duration_days": 11.0,
-      "updated_at": "2026-03-26T22:48:00.722540+00:00"
-    },
-    {
-      "symbol": "VTV",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.61,
-      "annualized_return_pct": 3.85,
-      "sharpe_ratio": 4.736,
-      "max_drawdown_pct": -0.12,
-      "total_trades": 3,
-      "win_rate": 0.667,
-      "profit_factor": 97.376,
-      "avg_trade_duration_days": 19.0,
-      "updated_at": "2026-03-26T23:03:35.170699+00:00"
-    },
-    {
-      "symbol": "IGV",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 2.02,
-      "annualized_return_pct": 13.19,
-      "sharpe_ratio": 4.723,
-      "max_drawdown_pct": -0.65,
-      "total_trades": 4,
-      "win_rate": 0.5,
-      "profit_factor": 13.222,
-      "avg_trade_duration_days": 14.0,
-      "updated_at": "2026-03-26T22:55:45.590032+00:00"
-    },
-    {
-      "symbol": "EMB",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.28,
-      "annualized_return_pct": 1.74,
-      "sharpe_ratio": 4.329,
-      "max_drawdown_pct": -0.08,
-      "total_trades": 3,
-      "win_rate": 0.667,
-      "profit_factor": 27.597,
-      "avg_trade_duration_days": 16.3,
-      "updated_at": "2026-03-26T22:49:24.533351+00:00"
-    },
-    {
-      "symbol": "PDBC",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.42,
-      "annualized_return_pct": 2.63,
-      "sharpe_ratio": 4.129,
-      "max_drawdown_pct": -0.12,
-      "total_trades": 3,
-      "win_rate": 0.667,
-      "profit_factor": 5.772,
-      "avg_trade_duration_days": 17.7,
-      "updated_at": "2026-03-26T22:58:15.505487+00:00"
-    },
-    {
-      "symbol": "BND",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.22,
-      "annualized_return_pct": 1.34,
-      "sharpe_ratio": 4.098,
-      "max_drawdown_pct": -0.07,
-      "total_trades": 3,
-      "win_rate": 0.667,
-      "profit_factor": 9.718,
-      "avg_trade_duration_days": 14.7,
-      "updated_at": "2026-03-26T22:48:21.155738+00:00"
-    },
-    {
-      "symbol": "XLP",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.5,
-      "annualized_return_pct": 3.13,
-      "sharpe_ratio": 4.095,
-      "max_drawdown_pct": -0.14,
-      "total_trades": 4,
-      "win_rate": 0.75,
-      "profit_factor": 5.901,
-      "avg_trade_duration_days": 13.5,
-      "updated_at": "2026-03-26T23:05:57.688400+00:00"
-    },
-    {
-      "symbol": "USO",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 2.05,
-      "annualized_return_pct": 13.38,
-      "sharpe_ratio": 3.896,
-      "max_drawdown_pct": -0.48,
-      "total_trades": 6,
-      "win_rate": 0.833,
-      "profit_factor": 14.573,
-      "avg_trade_duration_days": 8.7,
-      "updated_at": "2026-03-26T23:02:32.410984+00:00"
-    },
-    {
-      "symbol": "XLU",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.58,
-      "annualized_return_pct": 3.67,
-      "sharpe_ratio": 3.62,
-      "max_drawdown_pct": -0.2,
-      "total_trades": 2,
-      "win_rate": 1.0,
-      "profit_factor": 999.0,
-      "avg_trade_duration_days": 27.0,
-      "updated_at": "2026-03-26T23:06:32.676148+00:00"
+      "end_date": "2026-04-08",
+      "total_return_pct": 2.68,
+      "annualized_return_pct": 14.36,
+      "sharpe_ratio": 6.092,
+      "max_drawdown_pct": -0.25,
+      "total_trades": 7,
+      "win_rate": 0.714,
+      "profit_factor": 12.495,
+      "avg_trade_duration_days": 8.1
     },
     {
       "symbol": "EWJ",
       "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 1.24,
-      "annualized_return_pct": 7.95,
-      "sharpe_ratio": 3.588,
-      "max_drawdown_pct": -0.33,
+      "end_date": "2026-04-08",
+      "total_return_pct": 2.2,
+      "annualized_return_pct": 11.67,
+      "sharpe_ratio": 4.663,
+      "max_drawdown_pct": -0.32,
       "total_trades": 6,
       "win_rate": 0.5,
-      "profit_factor": 9.258,
-      "avg_trade_duration_days": 9.0,
-      "updated_at": "2026-03-26T22:51:18.396280+00:00"
+      "profit_factor": 33.332,
+      "avg_trade_duration_days": 11.0
     },
     {
-      "symbol": "VBR",
+      "symbol": "PDBC",
       "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.29,
-      "annualized_return_pct": 1.79,
-      "sharpe_ratio": 3.4,
-      "max_drawdown_pct": -0.11,
-      "total_trades": 3,
-      "win_rate": 0.667,
-      "profit_factor": 13.825,
-      "avg_trade_duration_days": 18.7,
-      "updated_at": "2026-03-26T23:02:53.400098+00:00"
-    },
-    {
-      "symbol": "IEF",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.24,
-      "annualized_return_pct": 1.52,
-      "sharpe_ratio": 3.067,
-      "max_drawdown_pct": -0.11,
-      "total_trades": 3,
-      "win_rate": 0.667,
-      "profit_factor": 9.175,
-      "avg_trade_duration_days": 15.7,
-      "updated_at": "2026-03-26T22:55:19.313954+00:00"
-    },
-    {
-      "symbol": "IWM",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.23,
-      "annualized_return_pct": 1.42,
-      "sharpe_ratio": 2.885,
-      "max_drawdown_pct": -0.06,
+      "end_date": "2026-04-08",
+      "total_return_pct": 0.67,
+      "annualized_return_pct": 3.43,
+      "sharpe_ratio": 3.9,
+      "max_drawdown_pct": -0.21,
       "total_trades": 5,
       "win_rate": 0.6,
-      "profit_factor": 8.64,
-      "avg_trade_duration_days": 10.2,
-      "updated_at": "2026-03-26T22:57:01.713494+00:00"
-    },
-    {
-      "symbol": "IWF",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.24,
-      "annualized_return_pct": 1.48,
-      "sharpe_ratio": 2.773,
-      "max_drawdown_pct": -0.11,
-      "total_trades": 4,
-      "win_rate": 0.75,
-      "profit_factor": 3.133,
-      "avg_trade_duration_days": 13.5,
-      "updated_at": "2026-03-26T22:56:43.965638+00:00"
-    },
-    {
-      "symbol": "EWT",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 1.14,
-      "annualized_return_pct": 7.25,
-      "sharpe_ratio": 2.702,
-      "max_drawdown_pct": -0.59,
-      "total_trades": 4,
-      "win_rate": 0.75,
-      "profit_factor": 16.718,
-      "avg_trade_duration_days": 12.8,
-      "updated_at": "2026-03-26T22:51:36.385612+00:00"
-    },
-    {
-      "symbol": "ETHA",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 3.62,
-      "annualized_return_pct": 24.62,
-      "sharpe_ratio": 2.56,
-      "max_drawdown_pct": -1.4,
-      "total_trades": 9,
-      "win_rate": 0.667,
-      "profit_factor": 3.618,
-      "avg_trade_duration_days": 5.4,
-      "updated_at": "2026-03-26T22:49:41.291982+00:00"
-    },
-    {
-      "symbol": "EWH",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.58,
-      "annualized_return_pct": 3.62,
-      "sharpe_ratio": 2.372,
-      "max_drawdown_pct": -0.35,
-      "total_trades": 5,
-      "win_rate": 0.6,
-      "profit_factor": 5.794,
-      "avg_trade_duration_days": 11.0,
-      "updated_at": "2026-03-26T22:51:00.546185+00:00"
+      "profit_factor": 4.818,
+      "avg_trade_duration_days": 12.0
     },
     {
       "symbol": "CIBR",
       "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.71,
-      "annualized_return_pct": 4.46,
-      "sharpe_ratio": 2.267,
-      "max_drawdown_pct": -0.55,
-      "total_trades": 5,
-      "win_rate": 0.6,
-      "profit_factor": 3.804,
-      "avg_trade_duration_days": 10.2,
-      "updated_at": "2026-03-26T22:48:45.119249+00:00"
-    },
-    {
-      "symbol": "LQD",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.17,
-      "annualized_return_pct": 1.04,
-      "sharpe_ratio": 2.193,
-      "max_drawdown_pct": -0.15,
-      "total_trades": 4,
-      "win_rate": 0.75,
-      "profit_factor": 5.834,
-      "avg_trade_duration_days": 12.2,
-      "updated_at": "2026-03-26T22:57:20.477107+00:00"
-    },
-    {
-      "symbol": "EWW",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.31,
-      "annualized_return_pct": 1.92,
-      "sharpe_ratio": 1.895,
-      "max_drawdown_pct": -0.19,
-      "total_trades": 3,
-      "win_rate": 1.0,
-      "profit_factor": 999.0,
-      "avg_trade_duration_days": 19.0,
-      "updated_at": "2026-03-26T22:52:12.214963+00:00"
-    },
-    {
-      "symbol": "TLT",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.35,
-      "annualized_return_pct": 2.18,
-      "sharpe_ratio": 1.893,
-      "max_drawdown_pct": -0.29,
-      "total_trades": 4,
-      "win_rate": 0.75,
-      "profit_factor": 2.789,
-      "avg_trade_duration_days": 13.2,
-      "updated_at": "2026-03-26T23:01:37.323183+00:00"
-    },
-    {
-      "symbol": "MTUM",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.48,
-      "annualized_return_pct": 2.98,
-      "sharpe_ratio": 1.761,
+      "end_date": "2026-04-08",
+      "total_return_pct": 0.7,
+      "annualized_return_pct": 3.61,
+      "sharpe_ratio": 3.713,
       "max_drawdown_pct": -0.32,
-      "total_trades": 4,
-      "win_rate": 0.75,
-      "profit_factor": 4.499,
-      "avg_trade_duration_days": 13.0,
-      "updated_at": "2026-03-26T22:57:55.687587+00:00"
-    },
-    {
-      "symbol": "XLV",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.19,
-      "annualized_return_pct": 1.15,
-      "sharpe_ratio": 1.235,
-      "max_drawdown_pct": -0.3,
-      "total_trades": 5,
-      "win_rate": 0.6,
-      "profit_factor": 1.658,
-      "avg_trade_duration_days": 10.6,
-      "updated_at": "2026-03-26T23:06:51.208198+00:00"
-    },
-    {
-      "symbol": "IBIT",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 1.23,
-      "annualized_return_pct": 7.85,
-      "sharpe_ratio": 1.116,
-      "max_drawdown_pct": -3.05,
       "total_trades": 7,
       "win_rate": 0.714,
-      "profit_factor": 1.634,
-      "avg_trade_duration_days": 6.6,
-      "updated_at": "2026-03-26T22:54:58.618055+00:00"
+      "profit_factor": 2.951,
+      "avg_trade_duration_days": 7.7
+    },
+    {
+      "symbol": "EWH",
+      "start_date": "2026-01-26",
+      "end_date": "2026-04-08",
+      "total_return_pct": 0.65,
+      "annualized_return_pct": 3.34,
+      "sharpe_ratio": 2.386,
+      "max_drawdown_pct": -0.35,
+      "total_trades": 6,
+      "win_rate": 0.667,
+      "profit_factor": 11.911,
+      "avg_trade_duration_days": 11.0
+    },
+    {
+      "symbol": "IWM",
+      "start_date": "2026-01-26",
+      "end_date": "2026-04-08",
+      "total_return_pct": 0.41,
+      "annualized_return_pct": 2.12,
+      "sharpe_ratio": 1.933,
+      "max_drawdown_pct": -0.2,
+      "total_trades": 6,
+      "win_rate": 0.5,
+      "profit_factor": 2.534,
+      "avg_trade_duration_days": 9.7
     },
     {
       "symbol": "VGK",
       "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.35,
-      "annualized_return_pct": 2.18,
-      "sharpe_ratio": 1.112,
-      "max_drawdown_pct": -0.47,
-      "total_trades": 6,
-      "win_rate": 0.5,
-      "profit_factor": 1.773,
-      "avg_trade_duration_days": 8.7,
-      "updated_at": "2026-03-26T23:03:11.949967+00:00"
-    },
-    {
-      "symbol": "FBTC",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 1.18,
-      "annualized_return_pct": 7.55,
-      "sharpe_ratio": 1.074,
-      "max_drawdown_pct": -3.08,
+      "end_date": "2026-04-08",
+      "total_return_pct": 0.69,
+      "annualized_return_pct": 3.56,
+      "sharpe_ratio": 1.79,
+      "max_drawdown_pct": -0.55,
       "total_trades": 7,
       "win_rate": 0.571,
-      "profit_factor": 1.602,
-      "avg_trade_duration_days": 6.6,
-      "updated_at": "2026-03-26T22:53:07.160196+00:00"
-    },
-    {
-      "symbol": "SOXX",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.23,
-      "annualized_return_pct": 1.42,
-      "sharpe_ratio": 1.019,
-      "max_drawdown_pct": -0.23,
-      "total_trades": 5,
-      "win_rate": 0.4,
-      "profit_factor": 1.788,
-      "avg_trade_duration_days": 10.8,
-      "updated_at": "2026-03-26T23:00:20.239191+00:00"
-    },
-    {
-      "symbol": "EWC",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.23,
-      "annualized_return_pct": 1.45,
-      "sharpe_ratio": 0.731,
-      "max_drawdown_pct": -0.51,
-      "total_trades": 5,
-      "win_rate": 0.8,
-      "profit_factor": 1.97,
-      "avg_trade_duration_days": 11.0,
-      "updated_at": "2026-03-26T22:50:21.288974+00:00"
-    },
-    {
-      "symbol": "EWZ",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.17,
-      "annualized_return_pct": 1.08,
-      "sharpe_ratio": 0.731,
-      "max_drawdown_pct": -0.47,
-      "total_trades": 6,
-      "win_rate": 0.667,
-      "profit_factor": 3.578,
-      "avg_trade_duration_days": 8.3,
-      "updated_at": "2026-03-26T22:52:48.839520+00:00"
-    },
-    {
-      "symbol": "EWA",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.18,
-      "annualized_return_pct": 1.15,
-      "sharpe_ratio": 0.621,
-      "max_drawdown_pct": -0.35,
-      "total_trades": 3,
-      "win_rate": 0.667,
-      "profit_factor": 1.84,
-      "avg_trade_duration_days": 18.7,
-      "updated_at": "2026-03-26T22:50:03.179270+00:00"
-    },
-    {
-      "symbol": "IWB",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.08,
-      "annualized_return_pct": 0.52,
-      "sharpe_ratio": 0.427,
-      "max_drawdown_pct": -0.32,
-      "total_trades": 3,
-      "win_rate": 0.333,
-      "profit_factor": 1.327,
-      "avg_trade_duration_days": 17.3,
-      "updated_at": "2026-03-26T22:56:23.741065+00:00"
-    },
-    {
-      "symbol": "EWY",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.25,
-      "annualized_return_pct": 1.57,
-      "sharpe_ratio": 0.339,
-      "max_drawdown_pct": -1.35,
-      "total_trades": 6,
-      "win_rate": 0.5,
-      "profit_factor": 1.18,
-      "avg_trade_duration_days": 8.8,
-      "updated_at": "2026-03-26T22:52:31.414441+00:00"
-    },
-    {
-      "symbol": "SHY",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.0,
-      "annualized_return_pct": 0.0,
-      "sharpe_ratio": 0.0,
-      "max_drawdown_pct": 0.0,
-      "total_trades": 0,
-      "win_rate": 0.0,
-      "profit_factor": 999.0,
-      "avg_trade_duration_days": 0.0,
-      "updated_at": "2026-03-26T22:59:12.182425+00:00"
-    },
-    {
-      "symbol": "XLK",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": 0.0,
-      "annualized_return_pct": 0.0,
-      "sharpe_ratio": 0.0,
-      "max_drawdown_pct": 0.0,
-      "total_trades": 0,
-      "win_rate": 0.0,
-      "profit_factor": 999.0,
-      "avg_trade_duration_days": 0.0,
-      "updated_at": "2026-03-26T23:05:40.033622+00:00"
-    },
-    {
-      "symbol": "SPY",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.0,
-      "annualized_return_pct": -0.02,
-      "sharpe_ratio": -0.008,
-      "max_drawdown_pct": -0.23,
-      "total_trades": 4,
-      "win_rate": 0.25,
-      "profit_factor": 0.981,
-      "avg_trade_duration_days": 14.0,
-      "updated_at": "2026-03-26T23:00:54.121924+00:00"
+      "profit_factor": 3.29,
+      "avg_trade_duration_days": 9.0
     },
     {
       "symbol": "USMV",
       "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.03,
-      "annualized_return_pct": -0.21,
-      "sharpe_ratio": -0.283,
-      "max_drawdown_pct": -0.25,
-      "total_trades": 3,
-      "win_rate": 0.667,
-      "profit_factor": 0.852,
-      "avg_trade_duration_days": 19.0,
-      "updated_at": "2026-03-26T23:02:15.157694+00:00"
+      "end_date": "2026-04-08",
+      "total_return_pct": 0.16,
+      "annualized_return_pct": 0.8,
+      "sharpe_ratio": 1.211,
+      "max_drawdown_pct": -0.19,
+      "total_trades": 5,
+      "win_rate": 0.6,
+      "profit_factor": 1.717,
+      "avg_trade_duration_days": 13.2
     },
     {
-      "symbol": "QQQ",
+      "symbol": "EWY",
       "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.06,
-      "annualized_return_pct": -0.38,
-      "sharpe_ratio": -0.305,
-      "max_drawdown_pct": -0.49,
-      "total_trades": 4,
-      "win_rate": 0.25,
-      "profit_factor": 0.795,
-      "avg_trade_duration_days": 13.0,
-      "updated_at": "2026-03-26T22:58:33.786523+00:00"
+      "end_date": "2026-04-08",
+      "total_return_pct": 0.76,
+      "annualized_return_pct": 3.92,
+      "sharpe_ratio": 0.828,
+      "max_drawdown_pct": -1.35,
+      "total_trades": 9,
+      "win_rate": 0.556,
+      "profit_factor": 1.496,
+      "avg_trade_duration_days": 6.8
     },
     {
-      "symbol": "VWO",
+      "symbol": "USO",
       "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.14,
-      "annualized_return_pct": -0.89,
-      "sharpe_ratio": -0.538,
-      "max_drawdown_pct": -0.47,
-      "total_trades": 4,
-      "win_rate": 0.5,
-      "profit_factor": 0.667,
-      "avg_trade_duration_days": 12.5,
-      "updated_at": "2026-03-26T23:03:52.600021+00:00"
-    },
-    {
-      "symbol": "EEM",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.27,
-      "annualized_return_pct": -1.65,
-      "sharpe_ratio": -0.641,
-      "max_drawdown_pct": -1.09,
-      "total_trades": 2,
-      "win_rate": 0.0,
-      "profit_factor": 0.0,
-      "avg_trade_duration_days": 29.0,
-      "updated_at": "2026-03-26T22:49:04.165113+00:00"
+      "end_date": "2026-04-08",
+      "total_return_pct": 0.66,
+      "annualized_return_pct": 3.42,
+      "sharpe_ratio": 0.767,
+      "max_drawdown_pct": -1.68,
+      "total_trades": 7,
+      "win_rate": 0.571,
+      "profit_factor": 1.424,
+      "avg_trade_duration_days": 8.4
     },
     {
       "symbol": "EWU",
       "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.23,
-      "annualized_return_pct": -1.41,
-      "sharpe_ratio": -0.78,
-      "max_drawdown_pct": -0.54,
+      "end_date": "2026-04-08",
+      "total_return_pct": 0.2,
+      "annualized_return_pct": 1.02,
+      "sharpe_ratio": 0.613,
+      "max_drawdown_pct": -0.5,
       "total_trades": 5,
       "win_rate": 0.6,
-      "profit_factor": 0.468,
-      "avg_trade_duration_days": 10.6,
-      "updated_at": "2026-03-26T22:51:53.795984+00:00"
-    },
+      "profit_factor": 1.615,
+      "avg_trade_duration_days": 12.8
+    }
+  ],
+  "rejected": [
     {
-      "symbol": "SMH",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.26,
-      "annualized_return_pct": -1.6,
-      "sharpe_ratio": -0.844,
-      "max_drawdown_pct": -0.53,
-      "total_trades": 3,
-      "win_rate": 0.333,
-      "profit_factor": 0.19,
-      "avg_trade_duration_days": 18.3,
-      "updated_at": "2026-03-26T22:59:48.018296+00:00"
-    },
-    {
-      "symbol": "QUAL",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.18,
-      "annualized_return_pct": -1.13,
-      "sharpe_ratio": -0.892,
-      "max_drawdown_pct": -0.32,
-      "total_trades": 4,
-      "win_rate": 0.5,
-      "profit_factor": 0.233,
-      "avg_trade_duration_days": 13.8,
-      "updated_at": "2026-03-26T22:58:53.563759+00:00"
-    },
-    {
-      "symbol": "INDA",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.24,
-      "annualized_return_pct": -1.49,
-      "sharpe_ratio": -1.142,
-      "max_drawdown_pct": -0.79,
-      "total_trades": 5,
-      "win_rate": 0.2,
-      "profit_factor": 0.577,
-      "avg_trade_duration_days": 9.4,
-      "updated_at": "2026-03-26T22:56:04.847022+00:00"
+      "symbol": "SPY",
+      "reason": "Sharpe 0.016 < 0.5; trades 4 < 5"
     },
     {
       "symbol": "GLD",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.96,
-      "annualized_return_pct": -5.81,
-      "sharpe_ratio": -1.162,
-      "max_drawdown_pct": -1.89,
-      "total_trades": 5,
-      "win_rate": 0.4,
-      "profit_factor": 0.456,
-      "avg_trade_duration_days": 10.6,
-      "updated_at": "2026-03-26T22:54:03.181023+00:00"
+      "reason": "Sharpe -0.553 < 0.5"
     },
     {
-      "symbol": "IAU",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.96,
-      "annualized_return_pct": -5.82,
-      "sharpe_ratio": -1.172,
-      "max_drawdown_pct": -1.89,
-      "total_trades": 5,
-      "win_rate": 0.4,
-      "profit_factor": 0.454,
-      "avg_trade_duration_days": 10.6,
-      "updated_at": "2026-03-26T22:54:40.389788+00:00"
-    },
-    {
-      "symbol": "SLV",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -2.26,
-      "annualized_return_pct": -13.22,
-      "sharpe_ratio": -1.337,
-      "max_drawdown_pct": -4.35,
-      "total_trades": 9,
-      "win_rate": 0.333,
-      "profit_factor": 0.569,
-      "avg_trade_duration_days": 4.8,
-      "updated_at": "2026-03-26T22:59:30.592358+00:00"
-    },
-    {
-      "symbol": "GDX",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -1.11,
-      "annualized_return_pct": -6.66,
-      "sharpe_ratio": -1.351,
-      "max_drawdown_pct": -2.48,
-      "total_trades": 6,
-      "win_rate": 0.5,
-      "profit_factor": 0.309,
-      "avg_trade_duration_days": 8.3,
-      "updated_at": "2026-03-26T22:53:24.724540+00:00"
-    },
-    {
-      "symbol": "XLI",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.19,
-      "annualized_return_pct": -1.16,
-      "sharpe_ratio": -1.491,
-      "max_drawdown_pct": -0.47,
-      "total_trades": 3,
-      "win_rate": 0.333,
-      "profit_factor": 0.443,
-      "avg_trade_duration_days": 18.3,
-      "updated_at": "2026-03-26T23:05:19.393138+00:00"
-    },
-    {
-      "symbol": "XLE",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.2,
-      "annualized_return_pct": -1.25,
-      "sharpe_ratio": -1.555,
-      "max_drawdown_pct": -0.53,
-      "total_trades": 4,
-      "win_rate": 0.25,
-      "profit_factor": 0.605,
-      "avg_trade_duration_days": 14.0,
-      "updated_at": "2026-03-26T23:04:38.486715+00:00"
-    },
-    {
-      "symbol": "GDXJ",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -1.78,
-      "annualized_return_pct": -10.51,
-      "sharpe_ratio": -1.59,
-      "max_drawdown_pct": -3.38,
-      "total_trades": 7,
-      "win_rate": 0.286,
-      "profit_factor": 0.198,
-      "avg_trade_duration_days": 7.1,
-      "updated_at": "2026-03-26T22:53:43.073860+00:00"
+      "symbol": "LQD",
+      "reason": "trades 4 < 5"
     },
     {
       "symbol": "HYG",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.12,
-      "annualized_return_pct": -0.71,
-      "sharpe_ratio": -1.757,
-      "max_drawdown_pct": -0.16,
-      "total_trades": 3,
-      "win_rate": 0.333,
-      "profit_factor": 0.109,
-      "avg_trade_duration_days": 17.0,
-      "updated_at": "2026-03-26T22:54:21.647743+00:00"
+      "reason": "Sharpe 0.289 < 0.5; trades 3 < 5"
     },
     {
-      "symbol": "URNM",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -2.05,
-      "annualized_return_pct": -12.04,
-      "sharpe_ratio": -1.848,
-      "max_drawdown_pct": -3.04,
-      "total_trades": 9,
-      "win_rate": 0.333,
-      "profit_factor": 0.427,
-      "avg_trade_duration_days": 4.8,
-      "updated_at": "2026-03-26T23:01:56.117112+00:00"
+      "symbol": "SMH",
+      "reason": "trades 4 < 5"
     },
     {
-      "symbol": "XLB",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.24,
-      "annualized_return_pct": -1.45,
-      "sharpe_ratio": -1.863,
-      "max_drawdown_pct": -0.44,
-      "total_trades": 5,
-      "win_rate": 0.6,
-      "profit_factor": 0.257,
-      "avg_trade_duration_days": 9.6,
-      "updated_at": "2026-03-26T23:04:14.617922+00:00"
+      "symbol": "XLE",
+      "reason": "Sharpe 0.304 < 0.5; trades 3 < 5"
     },
     {
-      "symbol": "TIP",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.08,
-      "annualized_return_pct": -0.52,
-      "sharpe_ratio": -1.946,
-      "max_drawdown_pct": -0.14,
-      "total_trades": 2,
-      "win_rate": 0.0,
-      "profit_factor": 0.0,
-      "avg_trade_duration_days": 23.5,
-      "updated_at": "2026-03-26T23:01:17.779915+00:00"
+      "symbol": "TLT",
+      "reason": "trades 4 < 5"
     },
     {
-      "symbol": "MCHI",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.84,
-      "annualized_return_pct": -5.06,
-      "sharpe_ratio": -2.564,
-      "max_drawdown_pct": -1.13,
-      "total_trades": 5,
-      "win_rate": 0.2,
-      "profit_factor": 0.077,
-      "avg_trade_duration_days": 10.2,
-      "updated_at": "2026-03-26T22:57:38.727495+00:00"
+      "symbol": "SLV",
+      "reason": "Sharpe -1.254 < 0.5"
     },
     {
       "symbol": "XLF",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.63,
-      "annualized_return_pct": -3.87,
-      "sharpe_ratio": -2.651,
-      "max_drawdown_pct": -0.82,
-      "total_trades": 3,
-      "win_rate": 0.0,
-      "profit_factor": 0.0,
-      "avg_trade_duration_days": 18.3,
-      "updated_at": "2026-03-26T23:04:56.003545+00:00"
+      "reason": "Sharpe -0.718 < 0.5; trades 4 < 5; WR 25% < 40%"
     },
     {
-      "symbol": "EWG",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -1.33,
-      "annualized_return_pct": -7.97,
-      "sharpe_ratio": -3.75,
-      "max_drawdown_pct": -1.6,
-      "total_trades": 2,
-      "win_rate": 0.0,
-      "profit_factor": 0.0,
-      "avg_trade_duration_days": 27.0,
-      "updated_at": "2026-03-26T22:50:39.376462+00:00"
+      "symbol": "EEM",
+      "reason": "Sharpe -0.865 < 0.5; trades 3 < 5; WR 33% < 40%"
+    },
+    {
+      "symbol": "GDX",
+      "reason": "Sharpe 0.122 < 0.5"
+    },
+    {
+      "symbol": "XLI",
+      "reason": "trades 3 < 5"
+    },
+    {
+      "symbol": "XLV",
+      "reason": "Sharpe -0.800 < 0.5"
+    },
+    {
+      "symbol": "IBIT",
+      "reason": "Sharpe 0.020 < 0.5"
+    },
+    {
+      "symbol": "IGV",
+      "reason": "trades 4 < 5"
+    },
+    {
+      "symbol": "XLP",
+      "reason": "trades 4 < 5"
+    },
+    {
+      "symbol": "EWZ",
+      "reason": "Sharpe 0.149 < 0.5"
     },
     {
       "symbol": "XLY",
-      "start_date": "2026-01-26",
-      "end_date": "2026-03-26",
-      "total_return_pct": -0.92,
-      "annualized_return_pct": -5.59,
-      "sharpe_ratio": -4.273,
-      "max_drawdown_pct": -0.99,
-      "total_trades": 4,
-      "win_rate": 0.25,
-      "profit_factor": 0.065,
-      "avg_trade_duration_days": 13.8,
-      "updated_at": "2026-03-26T23:07:12.165506+00:00"
+      "reason": "Sharpe -3.207 < 0.5; WR 33% < 40%"
+    },
+    {
+      "symbol": "EMB",
+      "reason": "trades 3 < 5"
+    },
+    {
+      "symbol": "XLU",
+      "reason": "trades 3 < 5"
+    },
+    {
+      "symbol": "IEF",
+      "reason": "trades 3 < 5"
+    },
+    {
+      "symbol": "VTV",
+      "reason": "trades 4 < 5"
+    },
+    {
+      "symbol": "XLB",
+      "reason": "Sharpe -2.391 < 0.5"
+    },
+    {
+      "symbol": "EWT",
+      "reason": "trades 2 < 5"
+    },
+    {
+      "symbol": "INDA",
+      "reason": "Sharpe -0.973 < 0.5; WR 33% < 40%"
+    },
+    {
+      "symbol": "XLRE",
+      "reason": "trades 4 < 5"
+    },
+    {
+      "symbol": "TIP",
+      "reason": "Sharpe -1.211 < 0.5; trades 4 < 5; WR 25% < 40%"
+    },
+    {
+      "symbol": "MCHI",
+      "reason": "Sharpe -2.342 < 0.5"
+    },
+    {
+      "symbol": "MTUM",
+      "reason": "Sharpe -0.062 < 0.5"
+    },
+    {
+      "symbol": "EWC",
+      "reason": "trades 4 < 5"
+    },
+    {
+      "symbol": "EWA",
+      "reason": "Sharpe 0.492 < 0.5"
+    },
+    {
+      "symbol": "EWW",
+      "reason": "trades 4 < 5"
+    },
+    {
+      "symbol": "EWG",
+      "reason": "Sharpe -2.762 < 0.5; trades 3 < 5; WR 33% < 40%"
+    },
+    {
+      "symbol": "URNM",
+      "reason": "Sharpe -1.591 < 0.5"
     }
-  ],
-  "rejected": [],
-  "last_updated": "2026-03-26T23:07:12.175505+00:00",
-  "ARKK": {
-    "oos_sharpe": 4.739,
-    "oos_pf": 7.131,
-    "oos_wr": 60.0,
-    "oos_trades": 5,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "BND": {
-    "oos_sharpe": 4.098,
-    "oos_pf": 9.718,
-    "oos_wr": 66.7,
-    "oos_trades": 3,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "CIBR": {
-    "oos_sharpe": 2.267,
-    "oos_pf": 3.804,
-    "oos_wr": 60.0,
-    "oos_trades": 5,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "EEM": {
-    "oos_sharpe": -0.641,
-    "oos_pf": 0.0,
-    "oos_wr": 0.0,
-    "oos_trades": 2,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "EMB": {
-    "oos_sharpe": 4.329,
-    "oos_pf": 27.597,
-    "oos_wr": 66.7,
-    "oos_trades": 3,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "ETHA": {
-    "oos_sharpe": 2.56,
-    "oos_pf": 3.618,
-    "oos_wr": 66.7,
-    "oos_trades": 9,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "EWA": {
-    "oos_sharpe": 0.621,
-    "oos_pf": 1.84,
-    "oos_wr": 66.7,
-    "oos_trades": 3,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "EWC": {
-    "oos_sharpe": 0.731,
-    "oos_pf": 1.97,
-    "oos_wr": 80.0,
-    "oos_trades": 5,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "EWG": {
-    "oos_sharpe": -3.75,
-    "oos_pf": 0.0,
-    "oos_wr": 0.0,
-    "oos_trades": 2,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "EWH": {
-    "oos_sharpe": 2.372,
-    "oos_pf": 5.794,
-    "oos_wr": 60.0,
-    "oos_trades": 5,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "EWJ": {
-    "oos_sharpe": 3.588,
-    "oos_pf": 9.258,
-    "oos_wr": 50.0,
-    "oos_trades": 6,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "EWT": {
-    "oos_sharpe": 2.702,
-    "oos_pf": 16.718,
-    "oos_wr": 75.0,
-    "oos_trades": 4,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "EWU": {
-    "oos_sharpe": -0.78,
-    "oos_pf": 0.468,
-    "oos_wr": 60.0,
-    "oos_trades": 5,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "EWW": {
-    "oos_sharpe": 1.895,
-    "oos_pf": 999.0,
-    "oos_wr": 100.0,
-    "oos_trades": 3,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "EWY": {
-    "oos_sharpe": 0.339,
-    "oos_pf": 1.18,
-    "oos_wr": 50.0,
-    "oos_trades": 6,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "EWZ": {
-    "oos_sharpe": 0.731,
-    "oos_pf": 3.578,
-    "oos_wr": 66.7,
-    "oos_trades": 6,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "FBTC": {
-    "oos_sharpe": 1.074,
-    "oos_pf": 1.602,
-    "oos_wr": 57.1,
-    "oos_trades": 7,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "GDX": {
-    "oos_sharpe": -1.351,
-    "oos_pf": 0.309,
-    "oos_wr": 50.0,
-    "oos_trades": 6,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "GDXJ": {
-    "oos_sharpe": -1.59,
-    "oos_pf": 0.198,
-    "oos_wr": 28.6,
-    "oos_trades": 7,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "GLD": {
-    "oos_sharpe": -1.162,
-    "oos_pf": 0.456,
-    "oos_wr": 40.0,
-    "oos_trades": 5,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "HYG": {
-    "oos_sharpe": -1.757,
-    "oos_pf": 0.109,
-    "oos_wr": 33.3,
-    "oos_trades": 3,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "IAU": {
-    "oos_sharpe": -1.172,
-    "oos_pf": 0.454,
-    "oos_wr": 40.0,
-    "oos_trades": 5,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "IBIT": {
-    "oos_sharpe": 1.116,
-    "oos_pf": 1.634,
-    "oos_wr": 71.4,
-    "oos_trades": 7,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "IEF": {
-    "oos_sharpe": 3.067,
-    "oos_pf": 9.175,
-    "oos_wr": 66.7,
-    "oos_trades": 3,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "IGV": {
-    "oos_sharpe": 4.723,
-    "oos_pf": 13.222,
-    "oos_wr": 50.0,
-    "oos_trades": 4,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "INDA": {
-    "oos_sharpe": -1.142,
-    "oos_pf": 0.577,
-    "oos_wr": 20.0,
-    "oos_trades": 5,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "IWB": {
-    "oos_sharpe": 0.427,
-    "oos_pf": 1.327,
-    "oos_wr": 33.3,
-    "oos_trades": 3,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "IWF": {
-    "oos_sharpe": 2.773,
-    "oos_pf": 3.133,
-    "oos_wr": 75.0,
-    "oos_trades": 4,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "IWM": {
-    "oos_sharpe": 2.885,
-    "oos_pf": 8.64,
-    "oos_wr": 60.0,
-    "oos_trades": 5,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "LQD": {
-    "oos_sharpe": 2.193,
-    "oos_pf": 5.834,
-    "oos_wr": 75.0,
-    "oos_trades": 4,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "MCHI": {
-    "oos_sharpe": -2.564,
-    "oos_pf": 0.077,
-    "oos_wr": 20.0,
-    "oos_trades": 5,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "MTUM": {
-    "oos_sharpe": 1.761,
-    "oos_pf": 4.499,
-    "oos_wr": 75.0,
-    "oos_trades": 4,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "PDBC": {
-    "oos_sharpe": 4.129,
-    "oos_pf": 5.772,
-    "oos_wr": 66.7,
-    "oos_trades": 3,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "QQQ": {
-    "oos_sharpe": -0.305,
-    "oos_pf": 0.795,
-    "oos_wr": 25.0,
-    "oos_trades": 4,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "QUAL": {
-    "oos_sharpe": -0.892,
-    "oos_pf": 0.233,
-    "oos_wr": 50.0,
-    "oos_trades": 4,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "SHY": {
-    "oos_sharpe": 0.0,
-    "oos_pf": 999.0,
-    "oos_wr": 0.0,
-    "oos_trades": 0,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "SLV": {
-    "oos_sharpe": -1.337,
-    "oos_pf": 0.569,
-    "oos_wr": 33.3,
-    "oos_trades": 9,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "SMH": {
-    "oos_sharpe": -0.844,
-    "oos_pf": 0.19,
-    "oos_wr": 33.3,
-    "oos_trades": 3,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "SOXX": {
-    "oos_sharpe": 1.019,
-    "oos_pf": 1.788,
-    "oos_wr": 40.0,
-    "oos_trades": 5,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "SPY": {
-    "oos_sharpe": -0.008,
-    "oos_pf": 0.981,
-    "oos_wr": 25.0,
-    "oos_trades": 4,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "TIP": {
-    "oos_sharpe": -1.946,
-    "oos_pf": 0.0,
-    "oos_wr": 0.0,
-    "oos_trades": 2,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "TLT": {
-    "oos_sharpe": 1.893,
-    "oos_pf": 2.789,
-    "oos_wr": 75.0,
-    "oos_trades": 4,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "URNM": {
-    "oos_sharpe": -1.848,
-    "oos_pf": 0.427,
-    "oos_wr": 33.3,
-    "oos_trades": 9,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "USMV": {
-    "oos_sharpe": -0.283,
-    "oos_pf": 0.852,
-    "oos_wr": 66.7,
-    "oos_trades": 3,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "USO": {
-    "oos_sharpe": 3.896,
-    "oos_pf": 14.573,
-    "oos_wr": 83.3,
-    "oos_trades": 6,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "VBR": {
-    "oos_sharpe": 3.4,
-    "oos_pf": 13.825,
-    "oos_wr": 66.7,
-    "oos_trades": 3,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "VGK": {
-    "oos_sharpe": 1.112,
-    "oos_pf": 1.773,
-    "oos_wr": 50.0,
-    "oos_trades": 6,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "VTV": {
-    "oos_sharpe": 4.736,
-    "oos_pf": 97.376,
-    "oos_wr": 66.7,
-    "oos_trades": 3,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "VWO": {
-    "oos_sharpe": -0.538,
-    "oos_pf": 0.667,
-    "oos_wr": 50.0,
-    "oos_trades": 4,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "XLB": {
-    "oos_sharpe": -1.863,
-    "oos_pf": 0.257,
-    "oos_wr": 60.0,
-    "oos_trades": 5,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "XLE": {
-    "oos_sharpe": -1.555,
-    "oos_pf": 0.605,
-    "oos_wr": 25.0,
-    "oos_trades": 4,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "XLF": {
-    "oos_sharpe": -2.651,
-    "oos_pf": 0.0,
-    "oos_wr": 0.0,
-    "oos_trades": 3,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "XLI": {
-    "oos_sharpe": -1.491,
-    "oos_pf": 0.443,
-    "oos_wr": 33.3,
-    "oos_trades": 3,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "XLK": {
-    "oos_sharpe": 0.0,
-    "oos_pf": 999.0,
-    "oos_wr": 0.0,
-    "oos_trades": 0,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "XLP": {
-    "oos_sharpe": 4.095,
-    "oos_pf": 5.901,
-    "oos_wr": 75.0,
-    "oos_trades": 4,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "XLRE": {
-    "oos_sharpe": 4.903,
-    "oos_pf": 1204.658,
-    "oos_wr": 66.7,
-    "oos_trades": 3,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "XLU": {
-    "oos_sharpe": 3.62,
-    "oos_pf": 999.0,
-    "oos_wr": 100.0,
-    "oos_trades": 2,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "XLV": {
-    "oos_sharpe": 1.235,
-    "oos_pf": 1.658,
-    "oos_wr": 60.0,
-    "oos_trades": 5,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  },
-  "XLY": {
-    "oos_sharpe": -4.273,
-    "oos_pf": 0.065,
-    "oos_wr": 25.0,
-    "oos_trades": 4,
-    "updated": "2026-03-26",
-    "oos_start": "2026-01-25"
-  }
+  ]
 }
