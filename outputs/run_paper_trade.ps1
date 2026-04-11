@@ -115,13 +115,14 @@ $Groups = @(
     @{ Name = 'intraday';  EnvPrefix = 'ALPACA_INTRADAY_';  Mode = 'intraday'; Interval = '5min';
        ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true },
     @{ Name = 'swing';     EnvPrefix = 'ALPACA_SWING_';     Mode = 'daily';    Interval = '5min';
-       ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true },
-    @{ Name = 'crypto';    EnvPrefix = 'KRAKEN_';            Mode = 'daily';    Interval = '5min';
-       ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true; SkipKeyCheck = $true },
-    @{ Name = 'crypto_intraday'; EnvPrefix = 'KRAKEN_';      Mode = 'intraday'; Interval = '5min';
-       ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true; SkipKeyCheck = $true },
-    @{ Name = 'gold_scalper';   EnvPrefix = 'AMP_CQG_';       Mode = '';         Interval = '';
-       ExtraArgs = @('--broker', 'hybrid'); Command = 'gold-scalper'; AlwaysOn = $true; SkipKeyCheck = $true }
+       ExtraArgs = @(); Command = 'trade'; AlwaysOn = $true }
+    # crypto / crypto_intraday: DISABLED — crypto modules (coin_selector,
+    #   universe_screener, kraken_executor) live in the cranky-mclean worktree
+    #   only. Main branch launch would crash-loop. Run from the worktree if
+    #   BTC/crypto trading is wanted.
+    # gold_scalper: DISABLED — already launched by QuantStocks-Webhook task
+    #   (outputs/run_gold_webhook.ps1) which also starts the Cloudflare tunnel.
+    #   Running it here caused port 8000 bind conflicts.
 )
 
 $CommonArgs = @('-u', 'main.py')

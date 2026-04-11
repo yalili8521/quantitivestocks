@@ -66,7 +66,6 @@ from utils import (
 from alerts import AlertEngine
 from risk_config import (
     get_risk_config, check_position_allowed, check_theme_cap,
-    check_sleeve_budget,
     validate_model_mode, get_symbol_cap, is_symbol_disabled,
     DeRiskState, evaluate_derisk,
     get_effective_min_hold, drawdown_size_mult,
@@ -77,10 +76,23 @@ from oos_feedback import (
     load_promoted_oos, compute_composite_scores as _composite_scores_shared,
     blended_sharpe as _blended_sharpe_shared,
 )
-from coin_selector import (CoinSelector, CRYPTO_UNIVERSE, fetch_universe_data,
-                           fetch_universe_intraday_data, INTRADAY_LOOKBACK_DAYS)
-from universe_screener import load_universe, get_coin_cost_config
-from kraken_executor import KrakenExecutor
+# Crypto modules moved to separate worktree — imports made optional so ETF
+# swing/intraday groups can run without them. Crypto group will fail fast at
+# runtime if these are None.
+try:
+    from coin_selector import (CoinSelector, CRYPTO_UNIVERSE, fetch_universe_data,
+                               fetch_universe_intraday_data, INTRADAY_LOOKBACK_DAYS)
+    from universe_screener import load_universe, get_coin_cost_config
+    from kraken_executor import KrakenExecutor
+except ImportError:
+    CoinSelector = None  # type: ignore
+    CRYPTO_UNIVERSE = []  # type: ignore
+    fetch_universe_data = None  # type: ignore
+    fetch_universe_intraday_data = None  # type: ignore
+    INTRADAY_LOOKBACK_DAYS = 400  # type: ignore
+    load_universe = lambda *_a, **_k: []  # type: ignore
+    get_coin_cost_config = lambda *_a, **_k: None  # type: ignore
+    KrakenExecutor = None  # type: ignore
 
 logging.basicConfig(
     level=logging.INFO,
@@ -93,46 +105,32 @@ log = logging.getLogger("paper_trader")
 # Account groups (3 separate Alpaca paper accounts by asset class)
 # ---------------------------------------------------------------------------
 SYMBOL_GROUPS: Dict[str, List[str]] = {
-    # Full trained universe as fallback pools. Dynamic selectors pick top-K each
-    # cycle via composite scoring (James-Stein + OOS Sharpe + correlation penalty
-    # + fee-aware). Symbols with negative OOS Sharpe rank low and get zero capital.
+    # Fallback pools — dynamic selectors pick top-K each cycle from these.
+    # Updated 2026-04-08: OOS-only promoted symbols (no in-sample leakage).
+    # Intraday OOS: 2026-01-17→2026-04-08, Swing OOS: 2026-01-25→2026-04-08.
     #
-    # Account 1 — Intraday LGB+GRU (5-min bars, 1-hour horizon)
-    # Selector picks top-8 from ranked file; all 59 trained models as fallback
+    # Account 1 — Intraday LGB (5-min bars)
+    # Selector picks top-8 from trained models each cycle
+    # 10 promoted (Sharpe≥0.5, trades≥5, WR≥40%, DD≤15%)
     "intraday": [
-        "ARKK", "BND", "CIBR", "EEM", "EMB", "ETHA", "EWA", "EWC", "EWG",
-        "EWH", "EWJ", "EWT", "EWU", "EWW", "EWY", "EWZ", "FBTC", "GDX",
-        "GDXJ", "GLD", "HYG", "IAU", "IBIT", "IEF", "IGV", "INDA", "IWB",
-        "IWF", "IWM", "LQD", "MCHI", "MTUM", "PDBC", "QQQ", "QUAL", "SHY",
-        "SLV", "SMH", "SOXX", "SPY", "TIP", "TLT", "URNM", "USMV", "USO",
-        "VBR", "VGK", "VTV", "VWO", "XLB", "XLE", "XLF", "XLI", "XLK",
-        "XLP", "XLRE", "XLU", "XLV", "XLY",
+        "USO", "INDA", "USMV", "EWZ", "XLU",                  # OOS Sharpe > 1.5
+        "XLE", "QQQ", "PDBC", "XLP", "XLB",                   # OOS Sharpe 0.5–1.4
     ],
-    # Account 2 — Swing XGBoost+TFT (daily, 10-day horizon)
-    # Selector picks top-10 from ranked file; all 59 trained models as fallback
+    # Account 2 — Swing XGBoost (daily, 10-day horizon)
+    # Selector picks top-10 from trained models each cycle
+    # 11 promoted (Sharpe≥0.5, trades≥5, WR≥40%, DD≤15%)
     "swing": [
-        "ARKK", "BND", "CIBR", "EEM", "EMB", "ETHA", "EWA", "EWC", "EWG",
-        "EWH", "EWJ", "EWT", "EWU", "EWW", "EWY", "EWZ", "FBTC", "GDX",
-        "GDXJ", "GLD", "HYG", "IAU", "IBIT", "IEF", "IGV", "INDA", "IWB",
-        "IWF", "IWM", "LQD", "MCHI", "MTUM", "PDBC", "QQQ", "QUAL", "SHY",
-        "SLV", "SMH", "SOXX", "SPY", "TIP", "TLT", "URNM", "USMV", "USO",
-        "VBR", "VGK", "VTV", "VWO", "XLB", "XLE", "XLF", "XLI", "XLK",
-        "XLP", "XLRE", "XLU", "XLV", "XLY",
+        "ARKK", "EWJ", "PDBC", "CIBR", "EWH",                 # OOS Sharpe > 2.0
+        "IWM", "VGK", "USMV", "EWY", "USO", "EWU",            # OOS Sharpe 0.5–2.0
     ],
     # Account 3 — Crypto swing (daily, 10-day horizon)
-    # Coin selector ranks full 65-coin universe; these are fallback if selector fails
+    # Coin selector ranks full 73-coin universe; these are fallback if selector fails
     "crypto": ["CRV/USD", "AVAX/USD", "ADA/USD", "LINK/USD",
-               "BTC/USD", "ETH/USD", "SOL/USD", "DOT/USD", "ATOM/USD",
-               "QNT/USD", "AR/USD", "BAT/USD", "FARTCOIN/USD", "AKT/USD",
-               "HNT/USD", "SAND/USD", "SNX/USD", "EGLD/USD", "FIL/USD",
-               "SYRUP/USD", "AXS/USD", "ONDO/USD", "GOMINING/USD", "RUNE/USD"],
+               "BTC/USD", "ETH/USD", "SOL/USD", "DOT/USD", "ATOM/USD"],
     # Account 4 — Crypto Intraday LGB+GRU (5-min bars, 1-hour horizon)
     # Coin selector ranks full universe; these are fallback
-    "crypto_intraday": ["ATOM/USD", "QNT/USD", "XLM/USD", "LPT/USD",
-                        "FIL/USD", "LTC/USD", "FET/USD", "DOT/USD",
-                        "SEI/USD", "VET/USD", "BCH/USD", "ONDO/USD",
-                        "NEAR/USD", "MANA/USD", "AXS/USD", "ICP/USD",
-                        "WLD/USD", "AAVE/USD", "ALGO/USD"],
+    "crypto_intraday": ["ATOM/USD", "AXS/USD", "LPT/USD", "WLD/USD",
+                        "FIL/USD", "ICP/USD", "MANA/USD"],
 }
 
 # Legacy / wrong-algorithm positions: opened by a previous buggy model. Manage them
@@ -453,10 +451,9 @@ def _acquire_single_instance_lock() -> bool:
 def _get_session() -> str:
     """Return the current Alpaca-tradeable session for ET equities.
 
-    Alpaca supports ~24-hour trading on weekdays (limit orders).
     regular  — 09:30–16:00 ET Mon–Fri  (market orders allowed)
-    extended — all other weekday hours   (limit orders only, extended_hours=True)
-    closed   — Sat/Sun only
+    extended — 04:00–09:30 and 16:00–20:00 ET Mon–Fri  (limit orders only)
+    closed   — 20:00–04:00 ET and all day Sat/Sun
     """
     from datetime import time as dt_time
     try:
@@ -469,9 +466,13 @@ def _get_session() -> str:
         return "closed"
 
     t = now_et.time()
+    if dt_time(4, 0) <= t < dt_time(9, 30):
+        return "extended"
     if dt_time(9, 30) <= t <= dt_time(16, 0):
         return "regular"
-    return "extended"
+    if dt_time(16, 0) < t <= dt_time(20, 0):
+        return "extended"
+    return "closed"
 
 
 def _parse_window_list(windows: List[str]) -> List[tuple]:
@@ -700,10 +701,6 @@ class AlpacaPaperTrader:
 
         self._vix_cache: Optional[pd.DataFrame] = None
 
-        # Research bias (loaded lazily, refreshed every 6 hours)
-        self._research_bias: Dict[str, float] = {}
-        self._research_bias_ts: float = 0.0
-
         # Crypto intraday data source (lazy init)
         self._crypto_intraday_data = None
 
@@ -756,7 +753,6 @@ class AlpacaPaperTrader:
         self._etf_selector_last_fast_refresh: Optional[datetime] = None  # intraday fast re-rank
         self._etf_active_symbols: List[str] = []
         self._etf_universe: List[str] = []
-        self._position_weights: Dict[str, float] = {}  # composite score → normalized weights
         self._etf_train_failures: Dict[str, datetime] = {}  # symbol → last failure time
         self._etf_train_cooldown_hours = 24  # retry failed training after 24h
         # Background subprocess auto-training (Phase 4: non-blocking)
@@ -806,6 +802,14 @@ class AlpacaPaperTrader:
         # Paper mode doesn't need real API keys — uses public price API + local state
         self._kraken: Optional[KrakenExecutor] = None
         if group in ("crypto", "crypto_intraday"):
+            if KrakenExecutor is None:
+                raise RuntimeError(
+                    f"Group '{group}' requires crypto modules (kraken_executor, "
+                    "coin_selector, universe_screener) which live only in the "
+                    "cranky-mclean worktree. Launch crypto trading from that "
+                    "worktree, or restore the modules into src/. The main-branch "
+                    "run_paper_trade.ps1 no longer launches crypto groups."
+                )
             kraken_key = os.environ.get("KRAKEN_API_KEY", "")
             kraken_secret = os.environ.get("KRAKEN_API_SECRET", "")
             use_kraken = os.environ.get("KRAKEN_EXECUTOR", "1")  # enabled by default for crypto
@@ -1261,36 +1265,6 @@ class AlpacaPaperTrader:
             model_syms.add(sym)
         return model_syms
 
-    def _load_research_bias(self) -> Dict[str, float]:
-        """Load research bias weights from daily market intelligence reports.
-
-        Caches results for 6 hours to avoid re-parsing on every cycle.
-        Returns {symbol: bias_weight} where weight is in [-1.0, +1.0].
-        """
-        _REFRESH_SECS = 6 * 3600
-        now = time.time()
-        if self._research_bias and (now - self._research_bias_ts) < _REFRESH_SECS:
-            return self._research_bias
-
-        try:
-            from research_reader import ResearchReader
-            reader = ResearchReader()
-            signals = reader.read_last_n_days(7)
-            bias = reader.compute_bias_weights(signals)
-            if bias:
-                self._research_bias = bias
-                self._research_bias_ts = now
-                log.info("Research bias loaded: %d tickers (top-5: %s)",
-                         len(bias),
-                         ", ".join(f"{s}={w:+.2f}" for s, w in
-                                   sorted(bias.items(), key=lambda x: -abs(x[1]))[:5]))
-            else:
-                log.info("Research bias: no signals found")
-        except Exception as e:
-            log.warning("Research bias load failed: %s", e)
-
-        return self._research_bias
-
     def _load_oos_registries(self) -> tuple:
         """Load OOS Sharpe and performance registries from config/trading.json.
 
@@ -1351,30 +1325,6 @@ class AlpacaPaperTrader:
             except Exception:
                 correlations[sym] = 0.5
         return correlations
-
-    def _compute_position_weights(self, composite_scores: Dict[str, float],
-                                   symbols: List[str]) -> Dict[str, float]:
-        """Convert composite scores to normalized position weights.
-
-        weight_i = max(0, score_i) ** concentration / sum(...)
-        Higher concentration = more capital to top-ranked symbols.
-        """
-        concentration = getattr(self._risk_config, 'concentration', 1.5)
-        raw: Dict[str, float] = {}
-        for sym in symbols:
-            score = composite_scores.get(sym, 0.0)
-            if score > 0:
-                raw[sym] = score ** concentration
-        total = sum(raw.values())
-        if total <= 0:
-            n = len(symbols)
-            return {s: 1.0 / n for s in symbols} if n > 0 else {}
-        weights = {s: w / total for s, w in raw.items()}
-        # Log weight distribution
-        top3 = sorted(weights.items(), key=lambda x: -x[1])[:3]
-        log.info("Position weights (top-3): %s | total=%d symbols",
-                 ", ".join(f"{s}={w:.3f}" for s, w in top3), len(weights))
-        return weights
 
     def _compute_spy_correlations(self, symbols: List[str]) -> Dict[str, float]:
         """Compute 30-day rolling correlation of each ETF's returns with SPY.
@@ -1599,21 +1549,6 @@ class AlpacaPaperTrader:
                 except Exception:
                     pass
 
-            # Research bias boost (from daily market intelligence reports)
-            _RESEARCH_WEIGHT = 0.15
-            _rbias = self._load_research_bias()
-            if _rbias:
-                _applied = 0
-                for sym in list(composite.keys()):
-                    # Map crypto symbol format: BTC-USD -> BTC
-                    _base = sym.split("-")[0] if "-" in sym else sym
-                    _b = _rbias.get(sym, _rbias.get(_base, 0.0))
-                    if _b != 0.0:
-                        composite[sym] += _RESEARCH_WEIGHT * _b
-                        _applied += 1
-                if _applied:
-                    log.info("Research bias applied to %d crypto symbols", _applied)
-
             # Sort by composite score, best-first
             composite = dict(sorted(composite.items(), key=lambda x: -x[1]))
             all_ranked = list(composite.keys())
@@ -1622,8 +1557,9 @@ class AlpacaPaperTrader:
             for i, sym in enumerate(all_ranked, 1):
                 sel_score = dict(result.rankings).get(sym, 0)
                 oos_s = oos_sharpe.get(sym, 0)
-                log.info("  Rank #%d %s: composite=%.3f (sel=%.2f, oos_sharpe=%.2f)",
-                         i, sym, composite[sym], sel_score, oos_s)
+                blended_s = self._blended_sharpe(sym, oos_s)
+                log.info("  Rank #%d %s: composite=%.3f (sel=%.2f, oos_sharpe=%.2f, blended=%.2f)",
+                         i, sym, composite[sym], sel_score, oos_s, blended_s)
 
             # Step 2: Take top-K ranked as CANDIDATES (K ≥ 12)
             # The candidate pool is larger than max_positions so that
@@ -1687,11 +1623,6 @@ class AlpacaPaperTrader:
                      len(ready), top_k, _train_triggered, ", ".join(ready))
             self._selector_active_symbols = ready
 
-            # Compute alpha-weighted position weights for risk-budget sizing
-            if getattr(self._risk_config, 'total_risk_budget', 0) > 0:
-                self._position_weights = self._compute_position_weights(
-                    self._composite_scores, ready)
-
             # Sync full ranked list (not just ready) to Gist for dashboard
             self._sync_rankings_to_gist(all_ranked)
 
@@ -1708,27 +1639,18 @@ class AlpacaPaperTrader:
         """Return symbols that have a trained model on disk for the given group."""
         import glob as _glob
         if group == "swing":
-            patterns = [
-                (os.path.join(SWING_MODEL_DIR, "*_xgb_swing_config.json"),
-                 "_xgb_swing_config.json"),
-            ]
+            pattern = os.path.join(SWING_MODEL_DIR, "*_xgb_swing_config.json")
+            suffix = "_xgb_swing_config.json"
         elif group == "intraday":
-            # Match both legacy (*_lgb_intraday_config.json) and new
-            # (*_lgb_intraday_etf_config.json) naming conventions.
-            patterns = [
-                (os.path.join(INTRADAY_MODEL_DIR, "*_lgb_intraday_config.json"),
-                 "_lgb_intraday_config.json"),
-                (os.path.join(INTRADAY_MODEL_DIR, "*_lgb_intraday_etf_config.json"),
-                 "_lgb_intraday_etf_config.json"),
-            ]
+            pattern = os.path.join(INTRADAY_MODEL_DIR, "*_lgb_intraday_config.json")
+            suffix = "_lgb_intraday_config.json"
         else:
             return set()
         model_syms: Set[str] = set()
-        for pattern, suffix in patterns:
-            for path in _glob.glob(pattern):
-                fname = os.path.basename(path)
-                sym = fname.replace(suffix, "")
-                model_syms.add(sym)
+        for path in _glob.glob(pattern):
+            fname = os.path.basename(path)
+            sym = fname.replace(suffix, "")
+            model_syms.add(sym)
         return model_syms
 
     def _train_on_the_fly(self, symbol: str) -> bool:
@@ -1992,26 +1914,12 @@ class AlpacaPaperTrader:
                     btc_correlations=spy_correlations,
                     fee_costs=fee_costs,
                 )
-
-                # Research bias boost (from daily market intelligence reports)
-                _RESEARCH_WEIGHT_ETF = 0.15
-                _rbias = self._load_research_bias()
-                if _rbias:
-                    _applied = 0
-                    for sym in list(self._composite_scores.keys()):
-                        _b = _rbias.get(sym, 0.0)
-                        if _b != 0.0:
-                            self._composite_scores[sym] += _RESEARCH_WEIGHT_ETF * _b
-                            _applied += 1
-                    if _applied:
-                        log.info("ETF ranker: research bias applied to %d symbols", _applied)
-
                 # Re-sort by composite score
                 ranked_symbols = sorted(
                     self._composite_scores.keys(),
                     key=lambda s: -self._composite_scores[s],
                 )
-                log.info("ETF ranker: composite scoring applied (%d OOS, SPY penalty, fee-aware, research bias)",
+                log.info("ETF ranker: composite scoring applied (%d OOS, SPY penalty, fee-aware)",
                          len(oos_sharpe_map))
             else:
                 # No OOS data — use raw selector scores
@@ -2020,12 +1928,10 @@ class AlpacaPaperTrader:
                 )
                 log.info("ETF ranker: no OOS data — using raw selector scores")
 
-            # Step 2: Take top-N ranked symbols — evaluate 2x max_positions for a
-            # deep bench (risk limits decide which actually open, not the candidate count)
-            max_active = self._risk_config.max_positions * 2
+            # Step 2: Take top-N ranked symbols — only these are candidates
+            max_active = self._risk_config.max_positions
             top_n = ranked_symbols[:max_active]
-            log.info("ETF ranker: top-%d candidates (max_pos=%d): %s",
-                     max_active, self._risk_config.max_positions, ", ".join(top_n))
+            log.info("ETF ranker: top-%d ranked: %s", max_active, ", ".join(top_n))
 
             # Step 3: Reap completed background trains, then spawn new ones
             newly_trained = self._reap_background_trains()
@@ -2074,11 +1980,6 @@ class AlpacaPaperTrader:
             log.info("ETF ranker: %d active symbols for %s: %s",
                      len(final), group, ", ".join(final))
             self._etf_active_symbols = final
-
-            # Compute alpha-weighted position weights for risk-budget sizing
-            if getattr(self._risk_config, 'total_risk_budget', 0) > 0:
-                self._position_weights = self._compute_position_weights(
-                    self._composite_scores, final)
 
             # Sync full ranked list (not just final) to Gist for dashboard
             self._sync_rankings_to_gist(ranked_symbols)
@@ -2422,8 +2323,7 @@ class AlpacaPaperTrader:
         """Fetch VIX data once per cycle; cache and fall back to last good value on failure."""
         vix_days = 10 if self.mode == "intraday" else 400
         try:
-            vix_df = _fetch_vix_for_training(self.fred_key, lookback_days=vix_days,
-                                                include_live=False)
+            vix_df = _fetch_vix_for_training(self.fred_key, lookback_days=vix_days)
             if len(vix_df) >= 2:
                 self._vix_cache = vix_df   # update cache on success
             return vix_df
@@ -3165,122 +3065,100 @@ class AlpacaPaperTrader:
             except Exception:
                 equity = getattr(self, '_last_known_equity', self.initial_capital)
 
-            # --- Sizing: Alpha-Weighted Risk Budget (v4) or Legacy ---
-            rv_30d = ctx.get("rv_30d", 0.0)
-            size_note_parts = []
+            signal_pct = min(1.0, max(risk.min_signal_scale,
+                                      abs(expected_return) / self.target_return))
+
+            # Half-Kelly from rolling trade history (falls back to position_pct)
             derisk_key = symbol.replace("/", "-")
             derisk_state = self._derisk_states.get(derisk_key)
-
-            _use_risk_budget = (
-                getattr(risk, 'total_risk_budget', 0) > 0
-                and symbol in self._position_weights
-            )
-
-            if _use_risk_budget:
-                # === Alpha-Weighted Risk Budget sizing ===
-                # Weight comes from composite score (James-Stein + OOS Sharpe + penalties)
-                weight = self._position_weights[symbol]
-                if weight <= 0:
-                    return (f"SKIP  (zero weight in risk budget)  "
-                            f"ML: {direction} E[r]={expected_return:+.4f}")
-
-                rv = rv_30d if rv_30d > 0.01 else (0.30 if is_crypto else 0.20)
-                sizing_pct = weight * risk.total_risk_budget / rv
-                size_source = f"riskbudget w={weight:.3f} rv={rv:.2f}"
-
-                # VIX regime scaling (swing/crypto only)
-                if self.mode != "intraday":
-                    vix_now = self._get_current_vix()
-                    if vix_now is not None and vix_now > 0:
-                        vix_scalar = min(1.0, 20.0 / vix_now)
-                        sizing_pct *= vix_scalar
-                        if vix_scalar < 0.95:
-                            size_note_parts.append(f"vix={vix_scalar:.2f}")
-
-                # Hard cap (safety net — should rarely bind)
-                sizing_pct = min(sizing_pct, risk.max_position_pct)
-
-                # BTC/SPY correlation penalty is ALREADY in composite score — skip here
-
+            kelly_f = None
+            if derisk_state is not None:
+                kelly_f = derisk_state.half_kelly(
+                    window=risk.kelly_window, min_trades=risk.kelly_min_trades
+                )
+            if kelly_f is not None:
+                # Cross-group discount: data-driven overlay replaces static discount
+                from risk_overlay import load_scaling_factor
+                overlay_factor = load_scaling_factor(self.group or "swing")
+                effective_discount = min(risk.cross_group_kelly_discount, overlay_factor)
+                base_frac = min(kelly_f * effective_discount, risk.kelly_cap)
+                size_source = f"kelly={kelly_f:.3f}×{effective_discount:.2f}"
+                if overlay_factor < risk.cross_group_kelly_discount:
+                    size_source += f"[overlay={overlay_factor:.2f}]"
             else:
-                # === Legacy sizing (stages 1-7) ===
-                signal_pct = min(1.0, max(risk.min_signal_scale,
-                                          abs(expected_return) / self.target_return))
+                base_frac = risk.position_pct
+                size_source = "fixed"
 
-                # Half-Kelly from rolling trade history (falls back to position_pct)
-                kelly_f = None
-                if derisk_state is not None:
-                    kelly_f = derisk_state.half_kelly(
-                        window=risk.kelly_window, min_trades=risk.kelly_min_trades
-                    )
-                if kelly_f is not None:
-                    from risk_overlay import load_scaling_factor
-                    overlay_factor = load_scaling_factor(self.group or "swing")
-                    effective_discount = min(risk.cross_group_kelly_discount, overlay_factor)
-                    base_frac = min(kelly_f * effective_discount, risk.kelly_cap)
-                    size_source = f"kelly={kelly_f:.3f}×{effective_discount:.2f}"
-                    if overlay_factor < risk.cross_group_kelly_discount:
-                        size_source += f"[overlay={overlay_factor:.2f}]"
-                else:
-                    base_frac = risk.position_pct
-                    size_source = "fixed"
+            sizing_pct = base_frac * signal_pct
 
-                sizing_pct = base_frac * signal_pct
+            # --- Vol-targeting layer: normalize size by inverse volatility ---
+            # Ensures each position contributes ~target_vol risk regardless of
+            # the asset's own volatility. High-vol assets get smaller dollar size.
+            rv_30d = ctx.get("rv_30d", 0.0)
+            size_note_parts = []
+            if rv_30d > 0.01:
+                target_vol = getattr(self, 'target_vol', 0.20)
+                vol_scalar = min(2.0, max(0.25, target_vol / rv_30d))
+                sizing_pct *= vol_scalar
+                if abs(vol_scalar - 1.0) > 0.05:
+                    size_note_parts.append(f"vol={vol_scalar:.2f}")
 
-                # Vol-targeting layer
-                if rv_30d > 0.01:
-                    target_vol = getattr(self, 'target_vol', 0.20)
-                    vol_scalar = min(2.0, max(0.25, target_vol / rv_30d))
-                    sizing_pct *= vol_scalar
-                    if abs(vol_scalar - 1.0) > 0.05:
-                        size_note_parts.append(f"vol={vol_scalar:.2f}")
+            # --- VIX-based continuous regime scaling ---
+            # Smoothly reduces size as VIX rises: at VIX=40 size is halved.
+            # Intraday skips this (VIX is already a model feature).
+            if self.mode != "intraday":
+                vix_now = self._get_current_vix()
+                if vix_now is not None and vix_now > 0:
+                    vix_scalar = min(1.0, 20.0 / vix_now)
+                    sizing_pct *= vix_scalar
+                    if vix_scalar < 0.95:
+                        size_note_parts.append(f"vix={vix_scalar:.2f}")
 
-                # VIX-based continuous regime scaling
-                if self.mode != "intraday":
-                    vix_now = self._get_current_vix()
-                    if vix_now is not None and vix_now > 0:
-                        vix_scalar = min(1.0, 20.0 / vix_now)
-                        sizing_pct *= vix_scalar
-                        if vix_scalar < 0.95:
-                            size_note_parts.append(f"vix={vix_scalar:.2f}")
+            # --- Vol-adjusted position cap ---
+            # Tighter cap for high-vol assets, looser for low-vol (up to 1.5x base)
+            if rv_30d > 0.01:
+                target_vol = getattr(self, 'target_vol', 0.20)
+                vol_adj_cap = min(
+                    risk.max_position_pct * 1.5,
+                    risk.max_position_pct * (target_vol / rv_30d)
+                )
+                vol_adj_cap = max(0.03, vol_adj_cap)
+            else:
+                vol_adj_cap = risk.max_position_pct
+            sizing_pct = min(sizing_pct, vol_adj_cap)
 
-                # Vol-adjusted position cap
-                if rv_30d > 0.01:
-                    target_vol = getattr(self, 'target_vol', 0.20)
-                    vol_adj_cap = min(
-                        risk.max_position_pct * 1.5,
-                        risk.max_position_pct * (target_vol / rv_30d)
-                    )
-                    vol_adj_cap = max(0.03, vol_adj_cap)
-                else:
-                    vol_adj_cap = risk.max_position_pct
-                sizing_pct = min(sizing_pct, vol_adj_cap)
+            if is_crypto:
+                log.debug("Crypto sizing %s: base=%.3f signal=%.3f max_pos=%.2f "
+                          "max_exp=%.2f sizing=%.3f",
+                          symbol, base_frac, signal_pct,
+                          risk.max_position_pct, risk.max_total_exposure,
+                          sizing_pct)
 
-                if is_crypto:
-                    log.debug("Crypto sizing %s: base=%.3f signal=%.3f max_pos=%.2f "
-                              "max_exp=%.2f sizing=%.3f",
-                              symbol, base_frac, signal_pct,
-                              risk.max_position_pct, risk.max_total_exposure,
-                              sizing_pct)
+            # --- Per-symbol cap (OOS Sharpe-tiered) ---
+            # This is the SINGLE source of OOS-based sizing. Replaces the old
+            # conf_mult (redundant with sym_cap) and rank_scalar (redundant with
+            # sym_cap). Both mapped OOS Sharpe → multiplier, stacking 3 layers
+            # that all expressed the same information.
+            sym_cap = get_symbol_cap(symbol, self.group or "swing")
+            if sym_cap <= 0.0:
+                return (f"DISABLED  ({symbol} cap=0% by OOS performance)  "
+                        f"ML: {direction} E[r]={expected_return:+.4f}")
+            sizing_pct = min(sizing_pct, sym_cap)
 
-                # Per-symbol cap (OOS Sharpe-tiered)
-                sym_cap = get_symbol_cap(symbol, self.group or "swing")
-                if sym_cap <= 0.0:
-                    return (f"DISABLED  ({symbol} cap=0% by OOS performance)  "
-                            f"ML: {direction} E[r]={expected_return:+.4f}")
-                sizing_pct = min(sizing_pct, sym_cap)
+            # --- BTC correlation penalty (crypto only) ---
+            # Always penalize highly BTC-correlated alts, regardless of whether
+            # a BTC position is open. In crypto, ALL alts are implicitly BTC-exposed.
+            # Anchor coins (BTC, ETH) are exempt (their btc_corr is set to 0).
+            _BTC_KEYS = ("BTC/USD", "BTCUSD", "ETH/USD", "ETHUSD")
+            if is_crypto and self._btc_correlations and symbol not in _BTC_KEYS:
+                btc_corr = self._btc_correlations.get(symbol, 0.5)
+                corr_penalty = 1 - 0.5 * btc_corr
+                sizing_pct *= corr_penalty
+                if btc_corr > 0.7:
+                    log.info("BTC corr penalty for %s: corr=%.2f → size ×%.2f",
+                             symbol, btc_corr, corr_penalty)
 
-                # BTC correlation penalty (crypto only, legacy path)
-                _BTC_KEYS = ("BTC/USD", "BTCUSD", "ETH/USD", "ETHUSD")
-                if is_crypto and self._btc_correlations and symbol not in _BTC_KEYS:
-                    btc_corr = self._btc_correlations.get(symbol, 0.5)
-                    corr_penalty = 1 - 0.5 * btc_corr
-                    sizing_pct *= corr_penalty
-                    if btc_corr > 0.7:
-                        log.info("BTC corr penalty for %s: corr=%.2f → size ×%.2f",
-                                 symbol, btc_corr, corr_penalty)
-
-            # === Common safety stages (apply to both paths) ===
+            # --- Auto de-risking check (rolling performance gate) ---
             size_note = f" [{size_source}]"
             if size_note_parts:
                 size_note += f" [{', '.join(size_note_parts)}]"
@@ -3346,27 +3224,12 @@ class AlpacaPaperTrader:
                 if not allowed:
                     return (f"CONSTRAINT-BLOCK  ({constraint_reason})  "
                             f"ML: {direction} E[r]={expected_return:+.4f}")
-                # Theme cap check (includes cross-group positions)
-                try:
-                    from risk_overlay import get_all_group_positions
-                    _cross = get_all_group_positions(exclude_group=self.group)
-                    _all_positions = {**positions, **_cross}
-                except Exception:
-                    _all_positions = positions
+                # Theme cap check
                 theme_ok, theme_reason = check_theme_cap(
-                    symbol, invest, equity, _all_positions
+                    symbol, invest, equity, positions
                 )
                 if not theme_ok:
                     return (f"THEME-CAP  ({theme_reason})  "
-                            f"ML: {direction} E[r]={expected_return:+.4f}")
-                # Sleeve budget check (cap per group as % of total portfolio)
-                # Estimate total equity: ~$95K per group × 4 ML groups
-                _total_eq = equity * 4
-                sleeve_ok, sleeve_reason = check_sleeve_budget(
-                    self.group or "default", invest, equity, _total_eq, positions
-                )
-                if not sleeve_ok:
-                    return (f"SLEEVE-CAP  ({sleeve_reason})  "
                             f"ML: {direction} E[r]={expected_return:+.4f}")
             except Exception as exc:
                 log.debug("Portfolio constraint check failed: %s", exc)
@@ -3383,16 +3246,9 @@ class AlpacaPaperTrader:
                         f"ML: {direction} E[r]={expected_return:+.4f}")
 
             if enter_dir == "LONG":
-                oid = self.buy(symbol, qty, limit_price=current_price)
+                self.buy(symbol, qty, limit_price=current_price)
             else:
-                oid = self.sell_short(symbol, qty, limit_price=current_price)
-
-            # Order was deferred (market closed) or failed — do NOT update
-            # internal state or log the trade.  The signal will fire again
-            # next cycle; once the market reopens the order will go through.
-            if oid is None:
-                return (f"DEFERRED  (order not submitted)  "
-                        f"ML: {direction} E[r]={expected_return:+.4f}")
+                self.sell_short(symbol, qty, limit_price=current_price)
 
             self._peak_prices[symbol] = current_price
             self._entry_atrs[symbol] = bar_atr
@@ -3762,29 +3618,9 @@ class AlpacaPaperTrader:
                 # Check if Layer 0 updated the universe (every 30min)
                 self._maybe_reload_universe()
 
-                # Cross-group risk overlay refresh (every 30 min)
-                _overlay_now = datetime.now(timezone.utc)
-                if (not hasattr(self, '_overlay_last_refresh')
-                        or self._overlay_last_refresh is None
-                        or (_overlay_now - self._overlay_last_refresh).total_seconds() >= 1800):
-                    try:
-                        from risk_overlay import update_overlay
-                        _factors = update_overlay()
-                        log.info("Risk overlay refreshed: %s", _factors)
-                        self._overlay_last_refresh = _overlay_now
-                    except Exception as _oe:
-                        log.debug("Risk overlay refresh failed: %s", _oe)
-
                 # Get account + positions
                 account = self.get_account_summary()
                 positions = self.get_positions()
-
-                # Publish positions for cross-group exposure checks
-                try:
-                    from risk_overlay import publish_positions
-                    publish_positions(self.group or "default", positions)
-                except Exception as _pe:
-                    log.debug("Failed to publish positions: %s", _pe)
 
                 # Regime detection: refit daily, update stop multiplier
                 if self._regime_detector is not None:
@@ -3815,7 +3651,7 @@ class AlpacaPaperTrader:
                 # Fallback: static self.symbols
                 now_utc = datetime.now(timezone.utc)
 
-                if self.group in ("crypto", "crypto_intraday"):
+                if self.group in ("crypto", "crypto_intraday") and self._coin_selector is not None:
                     _fast_interval = _FAST_REFRESH_SECS.get(self.group)
                     _do_full = (_should_refresh_selector(self.group, self._selector_last_run_date)
                                 or not self._selector_active_symbols)
@@ -3993,9 +3829,7 @@ class AlpacaPaperTrader:
                     # Extended-hours guard: Asian/EM ETFs have near-zero volume
                     # during US pre/after-market — underlying markets are closed.
                     # Skipping avoids 0.5-2% spread costs on worthless signals.
-                    # Crypto groups trade 24/7 — NEVER apply extended-hours filter.
-                    _is_crypto_group = self.group in ("crypto", "crypto_intraday")
-                    if not _is_crypto_group and session == "extended" and sym not in EXTENDED_HOURS_UNIVERSE:
+                    if session == "extended" and sym not in EXTENDED_HOURS_UNIVERSE:
                         # Still allow exits on existing positions, block new entries
                         pos = positions.get(sym)
                         if pos is None or pos["qty"] == 0:
@@ -4465,20 +4299,8 @@ def main() -> None:
     args.same_dir_confidence_mult = _resolve(args.same_dir_confidence_mult, "same_dir_confidence_mult", 1.5)
     args.target_vol = cfg.get("target_vol", 0.20)
 
-    # --- Log rotation: RotatingFileHandler (10 MB, 5 backups) per group ---
-    from logging.handlers import RotatingFileHandler
-    group = args.group  # e.g. "intraday", "swing", "crypto", "all", or None
-    _log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
-    os.makedirs(_log_dir, exist_ok=True)
-    _log_file = os.path.join(_log_dir, f"paper_trader_{group or 'default'}.log")
-    _rfh = RotatingFileHandler(_log_file, maxBytes=10 * 1024 * 1024, backupCount=5,
-                               encoding="utf-8")
-    _rfh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
-                                        datefmt="%Y-%m-%d %H:%M:%S"))
-    logging.getLogger().addHandler(_rfh)
-    log.info("Log rotation enabled: %s (10MB x 5 backups)", _log_file)
-
     # Resolve API keys: group-specific keys take priority over generic ALPACA_API_KEY
+    group = args.group  # e.g. "intraday", "swing", "crypto", "all", or None
     if group and group != "all":
         env_prefix = f"ALPACA_{group.upper()}_"
         api_key    = os.environ.get(f"{env_prefix}KEY",    os.environ.get("ALPACA_API_KEY", ""))

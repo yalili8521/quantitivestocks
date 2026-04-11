@@ -152,6 +152,50 @@ python main.py validate-risk
 - Action: `powershell.exe -ExecutionPolicy Bypass -File outputs\run_paper_trade.ps1`
 - Export: `schtasks /Query /TN "QuantStocks-PaperTrader" /XML > outputs/QuantStocks-PaperTrader.xml`
 
+## Smoke Tests (run before claiming "done")
+Before declaring any non-trivial change complete, run the relevant smoke test(s) below. Do not rely on the edit looking correct — verify it actually runs.
+
+### Edit-to-smoke-test mapping
+| What you changed | Required smoke test |
+|---|---|
+| `src/risk_config.py`, `src/cost_model.py`, `src/model_monitor.py`, `src/oos_feedback.py` | `.venv/Scripts/python.exe -m pytest tests/test_risk_and_costs.py -q` (must be 49/49 pass) |
+| `src/ml_model.py` (features, training, predict) | `.venv/Scripts/python.exe main.py train --symbol SPY --epochs 3` (fast smoke) then `python main.py predict --symbol SPY` — verify prediction returns non-NaN |
+| `src/signals_engine.py` (indicators, adapters) | `.venv/Scripts/python.exe main.py signals --provider yahoo --ml` — must complete without exceptions |
+| `src/backtester.py` | `.venv/Scripts/python.exe main.py backtest --symbol SPY --start 2025-01-01` — check no lookahead warnings, trade count sane, no VIX NaN |
+| `src/paper_trader.py` (non-critical edits) | Dry-run import check: `.venv/Scripts/python.exe -c "from src.paper_trader import PaperTrader; print('ok')"` — then full test next market open |
+| `src/swing_model.py` (features, XGBoost) | `.venv/Scripts/python.exe main.py train-swing --symbols SPY --provider yahoo --train-recent` — smoke one symbol |
+| `src/etf_selector.py`, `src/etf_screener.py` | `.venv/Scripts/python.exe main.py screen-etf-universe` — verify universe size sane (~50+) |
+| `config/trading.json` | `.venv/Scripts/python.exe main.py validate-risk` — must pass all constraint checks |
+| `src/gold_scalper/*` | Import check + review last 20 lines of `outputs/paper_state/webhook/*_state.json` for corruption |
+
+### OOS verification (auto-run after train + backtest)
+Whenever a training run is followed by a backtest in the same session, automatically verify the OOS split without being asked:
+1. Read `config/trading.json` `_retrain_cadence._oos_cutoff`
+2. Confirm training data ended BEFORE cutoff (check model metrics JSON)
+3. Confirm backtest `--start` is AFTER cutoff
+4. Show the user: `Train end: X, Cutoff: Y, Backtest start: Z — OOS clean ✓` or flag the leak
+
+### Pre-flight reads for high-risk files
+Before editing these files, re-read the "do not regress" list AND the specific line-number fix:
+- `src/backtester.py` → re-read the LSTM window indexing (`[window_start+1:idx_pos+1]`) and VIX fetch (`include_live=False`)
+- `src/paper_trader.py` → re-read the atomic state write pattern and watchdog PID logic
+- `src/ml_model.py` → re-read the `wk_ret = pct_change(3)` comment
+- `src/risk_config.py` → remember JSON overrides hardcoded defaults
+
+### When NOT to run smoke tests
+Skip smoke tests only for:
+- Doc/comment-only edits (no runtime change)
+- Dead code removal (grep first to confirm truly unused)
+- `config/*.json` value tweaks that `validate-risk` already covers
+- Typo fixes in log strings
+
+### Failure protocol
+If a smoke test fails:
+1. **Do not** claim the task is done
+2. **Do not** patch the smoke test to make it pass
+3. Report the failure, diagnose root cause, fix, re-run
+4. If the failure is pre-existing (unrelated to your edit), say so explicitly and ask whether to fix or defer
+
 ## Key Fixes (do not regress)
 - Backtester meta feature: `iloc[idx_pos-1]` (not `idx_pos` — 1-bar lookahead bug)
 - alpaca-py TimeFrame: `TimeFrame(5, TimeFrameUnit.Minute)` not `TimeFrame(5, "Min")`
