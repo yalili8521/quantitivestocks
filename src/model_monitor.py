@@ -44,6 +44,8 @@ class ModelHealth:
     rolling_mean_pred: float = 0.0         # mean prediction (drift check)
     rolling_mean_realized: float = 0.0     # mean realized return
     pred_realized_ratio: float = 1.0       # predicted / realized (calibration)
+    rolling_pnl_pct: float = 0.0           # cumulative realized return over window (circuit breaker)
+    rolling_max_drawdown_pct: float = 0.0  # worst running drawdown from peak within window
     n_predictions: int = 0
     n_trades: int = 0
     last_updated: str = ""
@@ -63,6 +65,13 @@ HIT_RATE_PAUSE = 0.45            # hit rate below this → recommend pause
 CALIBRATION_WARNING = 2.0        # |pred/realized| ratio above this → warning
 MIN_SAMPLES_FOR_ALERT = 30       # need at least this many samples
 STALE_PAUSE_DAYS = 30
+# Per-symbol rolling P&L circuit breaker. A symbol can have neutral IC and
+# hit-rate above 45% but still bleed money via asymmetric tails (small wins,
+# big losses). These thresholds pause such symbols independent of IC/HR.
+PNL_WARNING_THRESHOLD = -0.03    # cumulative rolling return < -3% → warning
+PNL_PAUSE_THRESHOLD = -0.06      # cumulative rolling return < -6% → pause
+DRAWDOWN_PAUSE_THRESHOLD = -0.10  # peak-to-trough within window < -10% → pause
+PNL_MIN_SAMPLES = 15             # need at least this many realized trades before firing
 
 
 class ModelMonitor:
@@ -265,6 +274,18 @@ class ModelMonitor:
                 health.rolling_mean_pred / health.rolling_mean_realized
             )
 
+        # Rolling P&L circuit breaker — cumulative realized return and worst
+        # intra-window drawdown from peak. These catch bleeding symbols that
+        # still have OK-looking IC/hit-rate.
+        cum = np.cumsum(reals)
+        health.rolling_pnl_pct = float(cum[-1]) if len(cum) else 0.0
+        if len(cum) > 0:
+            # Prepend 0 baseline so drawdown is measured from entry
+            running = np.concatenate(([0.0], cum))
+            peak = np.maximum.accumulate(running)
+            dd = running - peak
+            health.rolling_max_drawdown_pct = float(dd.min())
+
         # Status assessment. Once paused, stay paused until explicit clear-on-retrain.
         if prior is None or prior.status != "paused":
             warnings = []
@@ -292,6 +313,34 @@ class ModelMonitor:
                         health.status = "warning"
                     warnings.append(f"calibration_ratio={health.pred_realized_ratio:.2f}")
 
+            # P&L circuit breaker — uses a lower sample threshold than the
+            # IC-based checks so bleeding symbols get caught faster.
+            if n >= PNL_MIN_SAMPLES:
+                if health.rolling_pnl_pct <= PNL_PAUSE_THRESHOLD:
+                    health.status = "paused"
+                    if not health.paused_at:
+                        health.paused_at = health.last_updated
+                    warnings.append(
+                        f"rolling_pnl={health.rolling_pnl_pct:.1%} "
+                        f"<= {PNL_PAUSE_THRESHOLD:.0%}"
+                    )
+                elif health.rolling_pnl_pct <= PNL_WARNING_THRESHOLD:
+                    if health.status != "paused":
+                        health.status = "warning"
+                    warnings.append(
+                        f"rolling_pnl={health.rolling_pnl_pct:.1%} "
+                        f"<= {PNL_WARNING_THRESHOLD:.0%}"
+                    )
+                if health.rolling_max_drawdown_pct <= DRAWDOWN_PAUSE_THRESHOLD:
+                    health.status = "paused"
+                    if not health.paused_at:
+                        health.paused_at = health.last_updated
+                    warnings.append(
+                        f"rolling_dd={health.rolling_max_drawdown_pct:.1%} "
+                        f"<= {DRAWDOWN_PAUSE_THRESHOLD:.0%}"
+                    )
+
+            if n >= min(MIN_SAMPLES_FOR_ALERT, PNL_MIN_SAMPLES):
                 health.warning_reason = "; ".join(warnings)
 
         self._health[symbol] = health

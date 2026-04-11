@@ -152,8 +152,9 @@ class TestRiskConfig:
 
     def test_check_position_blocks_max_positions(self):
         from risk_config import check_position_allowed, INTRADAY_RISK
+        # Use N+1 positions so test survives future max_positions changes
         positions = {f"SYM{i}": {"qty": 10, "current_price": 100, "side": "LONG"}
-                     for i in range(6)}
+                     for i in range(INTRADAY_RISK.max_positions + 1)}
         ok, reason = check_position_allowed("NEW", 1_000, 100_000, positions, INTRADAY_RISK)
         assert not ok
         assert "max positions" in reason

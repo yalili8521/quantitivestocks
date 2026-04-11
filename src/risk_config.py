@@ -231,13 +231,18 @@ class RiskConfig:
     stress_spread_mult: float = 1.0
 
 
-# Pre-built configs per group (v3 — OOS-validated sizing)
+# Pre-built configs per group — MUST mirror config/trading.json. The JSON still
+# wins at runtime (paper_trader/backtester read JSON and call RiskConfig(**kwargs)),
+# but these hardcoded defaults are used as fallback if trading.json is missing or
+# a key is absent. Keep them in sync so fallback ≈ production.
 SWING_RISK = RiskConfig(
     position_pct=0.45,
-    max_position_pct=0.12,
-    max_sector_pct=0.35,
-    max_total_exposure=0.65,
-    max_positions=5,    # Kelly-focused: fewer slots = higher conviction per position
+    total_risk_budget=0.50,
+    concentration=2.5,
+    max_position_pct=0.15,
+    max_sector_pct=0.40,
+    max_total_exposure=0.60,
+    max_positions=10,
     cost_threshold=0.002,
     target_return=0.02,
     kelly_cap=0.25,
@@ -246,11 +251,13 @@ SWING_RISK = RiskConfig(
 )
 
 INTRADAY_RISK = RiskConfig(
-    position_pct=0.35,
+    position_pct=0.10,
+    total_risk_budget=0.50,
+    concentration=2.5,
     max_position_pct=0.15,
-    max_sector_pct=0.45,
-    max_total_exposure=0.65,
-    max_positions=5,
+    max_sector_pct=0.40,
+    max_total_exposure=0.60,
+    max_positions=8,
     cost_threshold=0.0015,
     target_return=0.015,
     kelly_cap=0.20,
@@ -261,11 +268,13 @@ INTRADAY_RISK = RiskConfig(
 
 CRYPTO_RISK = RiskConfig(
     position_pct=0.15,
-    max_position_pct=0.10,        # was 0.05 — allow 10% per coin
-    max_sector_pct=0.40,          # was 0.15
-    max_total_exposure=0.40,      # was 0.15 — deploy up to 40% of equity
-    max_positions=6,              # max concurrent positions (risk limit, not selection)
-    min_signal_scale=0.2,         # crypto floor: 20% of base (was 10%)
+    total_risk_budget=0.08,
+    concentration=1.5,
+    max_position_pct=0.06,
+    max_sector_pct=0.40,
+    max_total_exposure=0.40,
+    max_positions=6,
+    min_signal_scale=0.2,         # crypto floor: 20% of base
     cost_threshold=0.005,
     target_return=0.04,
     disaster_stop_atr_mult=4.0,   # wider stops for crypto vol
@@ -277,6 +286,8 @@ CRYPTO_RISK = RiskConfig(
 
 CRYPTO_INTRADAY_RISK = RiskConfig(
     position_pct=0.12,                # smaller size for fast turnover
+    total_risk_budget=0.04,
+    concentration=1.5,
     max_position_pct=0.04,
     max_sector_pct=0.12,
     max_total_exposure=0.12,

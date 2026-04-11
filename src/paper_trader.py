@@ -109,6 +109,14 @@ SYMBOL_GROUPS: Dict[str, List[str]] = {
     # Updated 2026-04-08: OOS-only promoted symbols (no in-sample leakage).
     # Intraday OOS: 2026-01-17→2026-04-08, Swing OOS: 2026-01-25→2026-04-08.
     #
+    # NOTE: crypto / crypto_intraday groups are INTENTIONALLY ABSENT from this
+    # dict. The kraken_executor, coin_selector, and crypto model modules live
+    # in the `cranky-mclean` git worktree, not on main. Launching a crypto
+    # group from this branch raises RuntimeError at PaperTrader.__init__
+    # (see src/paper_trader.py:~805). To trade crypto, switch to the crypto
+    # worktree. Removing the keys here prevents `--group crypto` from even
+    # being offered by argparse on main.
+    #
     # Account 1 — Intraday LGB (5-min bars)
     # Selector picks top-8 from trained models each cycle
     # 10 promoted (Sharpe≥0.5, trades≥5, WR≥40%, DD≤15%)
@@ -123,14 +131,6 @@ SYMBOL_GROUPS: Dict[str, List[str]] = {
         "ARKK", "EWJ", "PDBC", "CIBR", "EWH",                 # OOS Sharpe > 2.0
         "IWM", "VGK", "USMV", "EWY", "USO", "EWU",            # OOS Sharpe 0.5–2.0
     ],
-    # Account 3 — Crypto swing (daily, 10-day horizon)
-    # Coin selector ranks full 73-coin universe; these are fallback if selector fails
-    "crypto": ["CRV/USD", "AVAX/USD", "ADA/USD", "LINK/USD",
-               "BTC/USD", "ETH/USD", "SOL/USD", "DOT/USD", "ATOM/USD"],
-    # Account 4 — Crypto Intraday LGB+GRU (5-min bars, 1-hour horizon)
-    # Coin selector ranks full universe; these are fallback
-    "crypto_intraday": ["ATOM/USD", "AXS/USD", "LPT/USD", "WLD/USD",
-                        "FIL/USD", "ICP/USD", "MANA/USD"],
 }
 
 # Legacy / wrong-algorithm positions: opened by a previous buggy model. Manage them

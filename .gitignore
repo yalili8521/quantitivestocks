@@ -26,6 +26,9 @@ CLAUDE.md
 .env
 *.env
 secrets/
+conf/token.txt
+conf/*.token
+conf/*.secret
 .claude/
 .venv/
 

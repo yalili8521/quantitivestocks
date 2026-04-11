@@ -90,6 +90,34 @@ function Test-AfterMarketClose {
 
 $LogDir = Get-WritableLogDir -ProjectRoot $ProjectRoot
 
+# ---------------------------------------------------------------------------
+# Log retention — runs FIRST so it fires even on crash-loop restarts.
+# During the April 2026 outage, log volume hit 45K+ files because retention
+# only ran *after* a successful Layer-0 universe screen. Now it runs before
+# anything else, matches ALL timestamp patterns, and uses a 3-day window.
+# ---------------------------------------------------------------------------
+try {
+    $cutoff   = (Get-Date).AddDays(-3)
+    $patterns = @(
+        '*.log', '*.log.*', '*_err.log',
+        'paper_trader_*', 'universe_screen_*',
+        'gold_*.log.*', 'watchdog_*.log*'
+    )
+    $purged = 0
+    foreach ($pat in $patterns) {
+        $matches = Get-ChildItem -Path (Join-Path $LogDir $pat) -ErrorAction SilentlyContinue |
+                   Where-Object { -not $_.PSIsContainer -and $_.LastWriteTime -lt $cutoff }
+        foreach ($f in $matches) {
+            try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue; $purged++ } catch {}
+        }
+    }
+    if ($purged -gt 0) {
+        Write-Host "  Log retention: purged $purged file(s) older than 3 days."
+    }
+} catch {
+    Write-Host "  Log retention: non-fatal error - $_"
+}
+
 $EnvCandidates = @( (Join-Path $ProjectRoot 'secrets\alpaca.env') )
 # Always load the .env file so group-specific keys (ALPACA_SWING_KEY, etc.) are available
 # even if ALPACA_API_KEY is already set in the system environment.
@@ -168,13 +196,7 @@ if (Test-Path -LiteralPath $pidFile) {
     Write-Host "  No previous PID file found — clean start."
 }
 
-# Log rotation: delete log files older than 7 days
-$oldLogs = Get-ChildItem -Path (Join-Path $LogDir '*.log') -ErrorAction SilentlyContinue |
-    Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) }
-if ($oldLogs) {
-    $oldLogs | Remove-Item -Force -ErrorAction SilentlyContinue
-    Write-Host "  Cleaned up $($oldLogs.Count) log files older than 7 days."
-}
+# (Log retention handled above, before Layer 0, so it runs on crash-loop restarts.)
 
 # ---------------------------------------------------------------------------
 # Function: launch one group process, return the Process object

@@ -31,9 +31,18 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 import requests
-import yfinance as yf
 
 from signals_engine import PROJECT_ROOT
+
+# yfinance imported lazily (see signals_engine.py note).
+_YF_MODULE = None
+
+def _yf():
+    global _YF_MODULE
+    if _YF_MODULE is None:
+        import yfinance as _yf_mod
+        _YF_MODULE = _yf_mod
+    return _YF_MODULE
 
 log = logging.getLogger("market_signals")
 
@@ -210,7 +219,7 @@ class BreadthFetcher:
 
         cal_days = int(lookback_days * 1.5) + 30
         try:
-            data = yf.download(
+            data = _yf().download(
                 self.SECTORS,
                 period=f"{cal_days}d",
                 interval="1d",

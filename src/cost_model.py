@@ -20,6 +20,7 @@ class SymbolCosts:
     slippage_bps: float       # market impact in basis points (one-way)
     fee_bps: float            # broker fee in basis points (one-way, 0 for Alpaca)
     fill_probability: float   # probability of fill at limit price (extended hours)
+    borrow_apy: float = 0.0   # annualized short borrow rate (fraction, e.g. 0.05 = 5%/yr)
 
     @property
     def one_way_bps(self) -> float:
@@ -33,24 +34,49 @@ class SymbolCosts:
     def round_trip_pct(self) -> float:
         return self.round_trip_bps / 10_000
 
+    def borrow_cost_pct(self, holding_days: float) -> float:
+        """Borrow cost (fraction of notional) for a short held ``holding_days``.
+
+        Locate borrow is 0 for longs. For shorts, this is charged on top of
+        the round-trip execution cost. Uses a 365-day year to be conservative
+        (calendar days, not trading days — matches how prime brokers bill).
+        """
+        if holding_days <= 0 or self.borrow_apy <= 0:
+            return 0.0
+        return self.borrow_apy * (holding_days / 365.0)
+
+    def total_short_cost_pct(self, holding_days: float) -> float:
+        """RT execution cost + borrow fee for a short position."""
+        return self.round_trip_pct + self.borrow_cost_pct(holding_days)
+
 
 # ---------------------------------------------------------------------------
 # Default cost estimates by asset class
 # ---------------------------------------------------------------------------
 
+# Short borrow APYs by ETF liquidity tier (conservative IBKR/Alpaca-style rates).
+# Liquid names are general collateral (GC) and cost pennies; low-liq and inverse
+# ETFs have real borrow cost which must be subtracted from short alpha.
+_BORROW_APY_LIQUID = 0.003   # 30 bps/yr (easy-to-borrow)
+_BORROW_APY_MID = 0.01       # 100 bps/yr
+_BORROW_APY_LOW = 0.03       # 300 bps/yr (hard-to-borrow EM / small ETFs)
+
 # Liquid large-cap ETFs (SPY, QQQ, IWM)
 _LIQUID_ETF = SymbolCosts(
-    half_spread_bps=0.5, slippage_bps=1.0, fee_bps=0.0, fill_probability=0.98
+    half_spread_bps=0.5, slippage_bps=1.0, fee_bps=0.0, fill_probability=0.98,
+    borrow_apy=_BORROW_APY_LIQUID,
 )
 
 # Mid-liquidity ETFs (SMH, SOXX, IGV, XLK, GLD)
 _MID_ETF = SymbolCosts(
-    half_spread_bps=1.5, slippage_bps=2.0, fee_bps=0.0, fill_probability=0.95
+    half_spread_bps=1.5, slippage_bps=2.0, fee_bps=0.0, fill_probability=0.95,
+    borrow_apy=_BORROW_APY_MID,
 )
 
 # Low-liquidity / EM ETFs (EWT, EEM, MCHI, GDX, SLV)
 _LOW_ETF = SymbolCosts(
-    half_spread_bps=3.0, slippage_bps=3.0, fee_bps=0.0, fill_probability=0.90
+    half_spread_bps=3.0, slippage_bps=3.0, fee_bps=0.0, fill_probability=0.90,
+    borrow_apy=_BORROW_APY_LOW,
 )
 
 # Crypto via Alpaca (no commission, wider spreads)
@@ -145,6 +171,7 @@ def get_symbol_costs(
         slippage_bps=base.slippage_bps * total_mult,
         fee_bps=base.fee_bps,
         fill_probability=max(0.5, base.fill_probability ** total_mult),
+        borrow_apy=base.borrow_apy,  # not scaled by stress_mult — borrow is a real cash cost
     )
 
 
@@ -185,13 +212,21 @@ def validate_cost_threshold(
     cost_threshold: float,
     safety_margin: float = 1.5,
     session: str = "regular",
+    side: str = "LONG",
+    holding_days: float = 10.0,
 ) -> tuple:
     """Check that cost_threshold is safely above estimated round-trip costs.
+
+    For SHORT positions, borrow cost over ``holding_days`` is added to the
+    RT cost before applying the safety margin — short alpha must cover
+    execution AND borrow.
 
     Returns (ok: bool, message: str, estimated_rt_cost: float).
     """
     costs = get_symbol_costs(symbol, session=session)
     rt_cost = costs.round_trip_pct
+    if side.upper() in ("SHORT", "SELL"):
+        rt_cost = rt_cost + costs.borrow_cost_pct(holding_days)
     min_threshold = rt_cost * safety_margin
 
     if cost_threshold < min_threshold:
@@ -239,10 +274,16 @@ def adjust_return_for_costs(
     raw_return: float,
     symbol: str,
     session: str = "regular",
+    side: str = "LONG",
+    holding_days: float = 0.0,
 ) -> float:
     """Adjust a realized return by subtracting estimated round-trip costs.
 
-    Used for cost-aware labels in training.
+    Used for cost-aware labels in training. SHORT positions also pay
+    borrow cost proportional to ``holding_days``.
     """
     costs = get_symbol_costs(symbol, session=session)
-    return raw_return - costs.round_trip_pct
+    total_cost = costs.round_trip_pct
+    if side.upper() in ("SHORT", "SELL") and holding_days > 0:
+        total_cost += costs.borrow_cost_pct(holding_days)
+    return raw_return - total_cost

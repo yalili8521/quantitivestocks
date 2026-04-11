@@ -32,9 +32,18 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 import requests
-import yfinance as yf
 
 from signals_engine import PROJECT_ROOT
+
+# yfinance imported lazily (see signals_engine.py note).
+_YF_MODULE = None
+
+def _yf():
+    global _YF_MODULE
+    if _YF_MODULE is None:
+        import yfinance as _yf_mod
+        _YF_MODULE = _yf_mod
+    return _YF_MODULE
 
 logging.basicConfig(
     level=logging.INFO,
@@ -161,7 +170,7 @@ class CreditSpreadFetcher:
 
         cal_days = int(lookback_days * 1.5) + 30
         try:
-            data = yf.download(
+            data = _yf().download(
                 ["HYG", "LQD"], period=f"{cal_days}d",
                 interval="1d", progress=False, threads=True,
             )
@@ -246,7 +255,7 @@ class RiskAppetiteFetcher:
 
         cal_days = int(lookback_days * 1.5) + 30
         try:
-            data = yf.download(
+            data = _yf().download(
                 ["XLY", "XLP", "IWM", "SPY"], period=f"{cal_days}d",
                 interval="1d", progress=False, threads=True,
             )
@@ -683,7 +692,7 @@ class CommodityTermFetcher:
 
         cal_days = int(lookback_days * 1.5) + 30
         try:
-            ticker = yf.Ticker(yf_symbol)
+            ticker = _yf().Ticker(yf_symbol)
             hist = ticker.history(period=f"{cal_days}d", interval="1d")
             if hist.empty:
                 return pd.DataFrame(columns=["date", "close"])
@@ -770,7 +779,7 @@ class CarrySignalFetcher:
             return self._div_cache[symbol]
 
         try:
-            ticker = yf.Ticker(symbol)
+            ticker = _yf().Ticker(symbol)
             info = ticker.info
             div_yield = info.get("trailingAnnualDividendYield", 0) or 0
             self._div_cache[symbol] = div_yield

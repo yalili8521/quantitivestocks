@@ -60,6 +60,32 @@ _WEBULL_TICKERS = {"TQQQ"}
 
 app = FastAPI(title="Trading Webhook Server", version="2.0")
 
+# Shared-secret passphrase — set via WEBHOOK_SECRET env var.
+# TradingView alerts must include {"passphrase": "<secret>", ...} in JSON body.
+# If WEBHOOK_SECRET is empty/unset, auth is BYPASSED (dev mode) with a WARNING.
+_WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "").strip()
+if not _WEBHOOK_SECRET:
+    logger.warning(
+        "[WEBHOOK] WEBHOOK_SECRET not set — /webhook is UNAUTHENTICATED. "
+        "Set WEBHOOK_SECRET in secrets/alpaca.env to enable shared-secret auth."
+    )
+
+
+def _check_auth(body: dict) -> Optional[JSONResponse]:
+    """Validate passphrase. Returns error response if invalid, None if OK."""
+    if not _WEBHOOK_SECRET:
+        return None  # dev-mode bypass, warned at startup
+    supplied = str(body.get("passphrase", "")).strip()
+    if not supplied:
+        logger.warning("[WEBHOOK] Rejected: missing passphrase")
+        return JSONResponse(status_code=401, content={"error": "missing passphrase"})
+    # Constant-time comparison to resist timing attacks
+    import hmac
+    if not hmac.compare_digest(supplied, _WEBHOOK_SECRET):
+        logger.warning("[WEBHOOK] Rejected: invalid passphrase")
+        return JSONResponse(status_code=401, content={"error": "invalid passphrase"})
+    return None
+
 
 @app.post("/webhook")
 async def webhook(request: Request):
@@ -79,6 +105,11 @@ async def webhook(request: Request):
             status_code=400,
             content={"error": "Invalid JSON", "received": body_str[:200]},
         )
+
+    # Shared-secret authentication (skip in dev mode if WEBHOOK_SECRET unset)
+    auth_err = _check_auth(body)
+    if auth_err is not None:
+        return auth_err
 
     now = datetime.now(PT)
     ticker = body.get("ticker", "").strip().upper()

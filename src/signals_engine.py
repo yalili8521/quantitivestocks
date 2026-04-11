@@ -40,7 +40,19 @@ import time
 import numpy as np
 import pandas as pd
 import requests
-import yfinance as yf
+
+# yfinance is imported lazily — it has a protobuf/yfinance dependency chain that
+# has historically broken the entire paper-trader fleet when yfinance upgrades
+# clobbered google.protobuf. Lazy import means only functions that actually use
+# yfinance raise at call-time, not the whole module at import time.
+_YF_MODULE = None
+
+def _yf():
+    global _YF_MODULE
+    if _YF_MODULE is None:
+        import yfinance as _yf_mod
+        _YF_MODULE = _yf_mod
+    return _YF_MODULE
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -163,7 +175,7 @@ class YahooFinanceAdapter(DataAdapter):
     def fetch_daily(self, symbol: str, lookback: int = DAILY_LOOKBACK) -> pd.DataFrame:
         # Request extra calendar days to cover ~lookback trading days
         cal_days = int(lookback * 1.5) + 10
-        ticker = yf.Ticker(symbol)
+        ticker = _yf().Ticker(symbol)
         df = ticker.history(period=f"{cal_days}d", interval="1d", auto_adjust=True)
         out = self._normalize(df, symbol)
         return out.tail(lookback).reset_index(drop=True)
@@ -172,7 +184,7 @@ class YahooFinanceAdapter(DataAdapter):
                        lookback_days: int = 1) -> pd.DataFrame:
         # yfinance interval format: "1m" or "5m"
         yf_interval = interval.replace("min", "m")
-        ticker = yf.Ticker(symbol)
+        ticker = _yf().Ticker(symbol)
         # yfinance supports up to 60 days of intraday data
         period = f"{min(lookback_days, 60)}d"
         df = ticker.history(period=period, interval=yf_interval, auto_adjust=True)

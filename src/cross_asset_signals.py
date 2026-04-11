@@ -38,7 +38,17 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 import requests
-import yfinance as yf
+
+# yfinance imported lazily (see signals_engine.py note) to avoid protobuf import
+# cascading through the entire module chain.
+_YF_MODULE = None
+
+def _yf():
+    global _YF_MODULE
+    if _YF_MODULE is None:
+        import yfinance as _yf_mod
+        _YF_MODULE = _yf_mod
+    return _YF_MODULE
 
 logging.basicConfig(
     level=logging.INFO,
@@ -257,7 +267,7 @@ class CrossMarketFetcher:
 
         try:
             cal_days = int(lookback_days * 1.5) + 10
-            ticker = yf.Ticker(yf_symbol)
+            ticker = _yf().Ticker(yf_symbol)
             hist = ticker.history(period=f"{cal_days}d", interval="1d")
 
             if hist.empty:

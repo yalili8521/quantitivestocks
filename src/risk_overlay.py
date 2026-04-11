@@ -300,27 +300,66 @@ def publish_positions(group: str, positions: Dict[str, dict]) -> None:
         raise
 
 
-def get_all_group_positions(exclude_group: Optional[str] = None) -> Dict[str, dict]:
+STALE_THRESHOLD_SECONDS = 900   # 15 min — soft stale (warn + still count)
+DEAD_THRESHOLD_SECONDS = 3600   # 1 hr — dead (warn loudly + still count fail-closed)
+
+
+def get_all_group_positions(
+    exclude_group: Optional[str] = None,
+    strict: bool = True,
+) -> Dict[str, dict]:
     """Read positions from ALL other groups (excludes ``exclude_group``).
 
     Returns a flat dict {symbol: {qty, current_price, side}} merging
     all groups except the caller's. If a symbol appears in multiple groups,
     notionals are summed.
+
+    Fail-closed semantics (strict=True, default): stale data is STILL
+    included so cross-group theme caps don't silently under-count exposure
+    when a publisher is slow or crashed. A warning is logged for each stale
+    group so ops can investigate. Only when ``strict=False`` are stale
+    groups dropped (legacy behaviour, only used when the caller explicitly
+    wants a fresh-only view, e.g. for read-only dashboards).
     """
     all_data = _read_cross_positions()
     merged: Dict[str, dict] = {}
     for grp, grp_data in all_data.items():
         if grp == exclude_group:
             continue
-        # Skip stale data (> 15 min old)
         updated = grp_data.get("updated_at", "")
+        age_s: Optional[float] = None
         if updated:
             try:
                 ts = datetime.fromisoformat(updated)
-                age = (datetime.now(timezone.utc) - ts).total_seconds()
-                if age > 900:  # 15 minutes
-                    continue
+                age_s = (datetime.now(timezone.utc) - ts).total_seconds()
             except (ValueError, TypeError):
+                age_s = None
+        if age_s is None:
+            # No valid timestamp — treat as dead. In strict mode, still
+            # include positions (fail-closed). In non-strict, skip.
+            if not strict:
+                continue
+            log.warning(
+                "Risk overlay: group '%s' has no/invalid timestamp — "
+                "including positions fail-closed (strict mode)", grp
+            )
+        elif age_s > DEAD_THRESHOLD_SECONDS:
+            log.error(
+                "Risk overlay: group '%s' state is DEAD (age=%.0fs > %ds). "
+                "%s",
+                grp, age_s, DEAD_THRESHOLD_SECONDS,
+                "Including last-known positions fail-closed." if strict
+                else "Dropping (non-strict).",
+            )
+            if not strict:
+                continue
+        elif age_s > STALE_THRESHOLD_SECONDS:
+            log.warning(
+                "Risk overlay: group '%s' state is stale (age=%.0fs > %ds) — "
+                "still counting for theme-cap (fail-closed)",
+                grp, age_s, STALE_THRESHOLD_SECONDS,
+            )
+            if not strict:
                 continue
         for sym, pos in grp_data.get("positions", {}).items():
             if sym in merged:
