@@ -879,7 +879,7 @@ class AlpacaPaperTrader:
         self._crypto_reconciled: bool = False  # True after first post-selector reconciliation
         self._etf_reconciled: bool = False     # True after first ETF selector reconciliation
         self._stale_since: Dict[str, datetime] = {}   # symbol → first time seen as exit-only
-        self._stale_max_hours: float = 8.0             # auto-close stale positions after 8 hours
+        # Deselected symbol exit: 30min (intraday), 2h (swing) — see check_and_trade exit_only block
 
         # Volatility-tier exit params (classified at startup, recomputed weekly)
         from src.risk_config import (VolTier, ExitParams, classify_vol_tier,
@@ -2676,25 +2676,55 @@ class AlpacaPaperTrader:
                     return f"EXIT-DEFERRED  (EOD close, market closed)"
 
             # Legacy positions: trailing stop (3% from peak)
-            if use_legacy_stops:
+            if use_legacy_stops and not exit_only:
+                # Pure legacy (not deselected) — original 3% trailing behavior
                 if drawdown_from_peak >= LEGACY_TRAILING_STOP_PCT:
                     result = _do_exit(f"legacy_trailing_stop ({drawdown_from_peak:.2%})", "legacy")
                     if result:
                         return result
                     return f"EXIT-DEFERRED  (legacy trailing stop, market closed)"
 
-            # Stale position auto-close: if exit-only for > N hours, close unconditionally
+            # --- Deselected symbol exit strategy ---
+            # When the selector drops a symbol, it means the model no longer
+            # considers it worth holding. Exit aggressively rather than
+            # letting the position drift for hours unmanaged.
             if exit_only:
                 if symbol not in self._stale_since:
                     self._stale_since[symbol] = datetime.now(timezone.utc)
                 stale_hours = (datetime.now(timezone.utc) - self._stale_since[symbol]).total_seconds() / 3600
-                if stale_hours >= self._stale_max_hours:
-                    reason = f"stale_auto_close ({stale_hours:.1f}h exit-only, P&L={pnl_pct:+.2%})"
-                    result = _do_exit(reason, "stale")
+
+                # --- Time limit: flatten unconditionally ---
+                # Intraday: 30 min (6 bars); Swing: 2h
+                max_stale_h = 0.5 if self.mode == "intraday" else 2.0
+                if stale_hours >= max_stale_h:
+                    reason = (f"deselected_flatten ({stale_hours:.1f}h > "
+                              f"{max_stale_h:.1f}h limit, P&L={pnl_pct:+.2%})")
+                    result = _do_exit(reason, "stale_flat")
                     if result:
                         self._stale_since.pop(symbol, None)
                         return result
-                    return f"EXIT-DEFERRED  (stale auto-close, market closed)"
+                    return f"EXIT-DEFERRED  (deselected flatten, market closed)"
+
+                # --- Losing deselected position: flatten if loss > 1% ---
+                if pnl_pct < -0.01:
+                    reason = (f"deselected_cut_loss (P&L={pnl_pct:+.2%} < -1%, "
+                              f"symbol dropped by selector)")
+                    result = _do_exit(reason, "stale_loss")
+                    if result:
+                        self._stale_since.pop(symbol, None)
+                        return result
+                    return f"EXIT-DEFERRED  (deselected cut loss, market closed)"
+
+                # --- Profitable deselected: tight 1.5% trailing stop ---
+                deselected_trail_pct = 0.015
+                if drawdown_from_peak >= deselected_trail_pct:
+                    reason = (f"deselected_trail ({drawdown_from_peak:.2%} >= "
+                              f"{deselected_trail_pct:.1%} trail, P&L={pnl_pct:+.2%})")
+                    result = _do_exit(reason, "stale_trail")
+                    if result:
+                        self._stale_since.pop(symbol, None)
+                        return result
+                    return f"EXIT-DEFERRED  (deselected trail stop, market closed)"
 
             # ===== LAYER 1: Hard safety (disaster stop) =====
             # Regime-adaptive: widen stops in high-vol, tighten in low-vol
@@ -3446,6 +3476,97 @@ class AlpacaPaperTrader:
                 log.error("Failed to close stale position %s: %s — will retry", sym, exc)
         print()
 
+    def _flatten_if_orphaned(self) -> None:
+        """Flatten ALL positions if this group was down long enough to leave
+        them unmanaged (no stop-loss, no trailing, no exit logic running).
+
+        Uses the group's last publish timestamp in cross_group_positions.json
+        to detect the gap. Thresholds:
+          - Intraday: > 15 min unmanaged → flatten (positions are 5-min granularity)
+          - Swing:    > 60 min unmanaged → flatten (wider stops, slower signals)
+
+        If no publish history exists (first run ever), skip — there's no gap
+        to worry about, and _reconcile_positions already cleaned misplaced symbols.
+        """
+        try:
+            from risk_overlay import _read_cross_positions
+        except ImportError:
+            return
+
+        max_gap_minutes = 15.0 if self.mode == "intraday" else 60.0
+        group_key = self.group or "default"
+
+        try:
+            all_data = _read_cross_positions()
+            grp_data = all_data.get(group_key)
+            if not grp_data:
+                log.info("[ORPHAN-CHECK] No prior publish for '%s' — first run, skipping flatten",
+                         group_key)
+                return
+
+            updated_str = grp_data.get("updated_at", "")
+            if not updated_str:
+                return
+
+            last_publish = datetime.fromisoformat(updated_str)
+            gap = (datetime.now(timezone.utc) - last_publish).total_seconds() / 60.0
+
+            if gap <= max_gap_minutes:
+                log.info("[ORPHAN-CHECK] '%s' was down %.1f min (threshold %.0f min) — no orphan flatten needed",
+                         group_key, gap, max_gap_minutes)
+                return
+
+            # We were down too long — flatten everything
+            positions = self.get_positions()
+            open_positions = {s: p for s, p in positions.items()
+                             if p.get("qty", 0) > 0 and not _is_option_symbol(s)}
+
+            if not open_positions:
+                log.info("[ORPHAN-CHECK] '%s' was down %.1f min but has no open positions",
+                         group_key, gap)
+                return
+
+            log.warning(
+                "[ORPHAN-FLATTEN] Group '%s' was unmanaged for %.1f min (> %.0f min threshold). "
+                "Flattening %d orphaned position(s) to prevent unmanaged risk.",
+                group_key, gap, max_gap_minutes, len(open_positions),
+            )
+            print(f"\n  [ORPHAN-FLATTEN] Group was down for {gap:.0f} min — "
+                  f"flattening {len(open_positions)} unmanaged position(s):")
+
+            for sym, pos in open_positions.items():
+                qty = pos["qty"]
+                side = pos["side"]
+                pnl = pos.get("unrealized_pnl", 0)
+                pnl_pct = pos.get("unrealized_pnl_pct", 0)
+                print(f"    {sym:>10s}  {side:5s}  qty={qty}  P&L={pnl_pct:+.2%} (${pnl:+.2f})")
+                try:
+                    self._cancel_open_orders_for(sym)
+                    lp = pos.get("current_price") or None
+                    reason = f"orphan_flatten (unmanaged {gap:.0f}min, P&L={pnl_pct:+.2%})"
+                    if side == "LONG":
+                        oid = self.sell(sym, qty, reason=reason, limit_price=lp)
+                    else:
+                        oid = self.buy_to_cover(sym, qty, reason=reason, limit_price=lp)
+                    if oid:
+                        log.info("[ORPHAN-FLATTEN] Closed %s %s %.6f (P&L: $%.2f)", side, sym, qty, pnl)
+                        self._record_closed_trade(pnl_pct, sym)
+                        self._log_daily_trade(sym, side, qty,
+                                              pos.get("current_price", 0), reason, pnl_pct)
+                    else:
+                        # Market closed — queue for retry via reconcile system
+                        self._pending_reconcile[sym] = pos
+                        self._stale_since[sym] = datetime.now(timezone.utc)
+                        log.warning("[ORPHAN-FLATTEN] %s deferred (market closed) — will retry", sym)
+                except Exception as exc:
+                    self._pending_reconcile[sym] = pos
+                    self._stale_since[sym] = datetime.now(timezone.utc)
+                    log.error("[ORPHAN-FLATTEN] Failed to close %s: %s — will retry", sym, exc)
+            print()
+
+        except Exception as exc:
+            log.warning("[ORPHAN-CHECK] Could not check orphan status: %s", exc)
+
     def _maybe_reload_universe(self) -> None:
         """Reload crypto universe from disk if Layer 0 updated it.
 
@@ -3554,6 +3675,13 @@ class AlpacaPaperTrader:
         # Reconcile stale positions before entering the main loop
         self._reconcile_positions()
 
+        # Flatten positions orphaned during downtime.
+        # If this group's last publish timestamp (in cross_group_positions.json)
+        # is too old, we were crashed/down and positions had no stop-loss
+        # protection during that gap. Flatten everything to prevent unmanaged
+        # risk, then let the normal loop re-enter based on fresh signals.
+        self._flatten_if_orphaned()
+
         # Initialize bar counters for existing positions (survive restarts)
         try:
             existing = self.get_positions()
@@ -3621,6 +3749,13 @@ class AlpacaPaperTrader:
                 # Get account + positions
                 account = self.get_account_summary()
                 positions = self.get_positions()
+
+                # Publish positions for cross-group visibility (theme caps, stale detection)
+                try:
+                    from risk_overlay import publish_positions
+                    publish_positions(self.group or "default", positions)
+                except Exception as _pub_exc:
+                    log.debug("publish_positions failed: %s", _pub_exc)
 
                 # Regime detection: refit daily, update stop multiplier
                 if self._regime_detector is not None:
