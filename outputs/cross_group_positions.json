@@ -1,45 +1,40 @@
 {
   "intraday": {
-    "updated_at": "2026-04-04T03:47:07.193887+00:00",
+    "updated_at": "2026-04-13T07:40:19.463887+00:00",
     "positions": {
-      "IWF": {
-        "qty": 7.0,
-        "current_price": 430.04,
-        "side": "SHORT"
+      "XLB": {
+        "qty": 74.0,
+        "current_price": 51.96,
+        "side": "LONG"
       },
       "XLE": {
         "qty": 30.0,
-        "current_price": 59.25,
+        "current_price": 58.23,
         "side": "LONG"
+      },
+      "XLK": {
+        "qty": 17.0,
+        "current_price": 141.25,
+        "side": "SHORT"
       }
     }
   },
   "swing": {
-    "updated_at": "2026-04-04T03:43:32.832487+00:00",
+    "updated_at": "2026-04-13T07:34:37.795632+00:00",
     "positions": {
       "ARKK": {
         "qty": 22.0,
-        "current_price": 68.56,
-        "side": "LONG"
-      },
-      "IGV": {
-        "qty": 22.0,
-        "current_price": 80.34,
-        "side": "LONG"
-      },
-      "XLP": {
-        "qty": 47.0,
-        "current_price": 81.89,
+        "current_price": 68.45,
         "side": "LONG"
       },
       "XLRE": {
         "qty": 128.0,
-        "current_price": 41.61,
+        "current_price": 42.54,
         "side": "SHORT"
       },
       "XLU": {
         "qty": 80.0,
-        "current_price": 46.34,
+        "current_price": 46.7,
         "side": "SHORT"
       }
     }

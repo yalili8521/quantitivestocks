@@ -464,7 +464,7 @@ class WebullTQQQExecutor:
             self._last_reset_date = today
 
     def _save_state(self):
-        """Persist state to disk (atomic write)."""
+        """Persist state to disk (atomic write) and sync to Gist."""
         state = {
             "equity": self._equity,
             "initial_equity": self._initial_equity,
@@ -483,6 +483,79 @@ class WebullTQQQExecutor:
             os.replace(tmp, _STATE_FILE)
         except Exception as e:
             logger.error("[WEBULL_TQQQ] Failed to save state: %s", e)
+
+        # Sync to GitHub Gist for Vercel dashboard
+        self._sync_to_gist(state)
+
+    def _get_gist_creds(self) -> tuple:
+        """Get Gist ID and GitHub token from env."""
+        gist_id = os.environ.get("KRAKEN_STATE_GIST_ID", "")
+        gh_token = os.environ.get("GITHUB_TOKEN", "")
+        if not gist_id or not gh_token:
+            env_file = os.path.join(_PROJECT_ROOT, "secrets", "alpaca.env")
+            if os.path.exists(env_file):
+                try:
+                    with open(env_file) as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line or line.startswith("#"):
+                                continue
+                            k, _, v = line.partition("=")
+                            k, v = k.strip(), v.strip().strip("\"'")
+                            if k == "KRAKEN_STATE_GIST_ID" and not gist_id:
+                                gist_id = v
+                            elif k == "GITHUB_TOKEN" and not gh_token:
+                                gh_token = v
+                except Exception:
+                    pass
+        return gist_id, gh_token
+
+    def _sync_to_gist(self, state: dict) -> None:
+        """Upload state + trade log to GitHub Gist for the dashboard."""
+        gist_id, gh_token = self._get_gist_creds()
+        if not gist_id or not gh_token:
+            return
+        try:
+            import requests
+            # Dashboard-compatible state
+            gist_state = {
+                "equity": state.get("equity", 0),
+                "initial_equity": state.get("initial_equity", 0),
+                "position": state.get("position"),
+                "daily_pnl": state.get("daily_pnl", 0),
+                "daily_trades": state.get("daily_trades", 0),
+                "daily_wins": state.get("daily_wins", 0),
+                "daily_losses": state.get("daily_losses", 0),
+                "live_orders": self._live_orders,
+            }
+            files = {
+                "webull_tqqq_state.json": {
+                    "content": json.dumps(gist_state, indent=2),
+                },
+            }
+            # Include trade log (last 200 entries)
+            trades = []
+            if os.path.exists(_TRADE_LOG):
+                try:
+                    with open(_TRADE_LOG) as f:
+                        trades = json.load(f)
+                except Exception:
+                    pass
+            if trades:
+                files["webull_tqqq_trade_log.json"] = {
+                    "content": json.dumps(trades[-200:], indent=2),
+                }
+            requests.patch(
+                f"https://api.github.com/gists/{gist_id}",
+                headers={
+                    "Authorization": f"token {gh_token}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
+                json={"files": files},
+                timeout=10,
+            )
+        except Exception as exc:
+            logger.debug("[WEBULL_TQQQ] Gist sync error: %s", exc)
 
     def _load_state(self):
         """Restore state from disk."""

@@ -452,8 +452,12 @@ def _get_session() -> str:
     """Return the current Alpaca-tradeable session for ET equities.
 
     regular  — 09:30–16:00 ET Mon–Fri  (market orders allowed)
-    extended — 04:00–09:30 and 16:00–20:00 ET Mon–Fri  (limit orders only)
-    closed   — 20:00–04:00 ET and all day Sat/Sun
+    extended — everything else (limit orders with extended_hours=True)
+
+    Alpaca paper API accepts extended-hours limit orders 24/7, including
+    weekends and overnight. They queue and fill when the market opens.
+    This enables the paper trader to manage positions around the clock
+    instead of deferring orders until the next regular session.
     """
     from datetime import time as dt_time
     try:
@@ -463,16 +467,12 @@ def _get_session() -> str:
 
     now_et = datetime.now(ZoneInfo("America/New_York"))
     if now_et.weekday() >= 5:
-        return "closed"
+        return "extended"
 
     t = now_et.time()
-    if dt_time(4, 0) <= t < dt_time(9, 30):
-        return "extended"
     if dt_time(9, 30) <= t <= dt_time(16, 0):
         return "regular"
-    if dt_time(16, 0) < t <= dt_time(20, 0):
-        return "extended"
-    return "closed"
+    return "extended"
 
 
 def _parse_window_list(windows: List[str]) -> List[tuple]:
@@ -2133,22 +2133,14 @@ class AlpacaPaperTrader:
         Extended hours → LimitOrder with extended_hours=True.
             BUY  limit: last_price × 1.001  (0.1% above to ensure fill)
             SELL limit: last_price × 0.999  (0.1% below to ensure fill)
-        Alpaca rejects market orders outside regular hours.
+        Alpaca accepts extended-hours limit orders 24/7 (including weekends);
+        they queue until the next tradeable session.
 
         Crypto → MarketOrder with GTC time-in-force (24/7 market, fractional qty).
-        Closed → equity orders are deferred (logged but not submitted) to prevent
-                 stuck orders that block future attempts.
         """
         is_crypto = _is_crypto_symbol(symbol)
         session = _get_session()
 
-        # Block equity orders when market is closed (weekends, overnight).
-        # Submitting during closed hours creates orders that sit in ACCEPTED
-        # state, hold the qty, and block all future sell attempts until cancelled.
-        if not is_crypto and session == "closed":
-            log.info("DEFERRED %s %s x%s — market closed, will retry next session",
-                     side.value, symbol, qty)
-            return None
         try:
             if is_crypto:
                 # Crypto: always market order, GTC, fractional qty allowed
@@ -2162,7 +2154,11 @@ class AlpacaPaperTrader:
                 )
                 log.info("CRYPTO MARKET %s %s x%.6f — order %s",
                          side.value, symbol, qty, order.id)
-            elif session == "extended" and limit_price is not None:
+            elif session == "extended":
+                if limit_price is None:
+                    log.error("Extended-hours order for %s missing limit_price — "
+                              "cannot send MarketOrder outside regular hours, skipping", symbol)
+                    return None
                 if side == OrderSide.BUY:
                     lp = math.ceil(limit_price * 1.001 * 100) / 100
                 else:
@@ -2651,7 +2647,7 @@ class AlpacaPaperTrader:
                 else:
                     oid = self.buy_to_cover(symbol, qty, reason=reason, limit_price=current_price)
                 if oid is None:
-                    return None  # market closed
+                    return None  # order failed (API error or extended-hours guard)
                 self._record_closed_trade(pnl_pct, symbol)
                 self._log_daily_trade(symbol, side, qty, current_price, reason, pnl_pct)
                 log.info("EXIT layer=%s symbol=%s tier=%s pnl=%.2f%% reason=%s",
@@ -2673,7 +2669,7 @@ class AlpacaPaperTrader:
                     result = _do_exit("eod_exit (intraday momentum)", "eod")
                     if result:
                         return result
-                    return f"EXIT-DEFERRED  (EOD close, market closed)"
+                    return f"EXIT-DEFERRED  (EOD close, order failed)"
 
             # Legacy positions: trailing stop (3% from peak)
             if use_legacy_stops and not exit_only:
@@ -2682,7 +2678,7 @@ class AlpacaPaperTrader:
                     result = _do_exit(f"legacy_trailing_stop ({drawdown_from_peak:.2%})", "legacy")
                     if result:
                         return result
-                    return f"EXIT-DEFERRED  (legacy trailing stop, market closed)"
+                    return f"EXIT-DEFERRED  (legacy trailing stop, order failed)"
 
             # --- Deselected symbol exit strategy ---
             # When the selector drops a symbol, it means the model no longer
@@ -2703,7 +2699,7 @@ class AlpacaPaperTrader:
                     if result:
                         self._stale_since.pop(symbol, None)
                         return result
-                    return f"EXIT-DEFERRED  (deselected flatten, market closed)"
+                    return f"EXIT-DEFERRED  (deselected flatten, order failed)"
 
                 # --- Losing deselected position: flatten if loss > 1% ---
                 if pnl_pct < -0.01:
@@ -2713,7 +2709,7 @@ class AlpacaPaperTrader:
                     if result:
                         self._stale_since.pop(symbol, None)
                         return result
-                    return f"EXIT-DEFERRED  (deselected cut loss, market closed)"
+                    return f"EXIT-DEFERRED  (deselected cut loss, order failed)"
 
                 # --- Profitable deselected: tight 1.5% trailing stop ---
                 deselected_trail_pct = 0.015
@@ -2724,7 +2720,7 @@ class AlpacaPaperTrader:
                     if result:
                         self._stale_since.pop(symbol, None)
                         return result
-                    return f"EXIT-DEFERRED  (deselected trail stop, market closed)"
+                    return f"EXIT-DEFERRED  (deselected trail stop, order failed)"
 
             # ===== LAYER 1: Hard safety (disaster stop) =====
             # Regime-adaptive: widen stops in high-vol, tighten in low-vol
@@ -2745,7 +2741,7 @@ class AlpacaPaperTrader:
                     reason = f"disaster_stop ({pnl_pct:+.2%} <= -{disaster_stop_pct:.2%})"
                     result = _do_exit(reason, "safety")
                     if result is None:
-                        return f"EXIT-DEFERRED  (disaster stop {pnl_pct:+.2%}, market closed)"
+                        return f"EXIT-DEFERRED  (disaster stop {pnl_pct:+.2%}, order failed)"
                     cd_hours = self.max_loss_cooldown_hours
                     if cd_hours > 0:
                         self._cooldown_until[symbol] = datetime.now(timezone.utc) + timedelta(hours=cd_hours)
@@ -2771,7 +2767,7 @@ class AlpacaPaperTrader:
                               f"current=${current_price:.4f})")
                     result = _do_exit(reason, "breakeven")
                     if result is None:
-                        return f"EXIT-DEFERRED  (breakeven ratchet, market closed)"
+                        return f"EXIT-DEFERRED  (breakeven ratchet, order failed)"
                     return result
 
             # ===== LAYER 2: Profit protection (profit-lock arm + trail) =====
@@ -2837,7 +2833,7 @@ class AlpacaPaperTrader:
                                   f"PnL={pnl_pct:+.2%})")
                         result = _do_exit(reason, "profit_lock+signal")
                         if result is None:
-                            return (f"EXIT-DEFERRED  (profit-lock+signal decay, market closed)")
+                            return (f"EXIT-DEFERRED  (profit-lock+signal decay, order failed)")
                         self._decay_cooldown_until[symbol] = (
                             datetime.now(timezone.utc) + timedelta(seconds=2 * self.check_interval))
                         return result
@@ -2848,7 +2844,7 @@ class AlpacaPaperTrader:
                                   f"PnL={pnl_pct:+.2%}, trail={trail_pct:.2%})")
                         result = _do_exit(reason, "profit_lock")
                         if result is None:
-                            return f"EXIT-DEFERRED  (profit-lock trail, market closed)"
+                            return f"EXIT-DEFERRED  (profit-lock trail, order failed)"
                         return result
 
             # ===== LAYER 3: Model-state exits =====
@@ -2886,7 +2882,7 @@ class AlpacaPaperTrader:
                             result = _do_exit(reason, "signal_reversal")
                             if result is None:
                                 return (f"EXIT-DEFERRED  (signal reversal E[r]={expected_return:+.4f}, "
-                                        f"market closed)")
+                                        f"order failed)")
                             log.info("[CryptoIntraday] %s: exit after %d bars, reason=%s, pnl=%.4f%%",
                                      symbol, ci_bars, "signal_reversal_post_horizon", pnl_pct * 100)
                             # 3-bar (15-min) cooldown after reversal exits
@@ -2925,7 +2921,7 @@ class AlpacaPaperTrader:
                         result = _do_exit(reason, "signal_decay")
                         if result is None:
                             return (f"EXIT-DEFERRED  (signal decay E[r]={expected_return:+.4f}, "
-                                    f"P&L={pnl_pct:+.2%}, market closed)")
+                                    f"P&L={pnl_pct:+.2%}, order failed)")
                         self._decay_cooldown_until[symbol] = (
                             datetime.now(timezone.utc) + timedelta(seconds=2 * self.check_interval))
                         return result
@@ -2941,7 +2937,7 @@ class AlpacaPaperTrader:
                                   f"(held {days_held}d, PnL={pnl_pct:+.2%})")
                         result = _do_exit(reason, "time")
                         if result is None:
-                            return f"EXIT-DEFERRED  (max underwater {days_held}d, market closed)"
+                            return f"EXIT-DEFERRED  (max underwater {days_held}d, order failed)"
                         return result
 
             # HOLD
@@ -3463,12 +3459,12 @@ class AlpacaPaperTrader:
                     log.info("Reconciled %s %s %.6f (stale position closed)", side, sym, qty)
                     self._stale_since.pop(sym, None)
                 else:
-                    # Order was deferred (market closed) — queue for retry
+                    # Order was deferred (order failed) — queue for retry
                     self._pending_reconcile[sym] = pos
                     # Start stale timer so auto-close kicks in after _stale_max_days
                     if sym not in self._stale_since:
                         self._stale_since[sym] = datetime.now(timezone.utc)
-                    log.warning("Reconcile deferred for %s (market closed) — will retry each cycle", sym)
+                    log.warning("Reconcile deferred for %s (order failed) — will retry each cycle", sym)
             except Exception as exc:
                 self._pending_reconcile[sym] = pos
                 if sym not in self._stale_since:
@@ -3554,10 +3550,10 @@ class AlpacaPaperTrader:
                         self._log_daily_trade(sym, side, qty,
                                               pos.get("current_price", 0), reason, pnl_pct)
                     else:
-                        # Market closed — queue for retry via reconcile system
+                        # Order failed — queue for retry via reconcile system
                         self._pending_reconcile[sym] = pos
                         self._stale_since[sym] = datetime.now(timezone.utc)
-                        log.warning("[ORPHAN-FLATTEN] %s deferred (market closed) — will retry", sym)
+                        log.warning("[ORPHAN-FLATTEN] %s deferred (order failed) — will retry", sym)
                 except Exception as exc:
                     self._pending_reconcile[sym] = pos
                     self._stale_since[sym] = datetime.now(timezone.utc)
@@ -3961,11 +3957,13 @@ class AlpacaPaperTrader:
                         action = self.check_and_trade(sym, positions, sym_alloc, exit_only=True)
                         print(f"  {sym:>5}:  {action}  [LEGACY no new entries]")
                         continue
-                    # Extended-hours guard: Asian/EM ETFs have near-zero volume
-                    # during US pre/after-market — underlying markets are closed.
-                    # Skipping avoids 0.5-2% spread costs on worthless signals.
-                    if session == "extended" and sym not in EXTENDED_HOURS_UNIVERSE:
-                        # Still allow exits on existing positions, block new entries
+                    # Extended-hours guard: if EXTENDED_HOURS_UNIVERSE is set,
+                    # block new entries for unlisted symbols (exits still allowed).
+                    # When None (default), all symbols may trade — cost_model 3×
+                    # extended-hours multiplier provides the spread protection.
+                    if (session == "extended"
+                            and EXTENDED_HOURS_UNIVERSE is not None
+                            and sym not in EXTENDED_HOURS_UNIVERSE):
                         pos = positions.get(sym)
                         if pos is None or pos["qty"] == 0:
                             print(f"  {sym:>5}:  SKIP  (extended hours -- low liquidity for this ETF)")

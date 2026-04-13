@@ -1,0 +1,464 @@
+//@version=6
+strategy("Gold Multi-TF NYSE Scalper v2", overlay=true, initial_capital=5000, currency=currency.USD, margin_long=0.01, margin_short=0.01)
+
+// ============================================================================
+// v2 CHANGELOG (from trade data analysis — 312 trades Jan-Apr 2026):
+//   1. ATR-based stop replaces fixed 300-pip stop (-$13,127 from stop hits)
+//   2. Active trailing stop after TP1 (was static SL, runners lost -$2,568)
+//   3. Timeout tightens stop instead of flat close (-$3,542 from timeouts)
+//   4. Volatility filter skips entries when ATR is extreme (Jan/Apr blowups)
+//   5. Reduced default contracts 6 -> 4 (risk per trade was too high)
+//   6. Relaxed entry: 3-of-5 TF alignment (was all 5 — too few trades)
+// ============================================================================
+
+// --- 1. Inputs ---
+use_nyse_filter = input.bool(true, "Trade ONLY during NYSE Session?")
+auto_close_nyse = input.bool(false, "Close all positions at NYSE end?")
+rsi_length      = input.int(14, "RSI Length")
+rsi_low_limit   = input.int(35, "RSI Buy Threshold")
+rsi_high_limit  = input.int(55, "RSI Sell Threshold")
+bias_ema_length = input.int(15, "Bias EMA Length")
+
+// Margin / Position Sizing
+margin_per_contract = input.float(200.0, "Margin per Contract ($)")
+num_contracts       = input.int(4, "Contracts per Trade")
+
+// Risk Management
+pip_size   = input.float(0.10, "Pip Size ($)", tooltip="For XAUUSD: 0.10 = 1 pip")
+
+// ATR-based stop (replaces fixed hard_stop)
+atr_length    = input.int(14, "ATR Length for Stop")
+atr_mult      = input.float(3.0, "ATR Stop Multiplier", tooltip="Stop = ATR(14) x this. Higher = wider stop, fewer stop-outs")
+min_stop_pips = input.float(100.0, "Min Stop (pips)", tooltip="Floor — never tighter than this")
+max_stop_pips = input.float(500.0, "Max Stop (pips)", tooltip="Cap — never wider than this")
+
+// Volatility filter
+use_vol_filter    = input.bool(true, "Skip entries in extreme volatility?")
+vol_filter_mult   = input.float(2.5, "Vol Filter: ATR must be < median ATR x this", tooltip="Blocks entries when current ATR is 2.5x the 50-bar median — news spikes")
+
+// Breakeven / trailing
+be_on_tp        = input.int(1, "Move SL to BE on TP#", minval=1, maxval=2)
+sl_after_tp1    = input.float(-10.0, "SL after TP1 (pips)", tooltip="Negative = lock profit. -10 means stop moves to entry + 10 pips profit")
+trail_after_tp1 = input.bool(true, "Active trailing after TP1?", tooltip="Trail stop using swing low/high after TP1 is hit")
+trail_bars      = input.int(8, "Trailing lookback (bars)", tooltip="Use lowest-low / highest-high of last N bars for trail")
+trail_offset_pips = input.float(15.0, "Trail offset (pips)", tooltip="Buffer below swing low / above swing high")
+
+// Timeout settings
+timeout_hours    = input.float(2.0, "Stall Timeout (hours)")
+timeout_min_pips = input.float(30.0, "Min Profit to Keep Running (pips)")
+
+// Take Profit Levels (in pips)
+tp1_pips = input.float(60.0,  "TP1 (pips)")
+tp2_pips = input.float(220.0, "TP2 (pips)")
+tp3_pips = input.float(400.0, "TP3 (pips)")
+tp4_pips = input.float(600.0, "TP4 (pips)")
+
+// Contracts to close at each TP (out of 4 default)
+tp1_qty = input.int(1, "TP1 Contracts to Close")
+tp2_qty = input.int(1, "TP2 Contracts to Close")
+tp3_qty = input.int(1, "TP3 Contracts to Close")
+tp4_qty = input.int(0, "TP4 Contracts to Close")
+// Runner = remaining 1 contract, closed when bias flips
+
+// Entry mode
+min_tf_agree = input.int(3, "Min Timeframes Aligned (out of 5)", minval=2, maxval=5, tooltip="3 = require 3 of 5 TFs aligned. 5 = original strict mode")
+
+// Webhook authentication
+webhook_passphrase = input.string("", "Webhook Passphrase", tooltip="Shared secret for webhook auth. Must match WEBHOOK_SECRET on server.")
+
+// --- Webhook JSON builder ---
+// Builds JSON that webhook_executor.parse_signal() can parse.
+// TradingView alert message should be: {{strategy.order.alert_message}}
+_wh(string act, string cmt, float pr, int qty) =>
+    '{"action":"' + act + '","comment":"' + cmt + '","price":' + str.tostring(pr, "#.##") + ',"contracts":' + str.tostring(qty) + ',"ticker":"' + syminfo.ticker + '","passphrase":"' + webhook_passphrase + '"}'
+
+// --- 2. Session Definitions (America/Los_Angeles) ---
+is_nyse = not na(time(timeframe.period, "0630-1300:1234567", "America/Los_Angeles"))
+is_dead_zone = not na(time(timeframe.period, "0030-0714:1234567", "America/Los_Angeles")) or not na(time(timeframe.period, "1244-2015:1234567", "America/Los_Angeles")) or not na(time(timeframe.period, "2015-2359:6", "America/Los_Angeles")) or not na(time(timeframe.period, "0000-2359:7", "America/Los_Angeles")) or not na(time(timeframe.period, "0000-2014:1", "America/Los_Angeles"))
+
+// --- 3. Higher Timeframe Bias ---
+get_bias(tf) =>
+    [c, ema] = request.security(syminfo.tickerid, tf, [close, ta.ema(close, bias_ema_length)], lookahead=barmerge.lookahead_off)
+    c > ema ? 1 : -1
+
+b_d   = get_bias("D")
+b_h4  = get_bias("240")
+b_h1  = get_bias("60")
+b_m15 = get_bias("15")
+b_m5  = close > open ? 1 : -1
+
+// Bias labels for alerts
+string bias_d_label   = b_d   == 1 ? "BULL" : "BEAR"
+string bias_h4_label  = b_h4  == 1 ? "BULL" : "BEAR"
+string bias_h1_label  = b_h1  == 1 ? "BULL" : "BEAR"
+string bias_m15_label = b_m15 == 1 ? "BULL" : "BEAR"
+string bias_m5_label  = b_m5  == 1 ? "BULL" : "BEAR"
+
+// --- 4. Strategy Conditions ---
+rsi_5m = ta.rsi(close, rsi_length)
+
+// Count aligned timeframes
+int bull_count = (b_d == 1 ? 1 : 0) + (b_h4 == 1 ? 1 : 0) + (b_h1 == 1 ? 1 : 0) + (b_m15 == 1 ? 1 : 0) + (b_m5 == 1 ? 1 : 0)
+int bear_count = (b_d == -1 ? 1 : 0) + (b_h4 == -1 ? 1 : 0) + (b_h1 == -1 ? 1 : 0) + (b_m15 == -1 ? 1 : 0) + (b_m5 == -1 ? 1 : 0)
+
+// Flexible alignment: require min_tf_agree TFs aligned (default 3 of 5)
+bool bullish_stack = bull_count >= min_tf_agree
+bool bearish_stack = bear_count >= min_tf_agree
+
+// --- Next Trade Estimate ---
+string long_wait = bullish_stack ? (rsi_5m > rsi_high_limit ? "Signal ready" : "Waiting RSI/Engulf") :
+     b_d  != 1 ? "~Days (D bearish)" :
+     b_h4 != 1 ? "~4h (4H bearish)" :
+     b_h1 != 1 ? "~1h (1H bearish)" :
+     b_m15 != 1 ? "~15m (15m bearish)" :
+     "~5m (5m bearish)"
+
+string short_wait = bearish_stack ? (rsi_5m < rsi_low_limit ? "Signal ready" : "Waiting RSI/Engulf") :
+     b_d  != -1 ? "~Days (D bullish)" :
+     b_h4 != -1 ? "~4h (4H bullish)" :
+     b_h1 != -1 ? "~1h (1H bullish)" :
+     b_m15 != -1 ? "~15m (15m bullish)" :
+     "~5m (5m bullish)"
+
+can_trade = (not use_nyse_filter or is_nyse) and not is_dead_zone
+
+// Engulfing candle confirmation (previous candle)
+bullish_engulfing = close[1] > open[1] and open[1] <= close[2] and close[1] >= open[2]
+bearish_engulfing = close[1] < open[1] and open[1] >= close[2] and close[1] <= open[2]
+
+// --- ATR-based stop calculation ---
+float atr_val = ta.atr(atr_length)
+float atr_stop_pips = math.max(min_stop_pips, math.min(max_stop_pips, (atr_val / pip_size) * atr_mult))
+float sl_dist = atr_stop_pips * pip_size
+
+// Volatility filter: block entries when ATR is extremely elevated
+float atr_median = ta.percentile_nearest_rank(atr_val, 50, 50)
+bool vol_ok = not use_vol_filter or (atr_median > 0 and atr_val < atr_median * vol_filter_mult)
+
+long_entry  = can_trade and bullish_stack and rsi_5m > rsi_high_limit and bullish_engulfing and vol_ok
+short_entry = can_trade and bearish_stack and rsi_5m < rsi_low_limit and bearish_engulfing and vol_ok
+
+// --- 5. Execution (Scaled Position Sizing) ---
+float base_capital = 5000.0
+float scale_step   = 10000.0   // was 7500 — slower scaling
+int extra_lots = math.max(0, math.floor((strategy.equity - base_capital) / scale_step))
+int scale_mult = 1 + extra_lots
+int trade_qty = num_contracts * scale_mult
+
+// Scale TP exit quantities proportionally
+int tp1_scaled = tp1_qty * scale_mult
+int tp2_scaled = tp2_qty * scale_mult
+int tp3_scaled = tp3_qty * scale_mult
+int tp4_scaled = tp4_qty * scale_mult
+int runner_qty = math.max(0, trade_qty - tp1_scaled - tp2_scaled - tp3_scaled - tp4_scaled)
+
+// --- Daily P&L Tracking ---
+var float daily_pnl = 0.0
+var int daily_trades = 0
+var int daily_wins = 0
+var int daily_losses = 0
+var int last_closed_count = 0
+var int current_day = dayofmonth
+
+if dayofmonth != current_day
+    daily_pnl := 0.0
+    daily_trades := 0
+    daily_wins := 0
+    daily_losses := 0
+    current_day := dayofmonth
+
+if strategy.closedtrades > last_closed_count
+    int new_closes = strategy.closedtrades - last_closed_count
+    for i = 0 to new_closes - 1
+        int idx = last_closed_count + i
+        float profit = strategy.closedtrades.profit(idx)
+        daily_pnl += profit
+        daily_trades += 1
+        if profit >= 0
+            daily_wins += 1
+        else
+            daily_losses += 1
+    last_closed_count := strategy.closedtrades
+
+float unrealized = strategy.openprofit
+float total_daily = daily_pnl + unrealized
+
+// Debug icons
+string icon_d   = b_d   == 1 ? "🟢" : "🔴"
+string icon_h4  = b_h4  == 1 ? "🟢" : "🔴"
+string icon_h1  = b_h1  == 1 ? "🟢" : "🔴"
+string icon_m15 = b_m15 == 1 ? "🟢" : "🔴"
+string icon_m5  = b_m5  == 1 ? "🟢" : "🔴"
+
+var table debug_table = table.new(position.top_right, 1, 17, bgcolor=color.new(color.black, 80), border_width=1)
+table.cell(debug_table, 0, 0, "Equity: $" + str.tostring(strategy.equity, "#.##"), text_color=color.white, text_size=size.small)
+table.cell(debug_table, 0, 1, "Scale: " + str.tostring(scale_mult) + "x (" + str.tostring(extra_lots) + " extra lots)", text_color=color.aqua, text_size=size.small)
+table.cell(debug_table, 0, 2, "Trade Qty: " + str.tostring(trade_qty), text_color=color.green, text_size=size.small)
+table.cell(debug_table, 0, 3, "TP Splits: " + str.tostring(tp1_scaled) + "/" + str.tostring(tp2_scaled) + "/" + str.tostring(tp3_scaled) + "/" + str.tostring(tp4_scaled) + "/R" + str.tostring(runner_qty), text_color=color.yellow, text_size=size.small)
+table.cell(debug_table, 0, 4, "", text_color=color.white, text_size=size.small)
+table.cell(debug_table, 0, 5, "--- Bias Stack ---", text_color=color.gray, text_size=size.small)
+table.cell(debug_table, 0, 6, icon_d + " D  " + icon_h4 + " 4H  " + icon_h1 + " 1H  " + icon_m15 + " 15m  " + icon_m5 + " 5m", text_color=color.white, text_size=size.small)
+table.cell(debug_table, 0, 7, "TF Aligned: " + str.tostring(math.max(bull_count, bear_count)) + "/5 (need " + str.tostring(min_tf_agree) + ")", text_color=color.orange, text_size=size.small)
+table.cell(debug_table, 0, 8, "--- Next Trade ---", text_color=color.gray, text_size=size.small)
+table.cell(debug_table, 0, 9, "Long: " + long_wait, text_color=color.green, text_size=size.small)
+table.cell(debug_table, 0, 10, "Short: " + short_wait, text_color=color.red, text_size=size.small)
+table.cell(debug_table, 0, 11, "--- Risk ---", text_color=color.gray, text_size=size.small)
+table.cell(debug_table, 0, 12, "ATR Stop: " + str.tostring(atr_stop_pips, "#") + " pips (" + str.tostring(atr_mult, "#.#") + "x ATR)" + (vol_ok ? "" : " [VOL BLOCK]"), text_color=vol_ok ? color.white : color.red, text_size=size.small)
+table.cell(debug_table, 0, 13, "--- Today ---", text_color=color.gray, text_size=size.small)
+table.cell(debug_table, 0, 14, "Realized: $" + str.tostring(daily_pnl, "#.##"), text_color=daily_pnl >= 0 ? color.green : color.red, text_size=size.small)
+table.cell(debug_table, 0, 15, "Daily P&L: $" + str.tostring(total_daily, "#.##"), text_color=total_daily >= 0 ? color.green : color.red, text_size=size.normal)
+table.cell(debug_table, 0, 16, "W/L: " + str.tostring(daily_wins) + "/" + str.tostring(daily_losses) + " (" + str.tostring(daily_trades) + " trades)", text_color=color.white, text_size=size.small)
+
+// --- Trade Summary State ---
+var float last_pos_size = 0
+var float trade_entry_price = na
+var string trade_direction = ""
+var int trade_entry_bar = na
+var float trade_running_pnl = 0.0
+var int trade_contracts_closed = 0
+var string trade_tp_log = ""
+
+// --- 6. TP / SL Management ---
+float tp1_dist = tp1_pips * pip_size
+float tp2_dist = tp2_pips * pip_size
+float tp3_dist = tp3_pips * pip_size
+float tp4_dist = tp4_pips * pip_size
+
+var bool tp1_hit = false
+var bool tp2_hit = false
+var bool tp3_hit = false
+var bool tp4_hit = false
+var float current_sl = na
+var bool timeout_trailing = false  // true once timeout triggers trailing mode
+
+// Reset on new position
+if strategy.position_size == 0
+    tp1_hit  := false
+    tp2_hit  := false
+    tp3_hit  := false
+    tp4_hit  := false
+    current_sl := na
+    timeout_trailing := false
+
+// Entry + immediately place exits
+if long_entry and trade_qty >= num_contracts and strategy.position_size == 0
+    strategy.entry("Long", strategy.long, qty=trade_qty, alert_message=_wh("buy", "Long Entry", close, trade_qty))
+    float est_entry = close
+    float sl = est_entry - sl_dist
+    current_sl := sl
+    strategy.exit("TP1", from_entry="Long", qty=tp1_scaled, limit=est_entry + tp1_dist, stop=sl, comment_profit="TP1 +" + str.tostring(math.round(tp1_pips)) + " pips", comment_loss="Stop Hit", alert_message=_wh("sell", "TP1", est_entry + tp1_dist, tp1_scaled))
+    strategy.exit("TP2", from_entry="Long", qty=tp2_scaled, limit=est_entry + tp2_dist, stop=sl, comment_profit="TP2 +" + str.tostring(math.round(tp2_pips)) + " pips", comment_loss="Stop Hit", alert_message=_wh("sell", "TP2", est_entry + tp2_dist, tp2_scaled))
+    strategy.exit("TP3", from_entry="Long", qty=tp3_scaled, limit=est_entry + tp3_dist, stop=sl, comment_profit="TP3 +" + str.tostring(math.round(tp3_pips)) + " pips", comment_loss="Stop Hit", alert_message=_wh("sell", "TP3", est_entry + tp3_dist, tp3_scaled))
+    if tp4_scaled > 0
+        strategy.exit("TP4", from_entry="Long", qty=tp4_scaled, limit=est_entry + tp4_dist, stop=sl, comment_profit="TP4 +" + str.tostring(math.round(tp4_pips)) + " pips", comment_loss="Stop Hit", alert_message=_wh("sell", "TP4", est_entry + tp4_dist, tp4_scaled))
+    strategy.exit("Runner SL", from_entry="Long", stop=sl, comment="Stop Hit", alert_message=_wh("sell", "Stop Hit Runner", sl, runner_qty))
+    alert('{"content": "**:rocket:** \\n# BUY NOW - LONG \\n\\n**Ticker:** ' + syminfo.ticker + '\\n**Entry:** $' + str.tostring(close, "#.##") + '\\n**Contracts:** ' + str.tostring(trade_qty) + ' (' + str.tostring(scale_mult) + 'x scale)\\n\\n**-- Levels --**\\n:octagonal_sign: **ATR Stop:** -' + str.tostring(math.round(atr_stop_pips)) + ' pips (' + str.tostring(atr_mult, "#.#") + 'x ATR)\\n:green_circle: **TP1:** +' + str.tostring(math.round(tp1_pips)) + ' pips\\n:green_circle: **TP2:** +' + str.tostring(math.round(tp2_pips)) + ' pips\\n:green_circle: **TP3:** +' + str.tostring(math.round(tp3_pips)) + ' pips\\n:twisted_rightwards_arrows: **Runner:** ' + str.tostring(runner_qty) + ' contract\\n\\n**-- Bias Stack --**\\nDaily: ' + bias_d_label + ' | 4H: ' + bias_h4_label + ' | 1H: ' + bias_h1_label + ' | 15m: ' + bias_m15_label + ' | 5m: ' + bias_m5_label + ' (' + str.tostring(bull_count) + '/5)\\n**RSI:** ' + str.tostring(rsi_5m, "#.#") + '\\n\\n"}', alert.freq_once_per_bar)
+
+if short_entry and trade_qty >= num_contracts and strategy.position_size == 0
+    strategy.entry("Short", strategy.short, qty=trade_qty, alert_message=_wh("sell", "Short Entry", close, trade_qty))
+    float est_entry = close
+    float sl = est_entry + sl_dist
+    current_sl := sl
+    strategy.exit("TP1", from_entry="Short", qty=tp1_scaled, limit=est_entry - tp1_dist, stop=sl, comment_profit="TP1 +" + str.tostring(math.round(tp1_pips)) + " pips", comment_loss="Stop Hit", alert_message=_wh("buy", "TP1", est_entry - tp1_dist, tp1_scaled))
+    strategy.exit("TP2", from_entry="Short", qty=tp2_scaled, limit=est_entry - tp2_dist, stop=sl, comment_profit="TP2 +" + str.tostring(math.round(tp2_pips)) + " pips", comment_loss="Stop Hit", alert_message=_wh("buy", "TP2", est_entry - tp2_dist, tp2_scaled))
+    strategy.exit("TP3", from_entry="Short", qty=tp3_scaled, limit=est_entry - tp3_dist, stop=sl, comment_profit="TP3 +" + str.tostring(math.round(tp3_pips)) + " pips", comment_loss="Stop Hit", alert_message=_wh("buy", "TP3", est_entry - tp3_dist, tp3_scaled))
+    if tp4_scaled > 0
+        strategy.exit("TP4", from_entry="Short", qty=tp4_scaled, limit=est_entry - tp4_dist, stop=sl, comment_profit="TP4 +" + str.tostring(math.round(tp4_pips)) + " pips", comment_loss="Stop Hit", alert_message=_wh("buy", "TP4", est_entry - tp4_dist, tp4_scaled))
+    strategy.exit("Runner SL", from_entry="Short", stop=sl, comment="Stop Hit", alert_message=_wh("buy", "Stop Hit Runner", sl, runner_qty))
+    alert('{"content": "**:rocket: SELL NOW - SHORT**\\n\\n**Ticker:** ' + syminfo.ticker + '\\n**Entry:** $' + str.tostring(close, "#.##") + '\\n**Contracts:** ' + str.tostring(trade_qty) + ' (' + str.tostring(scale_mult) + 'x scale)\\n\\n**-- Levels --**\\n:octagonal_sign: **ATR Stop:** +' + str.tostring(math.round(atr_stop_pips)) + ' pips (' + str.tostring(atr_mult, "#.#") + 'x ATR)\\n:red_circle: **TP1:** +' + str.tostring(math.round(tp1_pips)) + ' pips\\n:red_circle: **TP2:** +' + str.tostring(math.round(tp2_pips)) + ' pips\\n:red_circle: **TP3:** +' + str.tostring(math.round(tp3_pips)) + ' pips\\n:twisted_rightwards_arrows: **Runner:** ' + str.tostring(runner_qty) + ' ct\\n\\n**-- Bias Stack --**\\nDaily: ' + bias_d_label + ' | 4H: ' + bias_h4_label + ' | 1H: ' + bias_h1_label + ' | 15m: ' + bias_m15_label + ' | 5m: ' + bias_m5_label + ' (' + str.tostring(bear_count) + '/5)\\n**RSI:** ' + str.tostring(rsi_5m, "#.#") + '\\n\\n"}', alert.freq_once_per_bar)
+
+// Auto-Close at NYSE End
+string _session_close_act = strategy.position_size > 0 ? "sell" : "buy"
+int _session_close_qty = math.round(math.abs(strategy.position_size))
+
+if auto_close_nyse and not is_nyse and is_nyse[1]
+    strategy.close_all(comment="NYSE Session End", alert_message=_wh(_session_close_act, "Session Close", close, _session_close_qty))
+    alert('{"content": "**:clock4: POSITIONS CLOSED - SESSION END**\\n\\n**Closing Price:** $' + str.tostring(close, "#.##") + '\\n\\n"}', alert.freq_once_per_bar)
+
+// Auto-Close at 12:45pm PT
+is_nyse_daily_close = not na(time(timeframe.period, "1245-1249:23456", "America/Los_Angeles"))
+if use_nyse_filter and is_nyse_daily_close and strategy.position_size != 0
+    strategy.close_all(comment="NYSE Daily Close 12:45pm PT", alert_message=_wh(_session_close_act, "Session Close", close, _session_close_qty))
+    alert('{"content": "**:clock4: POSITIONS CLOSED - SESSION END**\\n\\n**Closing Price:** $' + str.tostring(close, "#.##") + '\\n\\n"}', alert.freq_once_per_bar)
+
+// Friday close at 12:50pm PT
+is_friday_close = not na(time(timeframe.period, "1250-1254:6", "America/Los_Angeles"))
+if is_friday_close and strategy.position_size != 0
+    strategy.close_all(comment="Friday Weekend Close", alert_message=_wh(_session_close_act, "Session Close", close, _session_close_qty))
+    alert('{"content": "**:calendar: FRIDAY WEEKEND CLOSE**\\n\\n**Closing Price:** $' + str.tostring(close, "#.##") + '\\n\\n"}', alert.freq_once_per_bar)
+
+// --- Smart Timeout: tighten stop instead of flat close ---
+var int entry_time = na
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+    entry_time := time
+if strategy.position_size == 0
+    entry_time := na
+
+if strategy.position_size != 0 and not tp2_hit and not na(entry_time) and (time - entry_time) >= timeout_hours * 60 * 60 * 1000
+    float entry_ref = strategy.position_avg_price
+    bool is_long_to = strategy.position_size > 0
+    float cur_pnl_pips = is_long_to ? (close - entry_ref) / pip_size : (entry_ref - close) / pip_size
+
+    if cur_pnl_pips < timeout_min_pips and not timeout_trailing
+        if cur_pnl_pips < -100
+            // Deeply underwater after 2h — cut the loss, it's not working
+            string _to_act = is_long_to ? "sell" : "buy"
+            int _to_qty = math.round(math.abs(strategy.position_size))
+            strategy.close_all(comment="Timeout - deep loss (" + str.tostring(cur_pnl_pips, "#.#") + " pips)", alert_message=_wh(_to_act, "Exit Timeout", close, _to_qty))
+            alert('{"content": "**:hourglass: TIMEOUT - DEEP LOSS CUT**\\n\\nStalled ' + str.tostring(timeout_hours, "#.#") + 'h, down ' + str.tostring(math.abs(cur_pnl_pips), "#.#") + ' pips. Cutting losses.\\n\\n**Exit:** $' + str.tostring(close, "#.##") + '\\n\\n"}', alert.freq_once_per_bar)
+        else
+            // Marginally profitable or small loss — activate tight trailing instead of closing
+            timeout_trailing := true
+            float tight_sl = is_long_to ? (low - trail_offset_pips * pip_size) : (high + trail_offset_pips * pip_size)
+            // Only tighten, never widen
+            if is_long_to
+                current_sl := math.max(nz(current_sl, tight_sl), tight_sl)
+            else
+                current_sl := math.min(nz(current_sl, tight_sl), tight_sl)
+            alert('{"content": "**:hourglass: TIMEOUT - TRAILING ACTIVATED**\\n\\nStalled ' + str.tostring(timeout_hours, "#.#") + 'h at ' + str.tostring(cur_pnl_pips, "#.#") + ' pips. Switched to tight trailing stop.\\n\\n"}', alert.freq_once_per_bar)
+
+// --- Dynamic SL management while in position ---
+if strategy.position_size != 0
+    float entry = strategy.position_avg_price
+    bool is_long = strategy.position_size > 0
+
+    // Set initial SL using actual entry price (once)
+    if na(current_sl)
+        current_sl := is_long ? entry - sl_dist : entry + sl_dist
+
+    // Detect TP hits
+    float move = is_long ? (high - entry) : (entry - low)
+    if not tp1_hit and move >= tp1_dist
+        tp1_hit := true
+        if be_on_tp == 1
+            current_sl := is_long ? entry - (sl_after_tp1 * pip_size) : entry + (sl_after_tp1 * pip_size)
+        alert('{"content": "**:dart: TP1 HIT +' + str.tostring(math.round(tp1_pips)) + ' PIPS**\\n\\n**New Stop:** $' + str.tostring(current_sl, "#.##") + '\\n**Remaining:** ' + str.tostring(math.round(math.abs(strategy.position_size)) - tp1_scaled) + ' contracts\\n\\n"}', alert.freq_once_per_bar)
+
+    if not tp2_hit and move >= tp2_dist
+        tp2_hit := true
+        if be_on_tp == 2
+            current_sl := is_long ? entry + (10 * pip_size) : entry - (10 * pip_size)
+        alert('{"content": "**:dart: TP2 HIT - RISK FREE**\\n\\n**New Stop:** $' + str.tostring(current_sl, "#.##") + '\\n\\n"}', alert.freq_once_per_bar)
+
+    if not tp3_hit and move >= tp3_dist
+        tp3_hit := true
+        // Lock in TP1 level as floor
+        float tp1_lock = is_long ? entry + tp1_dist : entry - tp1_dist
+        if is_long
+            current_sl := math.max(current_sl, tp1_lock)
+        else
+            current_sl := math.min(current_sl, tp1_lock)
+        alert('{"content": "**:dart: TP3 HIT** — SL locked at TP1\\n\\n"}', alert.freq_once_per_bar)
+
+    if not tp4_hit and move >= tp4_dist
+        tp4_hit := true
+        current_sl := is_long ? entry + tp2_dist : entry - tp2_dist
+        alert('{"content": "**:dart: TP4 HIT - SL TO TP2**\\n\\n**New Stop:** $' + str.tostring(current_sl, "#.##") + '\\n**Runner:** ' + str.tostring(runner_qty) + ' contract\\n\\n"}', alert.freq_once_per_bar)
+
+    // === ACTIVE TRAILING after TP1 (or timeout) ===
+    // Compute swing levels every bar (Pine requires ta.lowest/ta.highest outside conditionals)
+    float swing_low = ta.lowest(low, trail_bars)
+    float swing_high = ta.highest(high, trail_bars)
+
+    if (tp1_hit and trail_after_tp1) or timeout_trailing
+        float offset = trail_offset_pips * pip_size
+        if is_long
+            float trail_sl = swing_low - offset
+            // Only ratchet up, never down
+            current_sl := math.max(current_sl, trail_sl)
+        else
+            float trail_sl = swing_high + offset
+            current_sl := math.min(current_sl, trail_sl)
+
+    // Re-place TP exits with actual entry + updated SL
+    float tp1_price = is_long ? entry + tp1_dist : entry - tp1_dist
+    float tp2_price = is_long ? entry + tp2_dist : entry - tp2_dist
+    float tp3_price = is_long ? entry + tp3_dist : entry - tp3_dist
+    float tp4_price = is_long ? entry + tp4_dist : entry - tp4_dist
+    string from = is_long ? "Long" : "Short"
+
+    // Determine close action (opposite of position direction)
+    string close_act = is_long ? "sell" : "buy"
+
+    if not tp1_hit
+        strategy.exit("TP1", from_entry=from, qty=tp1_scaled, limit=tp1_price, stop=current_sl, comment_profit="TP1 +" + str.tostring(math.round(tp1_pips)) + " pips", comment_loss="Stop Hit", alert_message=_wh(close_act, "TP1", tp1_price, tp1_scaled))
+    if not tp2_hit
+        strategy.exit("TP2", from_entry=from, qty=tp2_scaled, limit=tp2_price, stop=current_sl, comment_profit="TP2 +" + str.tostring(math.round(tp2_pips)) + " pips", comment_loss="Stop Hit", alert_message=_wh(close_act, "TP2", tp2_price, tp2_scaled))
+    if not tp3_hit
+        strategy.exit("TP3", from_entry=from, qty=tp3_scaled, limit=tp3_price, stop=current_sl, comment_profit="TP3 +" + str.tostring(math.round(tp3_pips)) + " pips", comment_loss="Stop Hit", alert_message=_wh(close_act, "TP3", tp3_price, tp3_scaled))
+    if not tp4_hit and tp4_scaled > 0
+        strategy.exit("TP4", from_entry=from, qty=tp4_scaled, limit=tp4_price, stop=current_sl, comment_profit="TP4 +" + str.tostring(math.round(tp4_pips)) + " pips", comment_loss="Stop Hit", alert_message=_wh(close_act, "TP4", tp4_price, tp4_scaled))
+
+    // Runner stop
+    strategy.exit("Runner SL", from_entry=from, stop=current_sl, comment="Runner Stopped", alert_message=_wh(close_act, "Stop Hit Runner", current_sl, runner_qty))
+
+// --- 7. Runner Exit (bias flip) ---
+// Runner exits when majority bias flips (not just one TF wobble)
+if strategy.position_size > 0 and tp4_hit
+    if bear_count >= 3  // majority bearish = bias clearly flipped
+        strategy.close("Long", comment="Runner Exit - Bias Flipped", alert_message=_wh("sell", "Runner Exit", close, math.round(math.abs(strategy.position_size))))
+        alert('{"content": "**:person_running: RUNNER CLOSED - BIAS FLIPPED**\\n\\n**Exit:** $' + str.tostring(close, "#.##") + '\\n\\n"}', alert.freq_once_per_bar)
+
+if strategy.position_size < 0 and tp4_hit
+    if bull_count >= 3
+        strategy.close("Short", comment="Runner Exit - Bias Flipped", alert_message=_wh("buy", "Runner Exit", close, math.round(math.abs(strategy.position_size))))
+        alert('{"content": "**:person_running: RUNNER CLOSED - BIAS FLIPPED**\\n\\n**Exit:** $' + str.tostring(close, "#.##") + '\\n\\n"}', alert.freq_once_per_bar)
+
+// --- 9. Trade Summary Tracking ---
+if strategy.position_size != 0 and last_pos_size == 0
+    trade_entry_price := strategy.position_avg_price
+    trade_direction := strategy.position_size > 0 ? "LONG" : "SHORT"
+    trade_entry_bar := bar_index
+    trade_running_pnl := 0.0
+    trade_contracts_closed := 0
+    trade_tp_log := ""
+
+if strategy.position_size != 0 and last_pos_size != 0
+    float size_change = math.abs(last_pos_size) - math.abs(strategy.position_size)
+    if size_change > 0
+        int num_closed = math.round(size_change)
+        trade_contracts_closed += num_closed
+        if strategy.closedtrades > 0
+            float last_profit = strategy.closedtrades.profit(strategy.closedtrades - 1)
+            trade_running_pnl += last_profit
+            string tp_label = tp4_hit ? "TP4" : tp3_hit ? "TP3" : tp2_hit ? "TP2" : tp1_hit ? "TP1" : "Partial"
+            trade_tp_log += tp_label + ": $" + str.tostring(last_profit, "#.##") + " | "
+
+bool position_closed = (strategy.position_size == 0 and last_pos_size != 0)
+
+if position_closed
+    float final_profit = 0.0
+    if strategy.closedtrades > 0
+        final_profit := strategy.closedtrades.profit(strategy.closedtrades - 1)
+    float total_pnl = trade_running_pnl + final_profit
+
+    int bars_held = bar_index - nz(trade_entry_bar, bar_index)
+    float exit_price = strategy.closedtrades > 0 ? strategy.closedtrades.exit_price(strategy.closedtrades - 1) : close
+    float move_pips = math.abs(exit_price - nz(trade_entry_price, close)) / pip_size
+
+    string exit_reason = tp4_hit ? "Runner Exit" : tp3_hit ? "Stopped at TP3" : tp2_hit ? "Stopped at TP2" : tp1_hit ? "Stopped at TP1" : timeout_trailing ? "Timeout Trail" : "Hard Stop"
+    int minutes_held = bars_held * 5
+    string time_label = minutes_held >= 60 ? str.tostring(math.floor(minutes_held / 60)) + "h" : str.tostring(minutes_held) + "min"
+
+    if total_pnl >= 0
+        alert('{"content": "**:white_check_mark: WIN**\\n\\n**Entry:** $' + str.tostring(nz(trade_entry_price, 0), "#.##") + '\\n**Exit:** $' + str.tostring(exit_price, "#.##") + '\\n**Move:** +' + str.tostring(move_pips, "#.#") + ' pips | **Held:** ' + time_label + '\\n**Reason:** ' + exit_reason + '\\n\\n' + trade_tp_log + 'Final: $' + str.tostring(final_profit, "#.##") + '\\n\\n**TOTAL P&L: +$' + str.tostring(total_pnl, "#.##") + '**\\n**Equity:** $' + str.tostring(strategy.equity, "#.##") + ' | **W/L:** ' + str.tostring(daily_wins) + '/' + str.tostring(daily_losses) + '\\n\\n"}', alert.freq_once_per_bar)
+    else
+        alert('{"content": "**:x: LOSS**\\n\\n**Entry:** $' + str.tostring(nz(trade_entry_price, 0), "#.##") + '\\n**Exit:** $' + str.tostring(exit_price, "#.##") + '\\n**Move:** ' + str.tostring(move_pips, "#.#") + ' pips | **Held:** ' + time_label + '\\n**Reason:** ' + exit_reason + '\\n\\n**TOTAL P&L: -$' + str.tostring(math.abs(total_pnl), "#.##") + '**\\n**Equity:** $' + str.tostring(strategy.equity, "#.##") + ' | **W/L:** ' + str.tostring(daily_wins) + '/' + str.tostring(daily_losses) + '\\n\\n"}', alert.freq_once_per_bar)
+
+last_pos_size := strategy.position_size
+
+// --- 10. Visuals ---
+bgcolor(use_nyse_filter and is_nyse ? color.new(color.yellow, 85) : na, title="NYSE Session")
+bgcolor(is_dead_zone ? color.new(color.red, 85) : color.new(color.green, 85), title="Dead Zone / Active")
+plot(current_sl, "Active Stop", color=color.fuchsia, style=plot.style_linebr, linewidth=2)
+
+// TP level lines
+float entry_vis = strategy.position_size != 0 ? strategy.position_avg_price : na
+bool is_long_vis = strategy.position_size > 0
+plot(is_long_vis ? entry_vis + tp1_dist : not na(entry_vis) ? entry_vis - tp1_dist : na, "TP1", color=color.new(color.green, 50), style=plot.style_linebr)
+plot(is_long_vis ? entry_vis + tp2_dist : not na(entry_vis) ? entry_vis - tp2_dist : na, "TP2", color=color.new(color.green, 30), style=plot.style_linebr)
+plot(is_long_vis ? entry_vis + tp3_dist : not na(entry_vis) ? entry_vis - tp3_dist : na, "TP3", color=color.new(color.lime, 30), style=plot.style_linebr)
+plot(is_long_vis ? entry_vis + tp4_dist : not na(entry_vis) ? entry_vis - tp4_dist : na, "TP4", color=color.new(color.lime, 0), style=plot.style_linebr)
+
+// Volatility filter visual — red X when entry blocked
+plotshape(use_vol_filter and not vol_ok and can_trade, title="Vol Block", style=shape.xcross, location=location.bottom, color=color.red, size=size.tiny)

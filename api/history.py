@@ -328,6 +328,89 @@ def _parse_gold_scalper_history(
     }
 
 
+def _parse_tqqq_history(gist_files: dict) -> dict:
+    """Parse TQQQ trade log from Gist (Webull live trading).
+
+    Trade log format (from webull_tqqq_executor):
+      {"direction", "entry_price", "exit_price", "qty", "pnl_usd", "pnl_pct",
+       "comment", "entry_time", "exit_time", "equity_after", "live"}
+    """
+    if not gist_files:
+        return {"portfolio": {}, "orders": [], "trades": []}
+
+    try:
+        state_content = gist_files.get("webull_tqqq_state.json", {}).get("content", "{}")
+        state = json.loads(state_content) if state_content else {}
+        initial_equity = float(state.get("initial_equity", 0))
+
+        log_content = gist_files.get("webull_tqqq_trade_log.json", {}).get("content", "[]")
+        trade_log = json.loads(log_content) if log_content else []
+
+        orders = []
+        trades = []
+        for t in trade_log:
+            entry_price = float(t.get("entry_price", 0))
+            exit_price = float(t.get("exit_price", 0))
+            qty = int(t.get("qty", 0))
+            pnl = float(t.get("pnl_usd", 0))
+            direction = t.get("direction", "LONG")
+            pnl_pct = float(t.get("pnl_pct", 0))
+
+            trades.append({
+                "symbol":       "TQQQ",
+                "direction":    direction,
+                "qty":          str(qty),
+                "entry_price":  str(round(entry_price, 2)),
+                "exit_price":   str(round(exit_price, 2)),
+                "market_value": round(qty * entry_price, 2),
+                "pnl_dollar":   round(pnl, 2),
+                "pnl_pct":      round(pnl_pct, 2),
+                "opened_at":    t.get("entry_time", ""),
+                "closed_at":    t.get("exit_time", ""),
+                "reason":       t.get("comment", ""),
+            })
+
+            orders.append({
+                "symbol":    "TQQQ",
+                "side":      "sell" if direction == "LONG" else "buy",
+                "qty":       str(qty),
+                "price":     str(exit_price),
+                "filled_at": t.get("exit_time", ""),
+                "intent":    "",
+            })
+
+        # Build equity curve from trade log
+        equity_curve = {}
+        if trade_log:
+            cash = initial_equity if initial_equity > 0 else 147.22
+            timestamps = []
+            equity_vals = []
+            for t in sorted(trade_log, key=lambda x: x.get("exit_time", "")):
+                cash = float(t.get("equity_after", cash + float(t.get("pnl_usd", 0))))
+                try:
+                    ts = datetime.fromisoformat(t["exit_time"].replace("Z", "+00:00"))
+                    timestamps.append(int(ts.timestamp()))
+                except (ValueError, KeyError):
+                    continue
+                equity_vals.append(cash)
+            if timestamps:
+                equity_curve = {
+                    "timestamps": timestamps,
+                    "equity": equity_vals,
+                    "profit_loss": [],
+                    "profit_loss_pct": [],
+                }
+
+    except Exception:
+        return {"portfolio": {}, "orders": [], "trades": []}
+
+    return {
+        "portfolio": equity_curve,
+        "orders":    _recent_orders(orders),
+        "trades":    _recent_trades(trades),
+    }
+
+
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         accounts = []
@@ -363,6 +446,16 @@ class handler(BaseHTTPRequestHandler):
             "portfolio": gold_data["portfolio"],
             "orders":    gold_data["orders"],
             "trades":    gold_data.get("trades", []),
+        })
+
+        # TQQQ — Webull live trading state from Gist
+        tqqq_data = _parse_tqqq_history(gist_files)
+        accounts.append({
+            "name":      "TQQQ",
+            "group":     "tqqq",
+            "portfolio": tqqq_data["portfolio"],
+            "orders":    tqqq_data["orders"],
+            "trades":    tqqq_data.get("trades", []),
         })
 
         # Selector rankings from same Gist

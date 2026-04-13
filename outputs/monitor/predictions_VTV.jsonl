@@ -526,3 +526,4 @@
 {"timestamp": "2026-04-11T18:24:04.979395+00:00", "symbol": "VTV", "predicted_return": 0.0034969685869472617, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}
 {"timestamp": "2026-04-11T18:25:33.926899+00:00", "symbol": "VTV", "predicted_return": 0.0034969685869472617, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}
 {"timestamp": "2026-04-11T18:26:46.334013+00:00", "symbol": "VTV", "predicted_return": 0.0034969685869472617, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}
+{"timestamp": "2026-04-13T07:35:16.436814+00:00", "symbol": "VTV", "predicted_return": -0.005112, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}

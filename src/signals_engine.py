@@ -89,16 +89,12 @@ DEFAULT_UNIVERSE: List[str] = [
     # are driven by macro/Fed policy, not technical indicators.
 ]
 
-# Symbols allowed to trade in extended hours (pre-market 04:00–09:30 and
-# after-hours 16:00–20:00 ET).  Requirements: high US-hours volume and a
-# meaningful bid-ask spread during off-hours.
-# Asian/EM ETFs are excluded because their underlying markets are closed
-# during US extended hours → near-zero volume, spreads of 0.5–2%.
-EXTENDED_HOURS_UNIVERSE: List[str] = [
-    "SPY", "QQQ", "IWM",
-    "IGV", "XLE", "XLF", "XLV", "SOXX",
-    "GLD", "SLV",
-]
+# Extended-hours trading: Alpaca accepts limit orders with extended_hours=True
+# for ALL US-listed ETFs 24/7 (they queue until fillable).  The cost_model 3×
+# extended-hours spread multiplier already penalises illiquid fills, so we
+# allow the full universe rather than maintaining a hardcoded whitelist.
+# Set to None → no filtering; any symbol the selector picks can trade.
+EXTENDED_HOURS_UNIVERSE: Optional[List[str]] = None
 DAILY_LOOKBACK = 120          # trading days
 RSI_PERIOD = 14
 RET5_DAYS = 5

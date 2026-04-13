@@ -1,6 +1,7 @@
-// TQQQ MA Accumulation v3-5m v1.1 — Pure Runner (3x Leveraged)
+// TQQQ MA Accumulation v3-5m v1.4 — Pure Runner (3x Leveraged)
 // Morning entry (9:30-11:00), single trailing stop exits 100%
 // v1.3 LOCKED: BE 1.50%, Trail 0.75%, SL 1.50%, Cooldown 8 bars
+// v1.4: Position size capped at 80%, passphrase auth added
 // Settings scaled for 3x leveraged ETF
 // Market close backstop at 16:00 ET
 // Timeframe: 5-min
@@ -8,11 +9,11 @@
 // Alert template: {{strategy.order.alert_message}}
 
 //@version=6
-strategy("TQQQ MA Accumulation v3-5m v1.3",
+strategy("TQQQ MA Accumulation v3-5m v1.4",
      overlay        = true,
      initial_capital = 5000,
      default_qty_type = strategy.percent_of_equity,
-     default_qty_value = 95,
+     default_qty_value = 80,
      commission_type = strategy.commission.percent,
      commission_value = 0,
      slippage       = 1,
@@ -41,9 +42,16 @@ be_trigger_pct = input.float(1.50, "BE trigger % (activates trail)", minval=0.01
 sl_pct         = input.float(1.50, "Initial Stop Loss %", minval=0.01, step=0.10)
 trail_pct      = input.float(0.75, "Trailing Stop %", minval=0.01, step=0.05)
 
+// Webhook
+webhook_passphrase = input.string("", "Webhook Passphrase", tooltip="Shared secret for webhook auth")
+
 // Other
 allow_short   = input.bool(true, "Allow shorts")
 cooldown_bars = input.int(8, "Bars between trades", minval=0)
+
+// ─── Webhook Helper ───
+_wh(string act, string cmt, float px, int pos) =>
+    '{"action": "' + act + '", "ticker": "TQQQ", "contracts": 1, "position_size": ' + str.tostring(pos) + ', "price": ' + str.tostring(px, "#.##") + ', "comment": "' + cmt + '", "passphrase": "' + webhook_passphrase + '"}'
 
 // ─── Calculations ───
 ma_fast = ta.sma(close, ma_fast_len)
@@ -128,8 +136,7 @@ if long_trigger and strategy.position_size <= 0
     peak_price   := close
     is_trailing  := false
 
-    alert_json = '{"action": "buy", "ticker": "TQQQ", "contracts": 1, "position_size": 1, "price": ' + str.tostring(close, "#.##") + ', "comment": "Long Entry"}'
-    strategy.entry("Long", strategy.long, alert_message = alert_json)
+    strategy.entry("Long", strategy.long, alert_message = _wh("buy", "Long Entry", close, 1))
 
 // ─── Short Entry ───
 if short_trigger and strategy.position_size >= 0
@@ -139,8 +146,7 @@ if short_trigger and strategy.position_size >= 0
     peak_price   := close
     is_trailing  := false
 
-    alert_json = '{"action": "sell", "ticker": "TQQQ", "contracts": 1, "position_size": -1, "price": ' + str.tostring(close, "#.##") + ', "comment": "Short Entry"}'
-    strategy.entry("Short", strategy.short, alert_message = alert_json)
+    strategy.entry("Short", strategy.short, alert_message = _wh("sell", "Short Entry", close, -1))
 
 // ─── Track Peak Price ───
 if strategy.position_size > 0
@@ -179,22 +185,18 @@ if is_trailing and strategy.position_size < 0
 // ─── Stop Loss / Trail Stop exit ───
 if strategy.position_size > 0 and close <= stop_level
     exit_comment = is_trailing ? "Trail Stop" : "Stop Loss"
-    exit_json = '{"action": "sell", "ticker": "TQQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "' + exit_comment + '"}'
-    strategy.close("Long", comment=exit_comment, alert_message = exit_json)
+    strategy.close("Long", comment=exit_comment, alert_message = _wh("sell", exit_comment, close, 0))
 
 if strategy.position_size < 0 and close >= stop_level
     exit_comment = is_trailing ? "Trail Stop" : "Stop Loss"
-    exit_json = '{"action": "buy", "ticker": "TQQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "' + exit_comment + '"}'
-    strategy.close("Short", comment=exit_comment, alert_message = exit_json)
+    strategy.close("Short", comment=exit_comment, alert_message = _wh("buy", exit_comment, close, 0))
 
 // ─── Market Close Exit (safety backstop) ───
 if force_close and strategy.position_size > 0
-    close_json = '{"action": "sell", "ticker": "TQQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Market Close"}'
-    strategy.close("Long", comment="Market Close", alert_message = close_json)
+    strategy.close("Long", comment="Market Close", alert_message = _wh("sell", "Market Close", close, 0))
 
 if force_close and strategy.position_size < 0
-    close_json = '{"action": "buy", "ticker": "TQQQ", "contracts": 1, "position_size": 0, "price": ' + str.tostring(close, "#.##") + ', "comment": "Market Close"}'
-    strategy.close("Short", comment="Market Close", alert_message = close_json)
+    strategy.close("Short", comment="Market Close", alert_message = _wh("buy", "Market Close", close, 0))
 
 // ─── Reset on flat ───
 if strategy.position_size == 0

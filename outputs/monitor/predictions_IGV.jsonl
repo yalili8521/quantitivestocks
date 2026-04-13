@@ -596,3 +596,4 @@
 {"timestamp": "2026-04-11T18:24:06.977902+00:00", "symbol": "IGV", "predicted_return": -0.004400224343693776, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}
 {"timestamp": "2026-04-11T18:25:35.832993+00:00", "symbol": "IGV", "predicted_return": -0.004400224343693776, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}
 {"timestamp": "2026-04-11T18:26:48.695971+00:00", "symbol": "IGV", "predicted_return": -0.004400224343693776, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "lstm"}
+{"timestamp": "2026-04-13T07:35:24.124480+00:00", "symbol": "IGV", "predicted_return": -0.013002, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}

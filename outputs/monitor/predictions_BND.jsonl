@@ -1,0 +1,1 @@
+{"timestamp": "2026-04-13T07:35:50.872476+00:00", "symbol": "BND", "predicted_return": -0.003763, "realized_return": null, "spread_at_trade": null, "slippage": null, "direction": null, "model_type": "tft_xgb_swing"}

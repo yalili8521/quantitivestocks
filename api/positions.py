@@ -84,26 +84,32 @@ def _fetch_alpaca(api_key: str, api_secret: str) -> dict:
     }
 
 
-def _fetch_gold_scalper() -> dict:
-    """Read gold scalper paper state from GitHub Gist."""
+def _fetch_gist_files() -> dict:
+    """Fetch all files from state Gist (single API call, shared by gold + tqqq)."""
     gist_id = os.environ.get("KRAKEN_STATE_GIST_ID", "")
     if not gist_id:
-        return {"account": {"equity": "0", "cash": "0", "buying_power": "0"}, "positions": []}
-
+        return {}
     try:
         resp = req.get(
             f"https://api.github.com/gists/{gist_id}",
             headers={"Accept": "application/vnd.github.v3+json"},
             timeout=10,
         )
-        if not resp.ok:
-            return {"account": {"equity": "0", "cash": "0", "buying_power": "0"}, "positions": []}
+        if resp.ok:
+            return resp.json().get("files", {})
+    except Exception:
+        pass
+    return {}
 
-        gist_data = resp.json()
-        content = gist_data.get("files", {}).get("gold_scalper_state.json", {}).get("content", "{}")
+
+def _fetch_gold_scalper(gist_files: dict) -> dict:
+    """Read gold scalper paper state from Gist files."""
+    _empty = {"account": {"equity": "0", "cash": "0", "buying_power": "0"}, "positions": []}
+    try:
+        content = gist_files.get("gold_scalper_state.json", {}).get("content", "{}")
         state = json.loads(content)
     except Exception:
-        return {"account": {"equity": "0", "cash": "0", "buying_power": "0"}, "positions": []}
+        return _empty
 
     equity = state.get("equity", 0)
     initial = state.get("initial_balance", 5000)
@@ -159,6 +165,65 @@ def _fetch_gold_scalper() -> dict:
     }
 
 
+def _fetch_tqqq(gist_files: dict) -> dict:
+    """Read TQQQ state from Gist files (Webull live trading)."""
+    _empty = {"account": {"equity": "0", "cash": "0", "buying_power": "0"}, "positions": []}
+    try:
+        content = gist_files.get("webull_tqqq_state.json", {}).get("content", "{}")
+        state = json.loads(content)
+    except Exception:
+        return _empty
+
+    equity = state.get("equity", 0)
+    position = state.get("position")
+
+    positions = []
+    if position and position.get("qty", 0) > 0:
+        entry_price = position.get("entry_price", 0)
+        qty = position.get("qty", 0)
+        direction = position.get("direction", "LONG")
+
+        # Fetch live TQQQ price
+        try:
+            tqqq_resp = req.get(
+                "https://query1.finance.yahoo.com/v8/finance/chart/TQQQ?interval=1m&range=1d",
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=10,
+            )
+            if tqqq_resp.ok:
+                chart = tqqq_resp.json().get("chart", {}).get("result", [{}])[0]
+                current_price = chart.get("meta", {}).get("regularMarketPrice", entry_price)
+            else:
+                current_price = entry_price
+        except Exception:
+            current_price = entry_price
+
+        if direction == "LONG":
+            pnl = qty * (current_price - entry_price)
+        else:
+            pnl = qty * (entry_price - current_price)
+
+        positions.append({
+            "symbol":          "TQQQ",
+            "qty":             str(qty),
+            "side":            "long" if direction == "LONG" else "short",
+            "avg_entry_price": str(entry_price),
+            "current_price":   str(current_price),
+            "unrealized_pl":   str(round(pnl, 2)),
+            "unrealized_plpc": str(round(pnl / (entry_price * qty) if entry_price * qty > 0 else 0, 4)),
+            "market_value":    str(round(current_price * qty, 2)),
+        })
+
+    return {
+        "account": {
+            "equity":       str(round(equity, 2)),
+            "cash":         str(round(equity, 2)),
+            "buying_power": str(round(equity, 2)),
+        },
+        "positions": positions,
+    }
+
+
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         accounts = []
@@ -175,8 +240,11 @@ class handler(BaseHTTPRequestHandler):
                 "positions": data["positions"],
             })
 
+        # Single Gist fetch for gold + tqqq
+        gist_files = _fetch_gist_files()
+
         # Gold Scalper — micro gold paper state from Gist
-        gold_data = _fetch_gold_scalper()
+        gold_data = _fetch_gold_scalper(gist_files)
         accounts.append({
             "name":      "Gold MGC",
             "group":     "gold_scalper",
@@ -193,6 +261,15 @@ class handler(BaseHTTPRequestHandler):
             "group":     "btc",
             "account":   btc_data["account"],
             "positions": btc_data["positions"],
+        })
+
+        # TQQQ — Webull live trading, state from Gist
+        tqqq_data = _fetch_tqqq(gist_files)
+        accounts.append({
+            "name":      "TQQQ",
+            "group":     "tqqq",
+            "account":   tqqq_data["account"],
+            "positions": tqqq_data["positions"],
         })
 
         body = json.dumps({"accounts": accounts}).encode()
