@@ -645,8 +645,8 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       </div>
     </div>
 
-    <!-- Price Comparison: TradingView vs Yahoo (MGC) -->
-    <div class="glass" style="padding:0;overflow:hidden;margin-bottom:16px">
+    <!-- Price Comparison: TradingView vs Yahoo (MGC) — only visible on gold_scalper tab -->
+    <div id="mgc-price-cmp-section" class="glass" style="padding:0;overflow:hidden;margin-bottom:16px;display:none">
       <div style="padding:18px 24px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border-muted)">
         <div style="font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted)">MGC Price Comparison &mdash; TradingView vs Yahoo</div>
         <div style="display:flex;gap:16px;font-family:var(--mono);font-size:12px">
@@ -2747,6 +2747,10 @@ document.addEventListener('DOMContentLoaded', function() {
       var cashPct  = equity > 0 ? (cash / equity * 100) : 0;
       var posPct   = equity > 0 ? (positionsVal / equity * 100) : 0;
       var pnlClass = pnl >= 0 ? 'pos' : 'neg';
+
+      // Show MGC price comparison only on gold_scalper tab
+      var mgcSection = document.getElementById('mgc-price-cmp-section');
+      if (mgcSection) mgcSection.style.display = (group === 'gold_scalper') ? '' : 'none';
 
       var el;
       el = document.getElementById('live-equity');        if (el) el.textContent = fmtUSD(equity);
