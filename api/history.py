@@ -448,16 +448,6 @@ class handler(BaseHTTPRequestHandler):
             "trades":    gold_data.get("trades", []),
         })
 
-        # TQQQ — Webull live trading state from Gist
-        tqqq_data = _parse_tqqq_history(gist_files)
-        accounts.append({
-            "name":      "TQQQ",
-            "group":     "tqqq",
-            "portfolio": tqqq_data["portfolio"],
-            "orders":    tqqq_data["orders"],
-            "trades":    tqqq_data.get("trades", []),
-        })
-
         # Selector rankings from same Gist
         ranked_symbols: dict = {}
         try:

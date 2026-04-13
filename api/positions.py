@@ -263,15 +263,6 @@ class handler(BaseHTTPRequestHandler):
             "positions": btc_data["positions"],
         })
 
-        # TQQQ — Webull live trading, state from Gist
-        tqqq_data = _fetch_tqqq(gist_files)
-        accounts.append({
-            "name":      "TQQQ",
-            "group":     "tqqq",
-            "account":   tqqq_data["account"],
-            "positions": tqqq_data["positions"],
-        })
-
         body = json.dumps({"accounts": accounts}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
