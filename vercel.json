@@ -1,6 +1,5 @@
 {
   "version": 2,
-  "public": true,
   "builds": [
     { "src": "api/models.py", "use": "@vercel/python" },
     { "src": "api/positions.py", "use": "@vercel/python" },
