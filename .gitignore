@@ -48,3 +48,17 @@ tmpclaude-*
 logs/
 
 .vercel
+
+# Proprietary Pine strategies — do not publish
+scripts/pine/Gold_Multi-TF_NYSE_Scalper_v2.pine
+src/gold_scalper/pine/
+
+# 2026-10-21: runtime state, paper-trade records, SDK logs and task exports are not published
+outputs/paper_state/
+outputs/trades/
+outputs/monitor/
+outputs/monitoring/
+outputs/cross_group_positions.json
+outputs/*.xml
+webull_*.log
+*.log
