@@ -3,7 +3,7 @@
 // Added: TSI hidden divergence as confirmation filter
 // Only takes MA Accumulation entries when TSI divergence agrees
 // Timeframe: 5-min on TQQQ
-// Webhook: https://gold-scalper.zhuangxiujiyuan.com/webhook
+// Webhook: https://<your-tunnel-hostname>/webhook
 
 //@version=6
 strategy("TQQQ MA+TSI v1",

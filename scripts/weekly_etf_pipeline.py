@@ -27,9 +27,9 @@ Usage:
 
 Schedule (PowerShell, admin):
     $action = New-ScheduledTaskAction `
-        -Execute "C:\\Users\\yalil\\OneDrive\\Desktop\\AI-projects\\quantitivestocks\\.venv\\Scripts\\python.exe" `
+        -Execute "<PROJECT_DIR>\\.venv\\Scripts\\python.exe" `
         -Argument "-u scripts/weekly_etf_pipeline.py" `
-        -WorkingDirectory "C:\\Users\\yalil\\OneDrive\\Desktop\\AI-projects\\quantitivestocks"
+        -WorkingDirectory "<PROJECT_DIR>"
     $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Saturday -At "08:00PM"
     $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
     Register-ScheduledTask -TaskName "QuantStocks-WeeklyETFPipeline" `

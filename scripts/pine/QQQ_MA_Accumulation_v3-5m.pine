@@ -3,7 +3,7 @@
 // After +0.20%, stop moves above entry and trail activates
 // Market close backstop at 16:00 ET
 // Timeframe: 5-min
-// Webhook: https://gold-scalper.zhuangxiujiyuan.com/webhook
+// Webhook: https://<your-tunnel-hostname>/webhook
 // Alert template: {{strategy.order.alert_message}}
 
 //@version=6

@@ -3,7 +3,7 @@
 ## Environment
 - **Python**: always use `.venv/Scripts/python.exe` (uv-managed, Python 3.12.12)
 - **NEVER use Anaconda** (`D:\anaconda\...`)
-- `uv` binary: `C:\Users\yalil\.local\bin\uv.exe`
+- `uv` binary: `%USERPROFILE%\.local\bin\uv.exe`
 - OS: Windows 11; use Unix shell syntax in Bash (forward slashes, /dev/null)
 
 ## Project Structure
@@ -270,7 +270,7 @@ If a smoke test fails:
 ## Gold Scalper Webhook
 - **Task Scheduler**: `QuantStocks-Webhook` (S4U, boot/logon triggers, restart on failure)
 - **Script**: `outputs/run_gold_webhook.ps1` — starts Cloudflare tunnel + webhook server
-- **Webhook URL**: `https://gold-scalper.zhuangxiujiyuan.com/webhook`
+- **Webhook URL**: `https://<your-tunnel-hostname>/webhook`
 - **Launch**: `python main.py gold-scalper --mode webhook --broker paper --webhook-port 8000`
 - **Sizing**: equity-based (ignores TV contracts), scales per $10K profit above initial $5K
 - **State**: `outputs/paper_state/webhook/webhook_executor_state.json`

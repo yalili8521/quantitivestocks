@@ -1,7 +1,7 @@
 // QQQ MA Accumulation v2 — MA Stack + Steady Grind + Morning Session
 // 6-level TP system (like gold scalper) + breakeven after TP1
 // Timeframe: 1-min
-// Webhook: https://gold-scalper.zhuangxiujiyuan.com/webhook
+// Webhook: https://<your-tunnel-hostname>/webhook
 // Alert template: {{strategy.order.alert_message}}
 
 //@version=6

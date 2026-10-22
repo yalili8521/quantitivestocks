@@ -6,7 +6,7 @@
 // Take Profit: 2:1 R:R from entry to stop
 // One trade per day max
 // Timeframe: 5-min on TQQQ
-// Webhook: https://gold-scalper.zhuangxiujiyuan.com/webhook
+// Webhook: https://<your-tunnel-hostname>/webhook
 // Alert template: {{strategy.order.alert_message}}
 
 //@version=6

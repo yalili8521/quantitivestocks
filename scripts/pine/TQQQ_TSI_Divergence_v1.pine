@@ -3,7 +3,7 @@
 // Hidden Bull: price higher low + TSI lower low → LONG (trend continuation)
 // Hidden Bear: price lower high + TSI higher high → SHORT (trend continuation)
 // Timeframe: 5-min on TQQQ
-// Webhook: https://gold-scalper.zhuangxiujiyuan.com/webhook
+// Webhook: https://<your-tunnel-hostname>/webhook
 
 //@version=6
 strategy("TQQQ TSI Divergence v1",

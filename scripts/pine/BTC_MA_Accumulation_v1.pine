@@ -2,7 +2,7 @@
 // Based on observation: when 1-min bars are above MA5/MA10/MA20
 // and price grinds up slowly (accumulation), strong up signal
 // Timeframe: 1-min (designed for), works on any
-// Webhook: https://gold-scalper.zhuangxiujiyuan.com/webhook
+// Webhook: https://<your-tunnel-hostname>/webhook
 // Alert template: {{strategy.order.alert_message}}
 
 //@version=6

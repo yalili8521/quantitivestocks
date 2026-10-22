@@ -62,3 +62,5 @@ outputs/cross_group_positions.json
 outputs/*.xml
 webull_*.log
 *.log
+# rotated logs (name.log.YYYY-MM-DD_HH)
+*.log.*

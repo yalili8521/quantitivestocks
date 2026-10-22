@@ -2,7 +2,7 @@
   This is the prompt body to paste into the existing Cowork scheduled task at:
     https://claude.ai/code/scheduled
   It replaces the March-era prompt. The task writes to:
-    C:\Users\yalil\OneDrive\Desktop\AI-projects\quantitivestocks\research\daily\Market_Intel_YYYY-MM-DD.md
+    <PROJECT_DIR>\research\daily\Market_Intel_YYYY-MM-DD.md
   The output is parsed by quantitivestocks/src/research_reader.py — the
   Signal Manifest section is machine-read with STRICT vocabulary (see bottom).
 -->

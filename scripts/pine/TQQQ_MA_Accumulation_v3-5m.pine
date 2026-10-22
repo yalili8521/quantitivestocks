@@ -5,7 +5,7 @@
 // Settings scaled for 3x leveraged ETF
 // Market close backstop at 16:00 ET
 // Timeframe: 5-min
-// Webhook: https://gold-scalper.zhuangxiujiyuan.com/webhook
+// Webhook: https://<your-tunnel-hostname>/webhook
 // Alert template: {{strategy.order.alert_message}}
 
 //@version=6
